@@ -1,0 +1,5 @@
+build
+.gradle
+*.dSYM
+*.kexe
+.DS_Store
