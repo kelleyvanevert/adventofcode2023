@@ -3,3 +3,4 @@ build
 *.dSYM
 *.kexe
 .DS_Store
+target
