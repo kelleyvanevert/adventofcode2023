@@ -1,7 +1,5 @@
 use crate::{
-    ast::{
-        Argument, Expr, Identifier, Numeric, Stmt, StrLiteral, StrLiteralFragment, StrLiteralPiece,
-    },
+    ast::{Argument, Document, Expr, Identifier, Numeric, Stmt, StrLiteral, StrLiteralPiece},
     parser_combinators::{
         alt, delimited, many0, map, optional, preceded, regex, seq, tag, terminated, ParseResult,
         Parser,
@@ -9,7 +7,13 @@ use crate::{
 };
 
 pub fn identifier<'i>(input: &'i str) -> ParseResult<&'i str, Identifier<'i>> {
-    map(regex(r"^[_a-zA-Z][_a-zA-Z0-9]*"), Identifier).parse(input)
+    let (input, id) = map(regex(r"^[_a-zA-Z][_a-zA-Z0-9]*"), Identifier).parse(input)?;
+
+    if ["if", "else", "then", "while", "do", "for", "let"].contains(&id.0) {
+        return None;
+    }
+
+    Some((input, id))
 }
 
 pub fn ws0<'i>(input: &'i str) -> ParseResult<&'i str, &'i str> {
@@ -20,13 +24,30 @@ pub fn ws1<'i>(input: &'i str) -> ParseResult<&'i str, &'i str> {
     regex(r"^\s+").parse(input)
 }
 
-// TODO
+pub fn eof<'i>(input: &'i str) -> ParseResult<&'i str, ()> {
+    println!("EOF {}", input);
+    if input.len() == 0 {
+        Some((input, ()))
+    } else {
+        None
+    }
+}
+
 pub fn str_literal<'i>(input: &'i str) -> ParseResult<&'i str, StrLiteral<'i>> {
-    map(delimited(tag("\""), regex(r""), tag("\"")), |s| {
-        StrLiteral {
-            pieces: vec![StrLiteralPiece::Fragment(StrLiteralFragment(s))],
-        }
-    })
+    map(
+        delimited(
+            tag("\""),
+            many0(alt((
+                map(regex("^[^\"{]+"), StrLiteralPiece::Fragment),
+                map(
+                    seq((tag("{"), ws0, expr, ws0, tag("}"))),
+                    |(_, _, expr, _, _)| StrLiteralPiece::Interpolation(expr),
+                ),
+            ))),
+            tag("\""),
+        ),
+        |pieces| StrLiteral { pieces },
+    )
     .parse(input)
 }
 
@@ -51,6 +72,33 @@ pub fn anonymous_fn<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
         |(params, body)| Expr::AnonymousFn {
             params: params.unwrap_or_else(|| vec![]),
             body,
+        },
+    )
+    .parse(input)
+}
+
+pub fn if_expr<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
+    map(
+        seq((
+            tag("if"),
+            ws1,
+            tag("("),
+            ws0,
+            expr,
+            ws0,
+            tag(")"),
+            ws0,
+            delimited(seq((tag("{"), ws0)), body, seq((ws0, tag("}")))),
+            optional(delimited(
+                seq((ws0, tag("else"), ws0, tag("{"), ws0)),
+                body,
+                seq((ws0, tag("}"))),
+            )),
+        )),
+        |(_, _, _, _, cond, _, _, _, then, els)| Expr::If {
+            cond: cond.into(),
+            then,
+            els,
         },
     )
     .parse(input)
@@ -220,7 +268,7 @@ pub fn equ_expr_stack<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
 }
 
 pub fn expr<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
-    equ_expr_stack.parse(input)
+    alt((if_expr, equ_expr_stack)).parse(input)
 }
 
 pub fn parameter_list<'i>(mut input: &'i str) -> ParseResult<&'i str, Vec<Identifier<'i>>> {
@@ -280,6 +328,13 @@ pub fn body<'i>(input: &'i str) -> ParseResult<&'i str, Vec<Stmt<'i>>> {
             }
         },
     )
+    .parse(input)
+}
+
+pub fn document<'i>(input: &'i str) -> ParseResult<&'i str, Document<'i>> {
+    map(seq((ws0, body, ws0, eof)), |(_, body, _, _)| Document {
+        body,
+    })
     .parse(input)
 }
 
@@ -349,6 +404,19 @@ mod tests {
                     left: Expr::Variable(Identifier("kelley")).into(),
                     op: "+",
                     right: Expr::Numeric(Numeric::Int(21)).into()
+                }
+            ))
+        );
+        assert_eq!(
+            if_expr.parse("if ( kelley ) { 21 } ?"),
+            Some((
+                " ?",
+                Expr::If {
+                    cond: Expr::Variable(Identifier("kelley")).into(),
+                    then: vec![Stmt::Expr {
+                        expr: Expr::Numeric(Numeric::Int(21)).into()
+                    }],
+                    els: None,
                 }
             ))
         );
@@ -423,6 +491,49 @@ mod tests {
                 Stmt::Assign {
                     id: Identifier("h"),
                     expr: Expr::Numeric(Numeric::Int(7)).into()
+                }
+            ))
+        );
+        assert_eq!(
+            expr.parse(r#""world""#),
+            Some((
+                "",
+                Expr::StrLiteral(StrLiteral {
+                    pieces: vec![StrLiteralPiece::Fragment("world")]
+                })
+            ))
+        );
+        assert_eq!(
+            stmt.parse(r#"let v = "world""#),
+            Some((
+                "",
+                Stmt::Assign {
+                    id: Identifier("v"),
+                    expr: Expr::StrLiteral(StrLiteral {
+                        pieces: vec![StrLiteralPiece::Fragment("world")]
+                    })
+                    .into()
+                }
+            ))
+        );
+        assert_eq!(
+            stmt.parse(r#"let v = "wor{ x + 1 }ld""#),
+            Some((
+                "",
+                Stmt::Assign {
+                    id: Identifier("v"),
+                    expr: Expr::StrLiteral(StrLiteral {
+                        pieces: vec![
+                            StrLiteralPiece::Fragment("wor"),
+                            StrLiteralPiece::Interpolation(Expr::BinaryExpr {
+                                left: Expr::Variable(Identifier("x")).into(),
+                                op: "+",
+                                right: Expr::Numeric(Numeric::Int(1)).into()
+                            }),
+                            StrLiteralPiece::Fragment("ld"),
+                        ]
+                    })
+                    .into()
                 }
             ))
         );
@@ -502,5 +613,35 @@ mod tests {
                 }
             ))
         );
+
+        let sdf = document.parse(
+            r#"
+let v = "world"
+
+View() {
+    print("hello {v}")
+
+    let result = run {
+        let h = 7
+        6 + h
+    }
+
+    if (something(2, 6)) {
+        sdf
+    } else {
+
+    }
+
+    Box |ctx| {
+        Title {
+
+        }
+    }
+}
+"#,
+        );
+
+        println!("{:?}", sdf);
+        assert!(sdf.is_some());
     }
 }

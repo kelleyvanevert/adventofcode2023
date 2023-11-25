@@ -1,21 +1,13 @@
-use std::marker::PhantomData;
-
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Identifier<'a>(pub &'a str);
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct StrLiteralFragment<'a>(pub &'a str);
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct StrLiteralInterpolation<'a>(pub &'a PhantomData<str>);
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, PartialOrd)]
 pub enum StrLiteralPiece<'a> {
-    Fragment(StrLiteralFragment<'a>),
-    Interpolation(StrLiteralInterpolation<'a>),
+    Fragment(&'a str),
+    Interpolation(Expr<'a>),
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, PartialOrd)]
 pub struct StrLiteral<'a> {
     pub pieces: Vec<StrLiteralPiece<'a>>,
 }
@@ -59,6 +51,11 @@ pub enum Expr<'a> {
         params: Vec<Identifier<'a>>,
         body: Vec<Stmt<'a>>,
     },
+    If {
+        cond: Box<Expr<'a>>,
+        then: Vec<Stmt<'a>>,
+        els: Option<Vec<Stmt<'a>>>,
+    },
 }
 
 #[derive(Debug, PartialEq, PartialOrd)]
@@ -70,4 +67,9 @@ pub enum Stmt<'a> {
     Expr {
         expr: Box<Expr<'a>>,
     }, // ...
+}
+
+#[derive(Debug, PartialEq, PartialOrd)]
+pub struct Document<'a> {
+    pub body: Vec<Stmt<'a>>,
 }
