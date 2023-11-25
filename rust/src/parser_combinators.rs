@@ -5,7 +5,7 @@ pub type ParseResult<I, O> = Option<(I, O)>;
 pub trait Parser<I> {
     type Output;
 
-    fn parse(&mut self, input: I) -> Option<(I, Self::Output)>;
+    fn parse(&mut self, input: I) -> ParseResult<I, Self::Output>;
 }
 
 impl<I, O, F> Parser<I> for F
@@ -19,43 +19,23 @@ where
     }
 }
 
-pub struct TagParser<'t> {
-    tag: &'t str,
-}
+pub fn regex<'i>(str: &str) -> impl Parser<&'i str, Output = &'i str> {
+    let re = Regex::new(str).unwrap();
 
-pub fn tag<'t>(tag: &'t str) -> TagParser<'t> {
-    TagParser { tag }
-}
-
-impl<'i, 't: 'i> Parser<&'i str> for TagParser<'t> {
-    type Output = &'i str;
-
-    fn parse(&mut self, input: &'i str) -> Option<(&'i str, Self::Output)> {
-        if input.starts_with(self.tag) {
-            Some((&input[self.tag.len()..], self.tag))
+    move |input: &'i str| {
+        if let Some(m) = re.find(input) {
+            let found = &input[m.range()];
+            Some((&input[found.len()..], found))
         } else {
             None
         }
     }
 }
 
-pub struct RegexParser {
-    regex: Regex,
-}
-
-pub fn regex(str: &str) -> RegexParser {
-    RegexParser {
-        regex: Regex::new(str).unwrap(),
-    }
-}
-
-impl<'i> Parser<&'i str> for RegexParser {
-    type Output = &'i str;
-
-    fn parse(&mut self, input: &'i str) -> Option<(&'i str, Self::Output)> {
-        if let Some(m) = self.regex.find(input) {
-            let found = &input[m.range()];
-            Some((&input[found.len()..], found))
+pub fn tag<'i>(tag: &'static str) -> impl Parser<&'i str, Output = &'i str> {
+    move |input: &'i str| {
+        if input.starts_with(tag) {
+            Some((&input[tag.len()..], tag))
         } else {
             None
         }
@@ -72,4 +52,186 @@ pub fn map<I, O1, O2>(
             (remaining, f(res))
         })
     }
+}
+
+macro_rules! succ (
+  ( 0, $submac:ident!($($rest:tt)*)) => ($submac!( 1, $($rest)*));
+  ( 1, $submac:ident!($($rest:tt)*)) => ($submac!( 2, $($rest)*));
+  ( 2, $submac:ident!($($rest:tt)*)) => ($submac!( 3, $($rest)*));
+  ( 3, $submac:ident!($($rest:tt)*)) => ($submac!( 4, $($rest)*));
+  ( 4, $submac:ident!($($rest:tt)*)) => ($submac!( 5, $($rest)*));
+  ( 5, $submac:ident!($($rest:tt)*)) => ($submac!( 6, $($rest)*));
+  ( 6, $submac:ident!($($rest:tt)*)) => ($submac!( 7, $($rest)*));
+  ( 7, $submac:ident!($($rest:tt)*)) => ($submac!( 8, $($rest)*));
+  ( 8, $submac:ident!($($rest:tt)*)) => ($submac!( 9, $($rest)*));
+  ( 9, $submac:ident!($($rest:tt)*)) => ($submac!(10, $($rest)*));
+  (10, $submac:ident!($($rest:tt)*)) => ($submac!(11, $($rest)*));
+  (11, $submac:ident!($($rest:tt)*)) => ($submac!(12, $($rest)*));
+  (12, $submac:ident!($($rest:tt)*)) => ($submac!(13, $($rest)*));
+  (13, $submac:ident!($($rest:tt)*)) => ($submac!(14, $($rest)*));
+  (14, $submac:ident!($($rest:tt)*)) => ($submac!(15, $($rest)*));
+  (15, $submac:ident!($($rest:tt)*)) => ($submac!(16, $($rest)*));
+  (16, $submac:ident!($($rest:tt)*)) => ($submac!(17, $($rest)*));
+  (17, $submac:ident!($($rest:tt)*)) => ($submac!(18, $($rest)*));
+  (18, $submac:ident!($($rest:tt)*)) => ($submac!(19, $($rest)*));
+  (19, $submac:ident!($($rest:tt)*)) => ($submac!(20, $($rest)*));
+  (20, $submac:ident!($($rest:tt)*)) => ($submac!(21, $($rest)*));
+);
+
+pub trait Seq<I> {
+    type Output;
+
+    fn parse_seq(&mut self, input: I) -> ParseResult<I, Self::Output>;
+}
+
+impl<I, P0, O0> Seq<I> for (P0,)
+where
+    P0: Parser<I, Output = O0>,
+{
+    type Output = (O0,);
+
+    fn parse_seq(&mut self, input: I) -> Option<(I, Self::Output)> {
+        if let Some((input, r0)) = self.0.parse(input) {
+            Some((input, (r0,)))
+        } else {
+            None
+        }
+    }
+}
+
+macro_rules! seq_impl_inner {
+    ($it:tt, $self:expr, $input:expr, (), $head:ident $($id:ident)+) => {
+        if let Some((input, res)) = $self.$it.parse($input) {
+            succ!($it, seq_impl_inner!($self, input, ( res ), $($id)+))
+        } else {
+            None
+        }
+    };
+    ($it:tt, $self:expr, $input:expr, ($($parsed:tt)*), $head:ident $($id:ident)+) => {
+        if let Some((input, res)) = $self.$it.parse($input) {
+            succ!($it, seq_impl_inner!($self, input, ( $($parsed)*, res ), $($id)+))
+        } else {
+            None
+        }
+    };
+    ($it:tt, $self:expr, $input:expr, ($($parsed:tt)*), $head:ident) => {
+        if let Some((input, res)) = $self.$it.parse($input) {
+            Some((input, ($($parsed)* , res)))
+        } else {
+            None
+        }
+    };
+}
+
+macro_rules! seq_impl {
+    ($($name:ident $ty:ident),+) => {
+        impl<I, $($name),+, $($ty),+> Seq<I> for ($($name),+)
+        where
+            $($name: Parser<I, Output = $ty>,)+
+        {
+            type Output = ($($ty),+);
+
+            fn parse_seq(&mut self, input: I) -> Option<(I, Self::Output)> {
+                seq_impl_inner!(0, self, input, (), $($name)+)
+            }
+        }
+    };
+}
+
+seq_impl!(P0 O0, P1 O1);
+seq_impl!(P0 O0, P1 O1, P2 O2);
+seq_impl!(P0 O0, P1 O1, P2 O2, P3 O3);
+seq_impl!(P0 O0, P1 O1, P2 O2, P3 O3, P4 O4);
+seq_impl!(P0 O0, P1 O1, P2 O2, P3 O3, P4 O4, P5 O5);
+seq_impl!(P0 O0, P1 O1, P2 O2, P3 O3, P4 O4, P5 O5, P6 O6);
+seq_impl!(P0 O0, P1 O1, P2 O2, P3 O3, P4 O4, P5 O5, P6 O6, P7 O7);
+seq_impl!(P0 O0, P1 O1, P2 O2, P3 O3, P4 O4, P5 O5, P6 O6, P7 O7, P8 O8);
+seq_impl!(P0 O0, P1 O1, P2 O2, P3 O3, P4 O4, P5 O5, P6 O6, P7 O7, P8 O8, P9 O9);
+
+pub fn seq<I, O, List: Seq<I, Output = O>>(mut list: List) -> impl Parser<I, Output = O> {
+    move |input: I| list.parse_seq(input)
+}
+
+pub trait Alt<I> {
+    type Output;
+
+    fn choice(&mut self, input: I) -> ParseResult<I, Self::Output>;
+}
+
+impl<I, P0, O> Alt<I> for (P0,)
+where
+    P0: Parser<I, Output = O>,
+{
+    type Output = O;
+
+    fn choice(&mut self, input: I) -> Option<(I, Self::Output)> {
+        self.0.parse(input)
+    }
+}
+
+macro_rules! alt_impl_inner {
+    ($it:tt, $self:expr, $input:expr, $head:ident $($id:ident)+) => {
+        if let Some(res) = $self.$it.parse($input.clone()) {
+            Some(res)
+        } else {
+            succ!($it, alt_impl_inner!($self, $input, $($id)+))
+        }
+    };
+    ($it:tt, $self:expr, $input:expr, $head:ident) => {
+        if let Some(res) = $self.$it.parse($input.clone()) {
+            Some(res)
+        } else {
+            None
+        }
+    };
+}
+
+macro_rules! alt_impl {
+    ($($name:ident),+) => {
+        impl<I: Clone, $($name),+, O> Alt<I> for ($($name),+)
+        where
+            $($name: Parser<I, Output = O>,)+
+        {
+            type Output = O;
+
+            fn choice(&mut self, input: I) -> Option<(I, Self::Output)> {
+                alt_impl_inner!(0, self, input, $($name)+)
+            }
+        }
+    };
+}
+
+alt_impl!(P0, P1);
+alt_impl!(P0, P1, P2);
+alt_impl!(P0, P1, P2, P3);
+alt_impl!(P0, P1, P2, P3, P4);
+alt_impl!(P0, P1, P2, P3, P4, P5);
+alt_impl!(P0, P1, P2, P3, P4, P5, P6);
+alt_impl!(P0, P1, P2, P3, P4, P5, P6, P7);
+alt_impl!(P0, P1, P2, P3, P4, P5, P6, P7, P8);
+alt_impl!(P0, P1, P2, P3, P4, P5, P6, P7, P8, P9);
+
+pub fn alt<I, O, List: Alt<I, Output = O>>(mut list: List) -> impl Parser<I, Output = O> {
+    move |input: I| list.choice(input)
+}
+
+pub fn recognize<'i, P, O>(mut p: P) -> impl Parser<&'i str, Output = &'i str>
+where
+    P: Parser<&'i str, Output = O>,
+{
+    move |input: &'i str| {
+        p.parse(input).map(|(remaining, _)| {
+            let len = input.len() - remaining.len();
+            (remaining, &input[..len])
+        })
+    }
+}
+
+pub fn delimited<I, P1, O1, P2, O2, P3, O3>(p1: P1, p2: P2, p3: P3) -> impl Parser<I, Output = O2>
+where
+    P1: Parser<I, Output = O1>,
+    P2: Parser<I, Output = O2>,
+    P3: Parser<I, Output = O3>,
+{
+    map(seq((p1, p2, p3)), |(_, r2, _)| r2)
 }
