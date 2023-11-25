@@ -235,3 +235,65 @@ where
 {
     map(seq((p1, p2, p3)), |(_, r2, _)| r2)
 }
+
+pub fn preceded<I, P1, O1, P2, O2>(p1: P1, p2: P2) -> impl Parser<I, Output = O2>
+where
+    P1: Parser<I, Output = O1>,
+    P2: Parser<I, Output = O2>,
+{
+    map(seq((p1, p2)), |(_, r2)| r2)
+}
+
+pub fn terminated<I, P1, O1, P2, O2>(p1: P1, p2: P2) -> impl Parser<I, Output = O1>
+where
+    P1: Parser<I, Output = O1>,
+    P2: Parser<I, Output = O2>,
+{
+    map(seq((p1, p2)), |(r1, _)| r1)
+}
+
+pub fn optional<P, I: Clone, O>(mut p: P) -> impl Parser<I, Output = Option<O>>
+where
+    P: Parser<I, Output = O>,
+{
+    move |input: I| {
+        if let Some((input, res)) = p.parse(input.clone()) {
+            Some((input, Some(res)))
+        } else {
+            Some((input, None))
+        }
+    }
+}
+
+pub fn many<P, I: Clone, O>(minimum: usize, mut p: P) -> impl Parser<I, Output = Vec<O>>
+where
+    P: Parser<I, Output = O>,
+{
+    move |mut input: I| {
+        let mut results = vec![];
+        while let Some((remaining, res)) = p.parse(input.clone()) {
+            input = remaining;
+            results.push(res);
+        }
+
+        if results.len() >= minimum {
+            Some((input, results))
+        } else {
+            None
+        }
+    }
+}
+
+pub fn many0<P, I: Clone, O>(p: P) -> impl Parser<I, Output = Vec<O>>
+where
+    P: Parser<I, Output = O>,
+{
+    many(0, p)
+}
+
+pub fn many1<P, I: Clone, O>(p: P) -> impl Parser<I, Output = Vec<O>>
+where
+    P: Parser<I, Output = O>,
+{
+    many(1, p)
+}

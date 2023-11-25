@@ -30,22 +30,6 @@ pub enum Numeric {
     Double(f64),
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Variable<'a>(pub Identifier<'a>);
-
-#[derive(Debug, PartialEq, PartialOrd)]
-pub struct UnaryExpr<'a> {
-    pub expr: Box<Expr<'a>>,
-    pub op: &'a str,
-}
-
-#[derive(Debug, PartialEq, PartialOrd)]
-pub struct BinaryExpr<'a> {
-    pub left: Box<Expr<'a>>,
-    pub op: &'a str,
-    pub right: Box<Expr<'a>>,
-}
-
 #[derive(Debug, PartialEq, PartialOrd)]
 pub struct Argument<'a> {
     pub name: Option<Identifier<'a>>,
@@ -53,43 +37,37 @@ pub struct Argument<'a> {
 }
 
 #[derive(Debug, PartialEq, PartialOrd)]
-pub struct ExprCall<'a> {
-    pub expr: Box<Expr<'a>>,
-    pub args: Vec<Argument<'a>>,
-}
-
-#[derive(Debug, PartialEq, PartialOrd)]
-pub struct AnonymousFn<'a> {
-    pub params: Vec<Identifier<'a>>,
-    pub block: Stmt<'a>,
-}
-
-#[derive(Debug, PartialEq, PartialOrd)]
 pub enum Expr<'a> {
     StrLiteral(StrLiteral<'a>),
     Str(Str),
     Numeric(Numeric),
-    Variable(Variable<'a>),
-    UnaryExpr(UnaryExpr<'a>),
-    BinaryExpr(BinaryExpr<'a>),
-    ExprCall(ExprCall<'a>),
-    AnonymousFn(AnonymousFn<'a>),
-}
-
-#[derive(Debug, PartialEq, PartialOrd)]
-pub struct AssignStmt<'a> {
-    pub id: Identifier<'a>,
-    pub expr: Box<Expr<'a>>,
-}
-
-#[derive(Debug, PartialEq, PartialOrd)]
-pub struct ExprStmt<'a> {
-    pub expr: Box<Expr<'a>>,
+    Variable(Identifier<'a>),
+    UnaryExpr {
+        expr: Box<Expr<'a>>,
+        op: &'a str,
+    },
+    BinaryExpr {
+        left: Box<Expr<'a>>,
+        op: &'a str,
+        right: Box<Expr<'a>>,
+    },
+    Invocation {
+        expr: Box<Expr<'a>>,
+        args: Vec<Argument<'a>>,
+    },
+    AnonymousFn {
+        params: Vec<Identifier<'a>>,
+        body: Vec<Stmt<'a>>,
+    },
 }
 
 #[derive(Debug, PartialEq, PartialOrd)]
 pub enum Stmt<'a> {
-    Assign(AssignStmt<'a>),
-    Expr(ExprStmt<'a>),
-    // ...
+    Assign {
+        id: Identifier<'a>,
+        expr: Box<Expr<'a>>,
+    },
+    Expr {
+        expr: Box<Expr<'a>>,
+    }, // ...
 }
