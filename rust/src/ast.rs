@@ -1,25 +1,20 @@
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+use std::fmt::Display;
+
+use crate::runtime::Numeric;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Identifier<'a>(pub &'a str);
+
+impl<'a> Display for Identifier<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 #[derive(Debug, PartialEq, PartialOrd)]
 pub enum StrLiteralPiece<'a> {
     Fragment(&'a str),
     Interpolation(Expr<'a>),
-}
-
-#[derive(Debug, PartialEq, PartialOrd)]
-pub struct StrLiteral<'a> {
-    pub pieces: Vec<StrLiteralPiece<'a>>,
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Str(String);
-
-#[derive(Debug, PartialEq, PartialOrd)]
-pub enum Numeric {
-    Int(i64),
-    UInt(u64),
-    Double(f64),
 }
 
 #[derive(Debug, PartialEq, PartialOrd)]
@@ -30,8 +25,9 @@ pub struct Argument<'a> {
 
 #[derive(Debug, PartialEq, PartialOrd)]
 pub enum Expr<'a> {
-    StrLiteral(StrLiteral<'a>),
-    Str(Str),
+    StrLiteral {
+        pieces: Vec<StrLiteralPiece<'a>>,
+    },
     Numeric(Numeric),
     Variable(Identifier<'a>),
     UnaryExpr {

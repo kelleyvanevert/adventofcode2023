@@ -1,9 +1,10 @@
 use crate::{
-    ast::{Argument, Document, Expr, Identifier, Numeric, Stmt, StrLiteral, StrLiteralPiece},
+    ast::{Argument, Document, Expr, Identifier, Stmt, StrLiteralPiece},
     parser_combinators::{
         alt, delimited, many0, map, optional, preceded, regex, seq, tag, terminated, ParseResult,
         Parser,
     },
+    runtime::Numeric,
 };
 
 pub fn identifier<'i>(input: &'i str) -> ParseResult<&'i str, Identifier<'i>> {
@@ -16,6 +17,10 @@ pub fn identifier<'i>(input: &'i str) -> ParseResult<&'i str, Identifier<'i>> {
     Some((input, id))
 }
 
+pub fn slws0<'i>(input: &'i str) -> ParseResult<&'i str, &'i str> {
+    regex(r"^[ \t]*").parse(input)
+}
+
 pub fn ws0<'i>(input: &'i str) -> ParseResult<&'i str, &'i str> {
     regex(r"^\s*").parse(input)
 }
@@ -25,7 +30,6 @@ pub fn ws1<'i>(input: &'i str) -> ParseResult<&'i str, &'i str> {
 }
 
 pub fn eof<'i>(input: &'i str) -> ParseResult<&'i str, ()> {
-    println!("EOF {}", input);
     if input.len() == 0 {
         Some((input, ()))
     } else {
@@ -33,7 +37,7 @@ pub fn eof<'i>(input: &'i str) -> ParseResult<&'i str, ()> {
     }
 }
 
-pub fn str_literal<'i>(input: &'i str) -> ParseResult<&'i str, StrLiteral<'i>> {
+pub fn str_literal<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
     map(
         delimited(
             tag("\""),
@@ -46,7 +50,7 @@ pub fn str_literal<'i>(input: &'i str) -> ParseResult<&'i str, StrLiteral<'i>> {
             ))),
             tag("\""),
         ),
-        |pieces| StrLiteral { pieces },
+        |pieces| Expr::StrLiteral { pieces },
     )
     .parse(input)
 }
@@ -108,7 +112,7 @@ pub fn expr_leaf<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
     alt((
         map(identifier, Expr::Variable),
         map(numeric, Expr::Numeric),
-        map(str_literal, Expr::StrLiteral),
+        str_literal,
         anonymous_fn,
         delimited(seq((tag("("), ws0)), expr, seq((ws0, tag(")")))),
     ))
@@ -158,7 +162,17 @@ pub fn invocation_args<'i>(input: &'i str) -> ParseResult<&'i str, Vec<Argument<
     });
 
     if let Some((input, args)) = parenthesized_args.parse(input) {
-        if let Some((input, arg)) = preceded(ws0, trailing_anon_fn).parse(input) {
+        let mut seen_named_arg = false;
+        for arg in &args {
+            if seen_named_arg && arg.name.is_none() {
+                // unnamed args cannot follow named args
+                return None;
+            } else if arg.name.is_some() {
+                seen_named_arg = true;
+            }
+        }
+
+        if let Some((input, arg)) = preceded(slws0, trailing_anon_fn).parse(input) {
             let mut args = args;
             args.push(arg);
             Some((input, args))
@@ -172,7 +186,7 @@ pub fn invocation_args<'i>(input: &'i str) -> ParseResult<&'i str, Vec<Argument<
 
 pub fn expr_call_stack<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
     map(
-        seq((expr_leaf, many0(preceded(ws0, invocation_args)))),
+        seq((expr_leaf, many0(preceded(slws0, invocation_args)))),
         |(mut expr, invocations)| {
             for args in invocations {
                 expr = Expr::Invocation {
@@ -338,6 +352,10 @@ pub fn document<'i>(input: &'i str) -> ParseResult<&'i str, Document<'i>> {
     .parse(input)
 }
 
+pub fn parse_document<'i>(input: &'i str) -> Option<Document<'i>> {
+    document.parse(input).map(|(_, doc)| doc)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -345,6 +363,7 @@ mod tests {
         ast::Identifier,
         parse::identifier,
         parser_combinators::{alt, recognize, seq, tag, Parser},
+        runtime::Str,
     };
 
     #[test]
@@ -498,9 +517,9 @@ mod tests {
             expr.parse(r#""world""#),
             Some((
                 "",
-                Expr::StrLiteral(StrLiteral {
+                Expr::StrLiteral {
                     pieces: vec![StrLiteralPiece::Fragment("world")]
-                })
+                }
             ))
         );
         assert_eq!(
@@ -509,9 +528,9 @@ mod tests {
                 "",
                 Stmt::Assign {
                     id: Identifier("v"),
-                    expr: Expr::StrLiteral(StrLiteral {
+                    expr: Expr::StrLiteral {
                         pieces: vec![StrLiteralPiece::Fragment("world")]
-                    })
+                    }
                     .into()
                 }
             ))
@@ -522,7 +541,7 @@ mod tests {
                 "",
                 Stmt::Assign {
                     id: Identifier("v"),
-                    expr: Expr::StrLiteral(StrLiteral {
+                    expr: Expr::StrLiteral {
                         pieces: vec![
                             StrLiteralPiece::Fragment("wor"),
                             StrLiteralPiece::Interpolation(Expr::BinaryExpr {
@@ -532,7 +551,7 @@ mod tests {
                             }),
                             StrLiteralPiece::Fragment("ld"),
                         ]
-                    })
+                    }
                     .into()
                 }
             ))
@@ -610,6 +629,58 @@ mod tests {
                         ]
                     }
                     .into()
+                }
+            ))
+        );
+        assert_eq!(
+            document.parse(
+                r#"
+let v = "world"
+
+let h = 2
+
+{
+  "hello {v} {h}"
+}
+"#
+            ),
+            Some((
+                "",
+                Document {
+                    body: vec![
+                        Stmt::Assign {
+                            id: Identifier("v"),
+                            expr: Expr::StrLiteral {
+                                pieces: vec![StrLiteralPiece::Fragment("world")]
+                            }
+                            .into()
+                        },
+                        Stmt::Assign {
+                            id: Identifier("h"),
+                            expr: Expr::Numeric(Numeric::Int(2)).into()
+                        },
+                        Stmt::Expr {
+                            expr: Expr::AnonymousFn {
+                                params: vec![],
+                                body: vec![Stmt::Expr {
+                                    expr: Expr::StrLiteral {
+                                        pieces: vec![
+                                            StrLiteralPiece::Fragment("hello "),
+                                            StrLiteralPiece::Interpolation(Expr::Variable(
+                                                Identifier("v")
+                                            )),
+                                            StrLiteralPiece::Fragment(" "),
+                                            StrLiteralPiece::Interpolation(Expr::Variable(
+                                                Identifier("h")
+                                            )),
+                                        ]
+                                    }
+                                    .into()
+                                }]
+                            }
+                            .into()
+                        }
+                    ]
                 }
             ))
         );

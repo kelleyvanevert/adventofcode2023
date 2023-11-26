@@ -1,28 +1,38 @@
 #![feature(let_chains)]
 use std::{env, fs, process::exit};
 
-use parse::document;
-use parser_combinators::Parser;
-
 pub mod ast;
 pub mod parse;
 pub mod parser_combinators;
+pub mod runtime;
+
+use parse::parse_document;
+use runtime::execute;
 
 fn main() {
     let Some(filename) = env::args().nth(1) else {
-        println!("Pass filename to run");
+        eprintln!("Pass name of file to execute");
         exit(1);
     };
 
     let Ok(contents) = fs::read_to_string(filename) else {
-        println!("Could not read file");
+        eprintln!("Could not read file");
         exit(2);
     };
 
-    let Some(ast) = document.parse(&contents) else {
-        println!("Could not parse");
+    let Some(doc) = parse_document(&contents) else {
+        eprintln!("Could not parse");
         exit(3);
     };
 
-    println!("{ast:?}");
+    match execute(&doc) {
+        Err(runtime_err) => {
+            eprintln!("Runtime error: {}", runtime_err.0);
+            exit(4);
+        }
+        Ok(value) => {
+            println!("{value}");
+            exit(0);
+        }
+    }
 }

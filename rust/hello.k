@@ -1,26 +1,8 @@
 
-let v = "world"
+let f = |name, greeter| {
+  greeter(name)
+}
 
-View() {
-  print("hello {v}")
-
-  print("std in: {stdin}")
-
-  let result = run {
-    let h = 7
-
-    6 + h
-  }
-
-  if (something(2, 6)) {
-    sdf
-  } else {
-    
-  }
-
-  Box |ctx| {
-    Title {
-
-    }
-  }
+f("Noa") |name| {
+  "Hello {name}"
 }
