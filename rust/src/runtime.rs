@@ -74,7 +74,7 @@ pub struct FnDef<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum FnBody<'a> {
     Code(Vec<Stmt<'a>>),
-    Builtin(&'static str),
+    Builtin(fn(&mut Runtime<'a>, usize) -> Result<Value<'a>, RuntimeError>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -183,7 +183,7 @@ struct Scope<'a> {
     values: HashMap<Identifier<'a>, Value<'a>>,
 }
 
-struct Runtime<'a> {
+pub struct Runtime<'a> {
     scopes: Vec<Scope<'a>>,
 }
 
@@ -224,23 +224,6 @@ impl<'a> Runtime<'a> {
 
                 Ok(Value::Unit)
             }
-        }
-    }
-
-    fn execute_builtin_method(
-        &mut self,
-        scope: usize,
-        name: &'static str,
-    ) -> Result<Value<'a>, RuntimeError> {
-        match name {
-            "print" => {
-                println!(
-                    "{}",
-                    self.scopes[scope].values.get(&Identifier("text")).unwrap()
-                );
-                Ok(Value::Unit)
-            }
-            _ => Err(RuntimeError(format!("unknown builtin: {name}"))),
         }
     }
 
@@ -340,8 +323,8 @@ impl<'a> Runtime<'a> {
                             result = self.execute(execution_scope, &stmt)?;
                         }
                     }
-                    FnBody::Builtin(name) => {
-                        result = self.execute_builtin_method(execution_scope, name)?;
+                    FnBody::Builtin(f) => {
+                        result = f(self, execution_scope)?;
                     }
                 }
 
@@ -384,7 +367,16 @@ pub fn execute<'a>(doc: &'a Document<'a>, stdin: String) -> Result<Value<'a>, Ru
         Value::FnDef(FnDef {
             parent_scope: 0,
             params: vec![Identifier("text")],
-            body: FnBody::Builtin("print"),
+            body: FnBody::Builtin(|runtime, scope| {
+                println!(
+                    "{}",
+                    runtime.scopes[scope]
+                        .values
+                        .get(&Identifier("text"))
+                        .unwrap()
+                );
+                Ok(Value::Unit)
+            }),
         }),
     );
 
