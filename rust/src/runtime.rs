@@ -227,6 +227,62 @@ impl<'a> Runtime<'a> {
         }
     }
 
+    fn invoke(
+        &mut self,
+        def: FnDef<'a>,
+        args: Vec<(Option<Identifier<'a>>, Value<'a>)>,
+    ) -> Result<Value<'a>, RuntimeError> {
+        let execution_scope = self.scopes.len();
+        self.scopes.push(Scope {
+            parent_scope: Some(def.parent_scope),
+            values: HashMap::new(),
+        });
+
+        let mut params_remaining = def.params.clone();
+        for (arg_name, arg_value) in args {
+            if let Some(name) = arg_name {
+                // assign named param
+                match params_remaining.iter().position(|&p| p == name) {
+                    Some(i) => {
+                        params_remaining.remove(i);
+                        self.scopes[execution_scope].values.insert(name, arg_value);
+                    }
+                    None => {
+                        return Err(RuntimeError(format!(
+                            "cannot pass named arg {name} (no param with that name)"
+                        )));
+                    }
+                }
+            } else if let Some(&name) = params_remaining.get(0) {
+                // assign next available param
+                params_remaining.remove(0);
+                self.scopes[execution_scope].values.insert(name, arg_value);
+            } else {
+                // no params left
+                return Err(RuntimeError(format!("no param to pass arg to")));
+            }
+        }
+
+        if params_remaining.len() > 0 {
+            // unassigned params
+            return Err(RuntimeError(format!("unassigned params left")));
+        }
+
+        let mut result = Value::Unit;
+        match def.body {
+            FnBody::Code(stmts) => {
+                for stmt in stmts {
+                    result = self.execute(execution_scope, &stmt)?;
+                }
+            }
+            FnBody::Builtin(f) => {
+                result = f(self, execution_scope)?;
+            }
+        }
+
+        Ok(result)
+    }
+
     fn evaluate(&mut self, scope: usize, expr: &Expr<'a>) -> Result<Value<'a>, RuntimeError> {
         match expr {
             Expr::StrLiteral { pieces } => {
@@ -272,63 +328,14 @@ impl<'a> Runtime<'a> {
                 let Value::FnDef(def) = expr_value else {
                     return Err(RuntimeError(format!("cannot call {}", expr_value.ty())));
                 };
-                let FnDef {
-                    parent_scope,
-                    params,
-                    body,
-                } = def;
 
-                let execution_scope = self.scopes.len();
-                self.scopes.push(Scope {
-                    parent_scope: Some(parent_scope),
-                    values: HashMap::new(),
-                });
-
-                let mut params_remaining = params.clone();
+                let mut evaluated_args = vec![];
                 for arg in args {
                     let arg_value = self.evaluate(scope, &arg.expr)?;
-
-                    if let Some(name) = arg.name {
-                        // assign named param
-                        match params_remaining.iter().position(|&p| p == name) {
-                            Some(i) => {
-                                params_remaining.remove(i);
-                                self.scopes[execution_scope].values.insert(name, arg_value);
-                            }
-                            None => {
-                                return Err(RuntimeError(format!(
-                                    "cannot pass named arg {name} (no param with that name)"
-                                )));
-                            }
-                        }
-                    } else if let Some(&name) = params_remaining.get(0) {
-                        // assign next available param
-                        params_remaining.remove(0);
-                        self.scopes[execution_scope].values.insert(name, arg_value);
-                    } else {
-                        // no params left
-                        return Err(RuntimeError(format!("no param to pass arg to")));
-                    }
+                    evaluated_args.push((arg.name, arg_value));
                 }
 
-                if params_remaining.len() > 0 {
-                    // unassigned params
-                    return Err(RuntimeError(format!("unassigned params left")));
-                }
-
-                let mut result = Value::Unit;
-                match body {
-                    FnBody::Code(stmts) => {
-                        for stmt in stmts {
-                            result = self.execute(execution_scope, &stmt)?;
-                        }
-                    }
-                    FnBody::Builtin(f) => {
-                        result = f(self, execution_scope)?;
-                    }
-                }
-
-                Ok(result)
+                self.invoke(def, evaluated_args)
             }
             Expr::AnonymousFn { params, body } => Ok(Value::FnDef(FnDef {
                 parent_scope: scope,
@@ -376,6 +383,27 @@ pub fn execute<'a>(doc: &'a Document<'a>, stdin: String) -> Result<Value<'a>, Ru
                         .unwrap()
                 );
                 Ok(Value::Unit)
+            }),
+        }),
+    );
+
+    runtime.scopes[0].values.insert(
+        Identifier("run"),
+        Value::FnDef(FnDef {
+            parent_scope: 0,
+            params: vec![Identifier("f")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let f = runtime.scopes[scope].values.get(&Identifier("f")).unwrap();
+                match f {
+                    Value::FnDef(def) => {
+                        if def.params.len() > 0 {
+                            return Err(RuntimeError(format!("cannot run fn w/ params")));
+                        }
+
+                        runtime.invoke(def.clone(), vec![])
+                    }
+                    _ => Err(RuntimeError(format!("cannot run: {}", f.ty()))),
+                }
             }),
         }),
     );

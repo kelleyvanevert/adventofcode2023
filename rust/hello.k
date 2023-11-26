@@ -10,4 +10,6 @@ f("Noa") |name| {
 
 print("hello")
 
-42
+run {
+  42
+}
