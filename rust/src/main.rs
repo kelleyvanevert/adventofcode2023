@@ -1,5 +1,5 @@
 #![feature(let_chains)]
-use std::{env, fs, process::exit};
+use std::{env, fs, io, process::exit};
 
 pub mod ast;
 pub mod parse;
@@ -25,7 +25,13 @@ fn main() {
         exit(3);
     };
 
-    match execute(&doc) {
+    let stdin = io::stdin()
+        .lines()
+        .map(|line| line.unwrap())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    match execute(&doc, stdin) {
         Err(runtime_err) => {
             eprintln!("Runtime error: {}", runtime_err.0);
             exit(4);

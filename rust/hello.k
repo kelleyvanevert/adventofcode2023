@@ -6,3 +6,5 @@ let f = |name, greeter| {
 f("Noa") |name| {
   "Hello {name}"
 }
+
+stdin

@@ -342,8 +342,12 @@ impl<'a> Runtime<'a> {
     }
 }
 
-pub fn execute<'a>(doc: &'a Document<'a>) -> Result<Value<'a>, RuntimeError> {
+pub fn execute<'a>(doc: &'a Document<'a>, stdin: String) -> Result<Value<'a>, RuntimeError> {
     let mut runtime = Runtime::new();
+    runtime.scopes[0]
+        .values
+        .insert(Identifier("stdin"), Value::Str(Str(stdin)));
+
     let mut result = Value::Unit;
 
     for stmt in &doc.body {
