@@ -68,7 +68,13 @@ impl Display for Numeric {
 pub struct FnDef<'a> {
     parent_scope: usize,
     params: Vec<Identifier<'a>>,
-    body: &'a Vec<Stmt<'a>>,
+    body: FnBody<'a>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FnBody<'a> {
+    Code(Vec<Stmt<'a>>),
+    Builtin(&'static str),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -204,7 +210,7 @@ impl<'a> Runtime<'a> {
         }
     }
 
-    fn execute(&mut self, scope: usize, stmt: &'a Stmt<'a>) -> Result<Value<'a>, RuntimeError> {
+    fn execute(&mut self, scope: usize, stmt: &Stmt<'a>) -> Result<Value<'a>, RuntimeError> {
         match stmt {
             Stmt::Expr { expr } => self.evaluate(scope, expr),
             Stmt::Assign { id, expr } => {
@@ -221,7 +227,24 @@ impl<'a> Runtime<'a> {
         }
     }
 
-    fn evaluate(&mut self, scope: usize, expr: &'a Expr<'a>) -> Result<Value<'a>, RuntimeError> {
+    fn execute_builtin_method(
+        &mut self,
+        scope: usize,
+        name: &'static str,
+    ) -> Result<Value<'a>, RuntimeError> {
+        match name {
+            "print" => {
+                println!(
+                    "{}",
+                    self.scopes[scope].values.get(&Identifier("text")).unwrap()
+                );
+                Ok(Value::Unit)
+            }
+            _ => Err(RuntimeError(format!("unknown builtin: {name}"))),
+        }
+    }
+
+    fn evaluate(&mut self, scope: usize, expr: &Expr<'a>) -> Result<Value<'a>, RuntimeError> {
         match expr {
             Expr::StrLiteral { pieces } => {
                 let mut build = "".to_string();
@@ -311,8 +334,15 @@ impl<'a> Runtime<'a> {
                 }
 
                 let mut result = Value::Unit;
-                for stmt in body {
-                    result = self.execute(execution_scope, stmt)?;
+                match body {
+                    FnBody::Code(stmts) => {
+                        for stmt in stmts {
+                            result = self.execute(execution_scope, &stmt)?;
+                        }
+                    }
+                    FnBody::Builtin(name) => {
+                        result = self.execute_builtin_method(execution_scope, name)?;
+                    }
                 }
 
                 Ok(result)
@@ -320,7 +350,7 @@ impl<'a> Runtime<'a> {
             Expr::AnonymousFn { params, body } => Ok(Value::FnDef(FnDef {
                 parent_scope: scope,
                 params: params.clone(),
-                body,
+                body: FnBody::Code(body.clone()),
             })),
             Expr::If { cond, then, els } => {
                 let mut result = Value::Unit;
@@ -344,9 +374,19 @@ impl<'a> Runtime<'a> {
 
 pub fn execute<'a>(doc: &'a Document<'a>, stdin: String) -> Result<Value<'a>, RuntimeError> {
     let mut runtime = Runtime::new();
+
     runtime.scopes[0]
         .values
         .insert(Identifier("stdin"), Value::Str(Str(stdin)));
+
+    runtime.scopes[0].values.insert(
+        Identifier("print"),
+        Value::FnDef(FnDef {
+            parent_scope: 0,
+            params: vec![Identifier("text")],
+            body: FnBody::Builtin("print"),
+        }),
+    );
 
     let mut result = Value::Unit;
 

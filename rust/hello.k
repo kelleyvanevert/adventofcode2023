@@ -1,10 +1,13 @@
 
 let f = |name, greeter| {
+  print(greeter)
   greeter(name)
 }
 
 f("Noa") |name| {
-  "Hello {name}"
+  print("Hello {name}")
 }
 
-stdin
+print("hello")
+
+42

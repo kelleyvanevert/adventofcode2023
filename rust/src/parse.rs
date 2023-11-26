@@ -363,7 +363,6 @@ mod tests {
         ast::Identifier,
         parse::identifier,
         parser_combinators::{alt, recognize, seq, tag, Parser},
-        runtime::Str,
     };
 
     #[test]

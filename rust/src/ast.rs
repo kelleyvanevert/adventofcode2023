@@ -11,19 +11,19 @@ impl<'a> Display for Identifier<'a> {
     }
 }
 
-#[derive(Debug, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum StrLiteralPiece<'a> {
     Fragment(&'a str),
     Interpolation(Expr<'a>),
 }
 
-#[derive(Debug, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct Argument<'a> {
     pub name: Option<Identifier<'a>>,
     pub expr: Expr<'a>,
 }
 
-#[derive(Debug, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum Expr<'a> {
     StrLiteral {
         pieces: Vec<StrLiteralPiece<'a>>,
@@ -54,7 +54,7 @@ pub enum Expr<'a> {
     },
 }
 
-#[derive(Debug, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum Stmt<'a> {
     Assign {
         id: Identifier<'a>,
