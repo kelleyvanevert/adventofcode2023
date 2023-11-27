@@ -279,22 +279,6 @@ impl<'a> Runtime<'a> {
 
                 Ok((value, None))
             }
-            Stmt::While { cond, body } => loop {
-                let (cond_value, ret) = self.evaluate(scope, cond)?;
-                if let Some(return_value) = ret {
-                    return Ok((Value::Unit, Some(return_value)));
-                }
-                if !cond_value.auto_coerce_bool()? {
-                    return Ok((Value::Unit, None));
-                }
-
-                for stmt in body {
-                    let (_, ret) = self.execute(scope, stmt)?;
-                    if let Some(return_value) = ret {
-                        return Ok((Value::Unit, Some(return_value)));
-                    }
-                }
-            },
         }
     }
 
@@ -487,6 +471,50 @@ impl<'a> Runtime<'a> {
 
                 Ok((result, None))
             }
+            Expr::While { cond, body } => {
+                let mut result = Value::Unit;
+                let mut ret = None;
+                loop {
+                    let (cond_value, cond_ret) = self.evaluate(scope, cond)?;
+                    if let Some(return_value) = cond_ret {
+                        return Ok((Value::Unit, Some(return_value)));
+                    }
+                    if !cond_value.auto_coerce_bool()? {
+                        return Ok((result, None));
+                    }
+
+                    for stmt in body {
+                        (result, ret) = self.execute(scope, stmt)?;
+                        if let Some(return_value) = ret {
+                            return Ok((Value::Unit, Some(return_value)));
+                        }
+                    }
+                }
+            }
+            Expr::DoWhile { cond, body } => loop {
+                loop {
+                    let mut result = Value::Unit;
+                    let mut ret = None;
+                    for stmt in body {
+                        (result, ret) = self.execute(scope, stmt)?;
+                        if let Some(return_value) = ret {
+                            return Ok((Value::Unit, Some(return_value)));
+                        }
+                    }
+
+                    if let Some(cond) = cond {
+                        let (cond_value, ret) = self.evaluate(scope, cond)?;
+                        if let Some(return_value) = ret {
+                            return Ok((Value::Unit, Some(return_value)));
+                        }
+                        if !cond_value.auto_coerce_bool()? {
+                            return Ok((result, None));
+                        }
+                    } else {
+                        return Ok((result, None));
+                    }
+                }
+            },
         }
     }
 }

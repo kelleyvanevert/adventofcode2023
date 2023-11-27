@@ -108,8 +108,51 @@ pub fn if_expr<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
     .parse(input)
 }
 
+pub fn do_while_expr<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
+    map(
+        seq((
+            tag("do"),
+            ws0,
+            delimited(seq((tag("{"), ws0)), body, seq((ws0, tag("}")))),
+            optional(delimited(
+                seq((ws0, tag("while"), ws1, tag("("), ws0)),
+                expr,
+                seq((ws0, tag(")"))),
+            )),
+        )),
+        |(_, _, body, cond)| Expr::DoWhile {
+            cond: cond.map(Box::new),
+            body,
+        },
+    )
+    .parse(input)
+}
+
+pub fn while_expr<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
+    map(
+        seq((
+            tag("while"),
+            ws1,
+            tag("("),
+            ws0,
+            expr,
+            ws0,
+            tag(")"),
+            ws0,
+            delimited(seq((tag("{"), ws0)), body, seq((ws0, tag("}")))),
+        )),
+        |(_, _, _, _, cond, _, _, _, body)| Expr::While {
+            cond: cond.into(),
+            body,
+        },
+    )
+    .parse(input)
+}
+
 pub fn expr_leaf<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
     alt((
+        do_while_expr,
+        while_expr,
         map(identifier, Expr::Variable),
         map(numeric, Expr::Numeric),
         str_literal,
@@ -346,33 +389,11 @@ pub fn assign_stmt<'i>(input: &'i str) -> ParseResult<&'i str, Stmt<'i>> {
     .parse(input)
 }
 
-pub fn while_stmt<'i>(input: &'i str) -> ParseResult<&'i str, Stmt<'i>> {
-    map(
-        seq((
-            tag("while"),
-            ws1,
-            tag("("),
-            ws0,
-            expr,
-            ws0,
-            tag(")"),
-            ws0,
-            delimited(seq((tag("{"), ws0)), body, seq((ws0, tag("}")))),
-        )),
-        |(_, _, _, _, cond, _, _, _, body)| Stmt::While {
-            cond: cond.into(),
-            body,
-        },
-    )
-    .parse(input)
-}
-
 pub fn stmt<'i>(input: &'i str) -> ParseResult<&'i str, Stmt<'i>> {
     alt((
         return_stmt,
         declare_stmt,
         assign_stmt,
-        while_stmt,
         map(expr, |expr| Stmt::Expr { expr: expr.into() }),
     ))
     .parse(input)

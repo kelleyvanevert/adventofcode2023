@@ -52,6 +52,14 @@ pub enum Expr<'a> {
         then: Vec<Stmt<'a>>,
         els: Option<Vec<Stmt<'a>>>,
     },
+    While {
+        cond: Box<Expr<'a>>,
+        body: Vec<Stmt<'a>>,
+    },
+    DoWhile {
+        body: Vec<Stmt<'a>>,
+        cond: Option<Box<Expr<'a>>>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -66,10 +74,6 @@ pub enum Stmt<'a> {
     Assign {
         id: Identifier<'a>,
         expr: Box<Expr<'a>>,
-    },
-    While {
-        cond: Box<Expr<'a>>,
-        body: Vec<Stmt<'a>>,
     },
     Expr {
         expr: Box<Expr<'a>>,
