@@ -56,9 +56,20 @@ pub enum Expr<'a> {
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum Stmt<'a> {
+    Return {
+        expr: Box<Expr<'a>>,
+    },
+    Declare {
+        id: Identifier<'a>,
+        expr: Box<Expr<'a>>,
+    },
     Assign {
         id: Identifier<'a>,
         expr: Box<Expr<'a>>,
+    },
+    While {
+        cond: Box<Expr<'a>>,
+        body: Vec<Stmt<'a>>,
     },
     Expr {
         expr: Box<Expr<'a>>,

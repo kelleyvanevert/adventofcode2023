@@ -10,6 +10,16 @@ f("Noa") |name| {
 
 print("hello")
 
+let i = 0
+
+while (i < 20) {
+  i = i + 1
+  print("at {i}")
+  if (i == 14) {
+    return "early return! {i < 12}"
+  }
+}
+
 run {
   42
 }

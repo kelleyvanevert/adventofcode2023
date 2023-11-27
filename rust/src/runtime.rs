@@ -142,6 +142,34 @@ impl<'a> Value<'a> {
         }
     }
 
+    fn lt(&self, other: Value<'a>) -> Result<Value<'a>, RuntimeError> {
+        match (self, other) {
+            (Value::Str(a), Value::Str(b)) => Ok(Value::Bool(a.0.len() < b.0.len())),
+            (Value::Numeric(a), Value::Numeric(b)) => {
+                Ok(Value::Bool(a.get_double() < b.get_double()))
+            }
+            (a, b) => Err(RuntimeError(format!(
+                "can't perform {} + {}",
+                a.ty(),
+                b.ty()
+            ))),
+        }
+    }
+
+    fn eq(&self, other: Value<'a>) -> Result<Value<'a>, RuntimeError> {
+        match (self, other) {
+            // (Value::Str(a), Value::Str(b)) => Ok(Value::Bool(a.0.len() < b.0.len())),
+            (Value::Numeric(a), Value::Numeric(b)) => {
+                Ok(Value::Bool(a.get_double() == b.get_double()))
+            }
+            (a, b) => Err(RuntimeError(format!(
+                "can't perform {} + {}",
+                a.ty(),
+                b.ty()
+            ))),
+        }
+    }
+
     // TODO
     fn auto_coerce_str(&self) -> String {
         match self {
@@ -197,10 +225,10 @@ impl<'a> Runtime<'a> {
         }
     }
 
-    fn lookup(&self, scope_id: usize, id: &Identifier<'a>) -> Option<Value<'a>> {
+    fn lookup(&self, scope_id: usize, id: &Identifier<'a>) -> Option<(usize, Value<'a>)> {
         let scope = self.scopes.get(scope_id)?;
         if let Some(value) = scope.values.get(id) {
-            return Some(value.clone());
+            return Some((scope_id, value.clone()));
         }
 
         if let Some(parent_scope_id) = scope.parent_scope {
@@ -210,20 +238,63 @@ impl<'a> Runtime<'a> {
         }
     }
 
-    fn execute(&mut self, scope: usize, stmt: &Stmt<'a>) -> Result<Value<'a>, RuntimeError> {
+    fn execute(
+        &mut self,
+        scope: usize,
+        stmt: &Stmt<'a>,
+    ) -> Result<(Value<'a>, Option<Value<'a>>), RuntimeError> {
         match stmt {
-            Stmt::Expr { expr } => self.evaluate(scope, expr),
-            Stmt::Assign { id, expr } => {
-                let value = self.evaluate(scope, expr)?;
+            Stmt::Return { expr } => {
+                let (value, ret) = self.evaluate(scope, expr)?;
+                if let Some(return_value) = ret {
+                    return Ok((Value::Unit, Some(return_value)));
+                }
 
-                self.scopes
-                    .get_mut(scope)
-                    .unwrap()
-                    .values
-                    .insert(*id, value);
-
-                Ok(Value::Unit)
+                Ok((Value::Unit, Some(value)))
             }
+            Stmt::Expr { expr } => self.evaluate(scope, expr),
+            Stmt::Declare { id, expr } => {
+                let (value, ret) = self.evaluate(scope, expr)?;
+                if let Some(return_value) = ret {
+                    return Ok((Value::Unit, Some(return_value)));
+                }
+
+                self.scopes[scope].values.insert(*id, value);
+
+                Ok((Value::Unit, None))
+            }
+            Stmt::Assign { id, expr } => {
+                let Some((def_scope, _)) = self.lookup(scope, id) else {
+                    return Err(RuntimeError(format!(
+                        "cannot assign to undefined var: {id}"
+                    )));
+                };
+
+                let (value, ret) = self.evaluate(scope, expr)?;
+                if let Some(return_value) = ret {
+                    return Ok((Value::Unit, Some(return_value)));
+                }
+
+                self.scopes[def_scope].values.insert(*id, value.clone());
+
+                Ok((value, None))
+            }
+            Stmt::While { cond, body } => loop {
+                let (cond_value, ret) = self.evaluate(scope, cond)?;
+                if let Some(return_value) = ret {
+                    return Ok((Value::Unit, Some(return_value)));
+                }
+                if !cond_value.auto_coerce_bool()? {
+                    return Ok((Value::Unit, None));
+                }
+
+                for stmt in body {
+                    let (_, ret) = self.execute(scope, stmt)?;
+                    if let Some(return_value) = ret {
+                        return Ok((Value::Unit, Some(return_value)));
+                    }
+                }
+            },
         }
     }
 
@@ -269,10 +340,15 @@ impl<'a> Runtime<'a> {
         }
 
         let mut result = Value::Unit;
+        let mut ret = None;
         match def.body {
             FnBody::Code(stmts) => {
                 for stmt in stmts {
-                    result = self.execute(execution_scope, &stmt)?;
+                    (result, ret) = self.execute(execution_scope, &stmt)?;
+                    if let Some(return_value) = ret {
+                        result = return_value;
+                        break;
+                    }
                 }
             }
             FnBody::Builtin(f) => {
@@ -283,7 +359,11 @@ impl<'a> Runtime<'a> {
         Ok(result)
     }
 
-    fn evaluate(&mut self, scope: usize, expr: &Expr<'a>) -> Result<Value<'a>, RuntimeError> {
+    fn evaluate(
+        &mut self,
+        scope: usize,
+        expr: &Expr<'a>,
+    ) -> Result<(Value<'a>, Option<Value<'a>>), RuntimeError> {
         match expr {
             Expr::StrLiteral { pieces } => {
                 let mut build = "".to_string();
@@ -294,69 +374,117 @@ impl<'a> Runtime<'a> {
                             build += fragment;
                         }
                         StrLiteralPiece::Interpolation(expr) => {
-                            build += &self.evaluate(scope, expr)?.auto_coerce_str();
+                            let (value, ret) = self.evaluate(scope, expr)?;
+                            if let Some(return_value) = ret {
+                                return Ok((Value::Unit, Some(return_value)));
+                            }
+                            build += &value.auto_coerce_str();
                         }
                     }
                 }
 
-                Ok(Value::Str(Str(build)))
+                Ok((Value::Str(Str(build)), None))
             }
-            Expr::Numeric(num) => Ok(Value::Numeric(num.clone())),
+            Expr::Numeric(num) => Ok((Value::Numeric(num.clone()), None)),
             Expr::Variable(id) => {
-                let Some(value) = self.lookup(scope, id) else {
+                let Some((_, value)) = self.lookup(scope, id) else {
                     return Err(RuntimeError(format!("Could not find id: {id}")));
                 };
 
-                Ok(value)
+                Ok((value, None))
             }
             Expr::UnaryExpr { expr, op } => {
-                let value = self.evaluate(scope, expr)?;
+                let (value, ret) = self.evaluate(scope, expr)?;
+                if let Some(return_value) = ret {
+                    return Ok((Value::Unit, Some(return_value)));
+                }
                 match op {
-                    &"!" => value.negate(),
+                    &"!" => Ok((value.negate()?, None)),
                     _ => Err(RuntimeError(format!("Unknown unary operation: {op}"))),
                 }
             }
             Expr::BinaryExpr { left, op, right } => {
-                let left_value = self.evaluate(scope, left)?;
+                let (left_value, ret) = self.evaluate(scope, left)?;
+                if let Some(return_value) = ret {
+                    return Ok((Value::Unit, Some(return_value)));
+                }
                 match op {
-                    &"+" => left_value.add(self.evaluate(scope, right)?),
+                    &"+" => {
+                        let (right_value, ret) = self.evaluate(scope, right)?;
+                        if let Some(return_value) = ret {
+                            return Ok((Value::Unit, Some(return_value)));
+                        }
+                        Ok((left_value.add(right_value)?, None))
+                    }
+                    &"<" => {
+                        let (right_value, ret) = self.evaluate(scope, right)?;
+                        if let Some(return_value) = ret {
+                            return Ok((Value::Unit, Some(return_value)));
+                        }
+                        Ok((left_value.lt(right_value)?, None))
+                    }
+                    &"==" => {
+                        let (right_value, ret) = self.evaluate(scope, right)?;
+                        if let Some(return_value) = ret {
+                            return Ok((Value::Unit, Some(return_value)));
+                        }
+                        Ok((left_value.eq(right_value)?, None))
+                    }
                     _ => Err(RuntimeError(format!("Unknown binary operation: {op}"))),
                 }
             }
             Expr::Invocation { expr, args } => {
-                let expr_value = self.evaluate(scope, expr)?;
+                let (expr_value, ret) = self.evaluate(scope, expr)?;
+                if let Some(return_value) = ret {
+                    return Ok((Value::Unit, Some(return_value)));
+                }
                 let Value::FnDef(def) = expr_value else {
                     return Err(RuntimeError(format!("cannot call {}", expr_value.ty())));
                 };
 
                 let mut evaluated_args = vec![];
                 for arg in args {
-                    let arg_value = self.evaluate(scope, &arg.expr)?;
+                    let (arg_value, ret) = self.evaluate(scope, &arg.expr)?;
+                    if let Some(return_value) = ret {
+                        return Ok((Value::Unit, Some(return_value)));
+                    }
                     evaluated_args.push((arg.name, arg_value));
                 }
 
-                self.invoke(def, evaluated_args)
+                Ok((self.invoke(def, evaluated_args)?, None))
             }
-            Expr::AnonymousFn { params, body } => Ok(Value::FnDef(FnDef {
-                parent_scope: scope,
-                params: params.clone(),
-                body: FnBody::Code(body.clone()),
-            })),
+            Expr::AnonymousFn { params, body } => Ok((
+                Value::FnDef(FnDef {
+                    parent_scope: scope,
+                    params: params.clone(),
+                    body: FnBody::Code(body.clone()),
+                }),
+                None,
+            )),
             Expr::If { cond, then, els } => {
                 let mut result = Value::Unit;
 
-                let cond_value = self.evaluate(scope, cond)?.auto_coerce_bool()?;
-                if cond_value {
+                let (cond_value, ret) = self.evaluate(scope, cond)?;
+                if let Some(return_value) = ret {
+                    return Ok((Value::Unit, Some(return_value)));
+                }
+                if cond_value.auto_coerce_bool()? {
                     for stmt in then {
-                        result = self.execute(scope, stmt)?;
+                        let (_, ret) = self.execute(scope, stmt)?;
+                        if let Some(return_value) = ret {
+                            return Ok((Value::Unit, Some(return_value)));
+                        }
                     }
                 } else if let Some(stmts) = els {
                     for stmt in stmts {
-                        result = self.execute(scope, stmt)?;
+                        let (_, ret) = self.execute(scope, stmt)?;
+                        if let Some(return_value) = ret {
+                            return Ok((Value::Unit, Some(return_value)));
+                        }
                     }
                 }
 
-                Ok(result)
+                Ok((result, None))
             }
         }
     }
@@ -409,9 +537,13 @@ pub fn execute<'a>(doc: &'a Document<'a>, stdin: String) -> Result<Value<'a>, Ru
     );
 
     let mut result = Value::Unit;
-
+    let mut ret = None;
     for stmt in &doc.body {
-        result = runtime.execute(0, stmt)?;
+        (result, ret) = runtime.execute(0, stmt)?;
+        if let Some(return_value) = ret {
+            result = return_value;
+            break;
+        }
     }
 
     Ok(result)

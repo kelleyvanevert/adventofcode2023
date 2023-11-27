@@ -262,7 +262,14 @@ pub fn equ_expr_stack<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
             add_expr_stack,
             many0(seq((
                 ws0,
-                alt((tag("=="), tag("!="), tag(">="), tag("<="))),
+                alt((
+                    tag("!="),
+                    tag(">="),
+                    tag("<="),
+                    tag("=="),
+                    tag("<"),
+                    tag(">"),
+                )),
                 ws0,
                 add_expr_stack,
             ))),
@@ -310,10 +317,17 @@ pub fn parameter_list<'i>(mut input: &'i str) -> ParseResult<&'i str, Vec<Identi
     Some((input, vec![]))
 }
 
-pub fn assign_stmt<'i>(input: &'i str) -> ParseResult<&'i str, Stmt<'i>> {
+pub fn return_stmt<'i>(input: &'i str) -> ParseResult<&'i str, Stmt<'i>> {
+    map(seq((tag("return"), ws1, expr)), |(_, _, expr)| {
+        Stmt::Return { expr: expr.into() }
+    })
+    .parse(input)
+}
+
+pub fn declare_stmt<'i>(input: &'i str) -> ParseResult<&'i str, Stmt<'i>> {
     map(
         seq((tag("let"), ws1, identifier, ws0, tag("="), ws0, expr)),
-        |(_, _, id, _, _, _, expr)| Stmt::Assign {
+        |(_, _, id, _, _, _, expr)| Stmt::Declare {
             id,
             expr: expr.into(),
         },
@@ -321,9 +335,44 @@ pub fn assign_stmt<'i>(input: &'i str) -> ParseResult<&'i str, Stmt<'i>> {
     .parse(input)
 }
 
+pub fn assign_stmt<'i>(input: &'i str) -> ParseResult<&'i str, Stmt<'i>> {
+    map(
+        seq((identifier, ws0, tag("="), ws0, expr)),
+        |(id, _, _, _, expr)| Stmt::Assign {
+            id,
+            expr: expr.into(),
+        },
+    )
+    .parse(input)
+}
+
+pub fn while_stmt<'i>(input: &'i str) -> ParseResult<&'i str, Stmt<'i>> {
+    map(
+        seq((
+            tag("while"),
+            ws1,
+            tag("("),
+            ws0,
+            expr,
+            ws0,
+            tag(")"),
+            ws0,
+            delimited(seq((tag("{"), ws0)), body, seq((ws0, tag("}")))),
+        )),
+        |(_, _, _, _, cond, _, _, _, body)| Stmt::While {
+            cond: cond.into(),
+            body,
+        },
+    )
+    .parse(input)
+}
+
 pub fn stmt<'i>(input: &'i str) -> ParseResult<&'i str, Stmt<'i>> {
     alt((
+        return_stmt,
+        declare_stmt,
         assign_stmt,
+        while_stmt,
         map(expr, |expr| Stmt::Expr { expr: expr.into() }),
     ))
     .parse(input)
