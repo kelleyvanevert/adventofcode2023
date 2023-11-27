@@ -60,6 +60,9 @@ pub enum Expr<'a> {
         body: Vec<Stmt<'a>>,
         cond: Option<Box<Expr<'a>>>,
     },
+    Loop {
+        body: Vec<Stmt<'a>>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]

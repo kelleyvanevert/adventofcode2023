@@ -10,7 +10,7 @@ use crate::{
 pub fn identifier<'i>(input: &'i str) -> ParseResult<&'i str, Identifier<'i>> {
     let (input, id) = map(regex(r"^[_a-zA-Z][_a-zA-Z0-9]*"), Identifier).parse(input)?;
 
-    if ["if", "else", "then", "while", "do", "for", "let"].contains(&id.0) {
+    if ["if", "else", "then", "while", "do", "for", "let", "loop"].contains(&id.0) {
         return None;
     }
 
@@ -128,6 +128,18 @@ pub fn do_while_expr<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
     .parse(input)
 }
 
+pub fn loop_expr<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
+    map(
+        seq((
+            tag("loop"),
+            ws0,
+            delimited(seq((tag("{"), ws0)), body, seq((ws0, tag("}")))),
+        )),
+        |(_, _, body)| Expr::Loop { body },
+    )
+    .parse(input)
+}
+
 pub fn while_expr<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
     map(
         seq((
@@ -153,6 +165,7 @@ pub fn expr_leaf<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
     alt((
         do_while_expr,
         while_expr,
+        loop_expr,
         map(identifier, Expr::Variable),
         map(numeric, Expr::Numeric),
         str_literal,

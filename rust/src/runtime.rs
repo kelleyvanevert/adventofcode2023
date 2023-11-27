@@ -515,6 +515,17 @@ impl<'a> Runtime<'a> {
                     }
                 }
             },
+            Expr::Loop { body } => loop {
+                loop {
+                    let mut ret = None;
+                    for stmt in body {
+                        (_, ret) = self.execute(scope, stmt)?;
+                        if let Some(return_value) = ret {
+                            return Ok((Value::Unit, Some(return_value)));
+                        }
+                    }
+                }
+            },
         }
     }
 }
