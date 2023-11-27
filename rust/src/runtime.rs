@@ -462,22 +462,23 @@ impl<'a> Runtime<'a> {
                 None,
             )),
             Expr::If { cond, then, els } => {
-                let mut result = Value::Unit;
-
                 let (cond_value, ret) = self.evaluate(scope, cond)?;
                 if let Some(return_value) = ret {
                     return Ok((Value::Unit, Some(return_value)));
                 }
+
+                let mut result = Value::Unit;
+                let mut ret = None;
                 if cond_value.auto_coerce_bool()? {
                     for stmt in then {
-                        let (_, ret) = self.execute(scope, stmt)?;
+                        (result, ret) = self.execute(scope, stmt)?;
                         if let Some(return_value) = ret {
                             return Ok((Value::Unit, Some(return_value)));
                         }
                     }
                 } else if let Some(stmts) = els {
                     for stmt in stmts {
-                        let (_, ret) = self.execute(scope, stmt)?;
+                        (result, ret) = self.execute(scope, stmt)?;
                         if let Some(return_value) = ret {
                             return Ok((Value::Unit, Some(return_value)));
                         }
