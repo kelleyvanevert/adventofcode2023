@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Display};
 
-use crate::ast::{Document, Expr, Identifier, Stmt, StrLiteralPiece};
+use crate::ast::{Block, Document, Expr, Identifier, Item, Stmt, StrLiteralPiece};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeError(pub String);
@@ -73,7 +73,7 @@ pub struct FnDef<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FnBody<'a> {
-    Code(Vec<Stmt<'a>>),
+    Code(Block<'a>),
     Builtin(fn(&mut Runtime<'a>, usize) -> Result<Value<'a>, RuntimeError>),
 }
 
@@ -238,6 +238,45 @@ impl<'a> Runtime<'a> {
         }
     }
 
+    fn execute_block(
+        &mut self,
+        scope: usize,
+        block: &Block<'a>,
+    ) -> Result<(Value<'a>, Option<Value<'a>>), RuntimeError> {
+        let mut result = Value::Unit;
+        let mut ret = None;
+
+        for item in &block.items {
+            self.define(scope, &item)?;
+        }
+
+        for stmt in &block.stmts {
+            (result, ret) = self.execute(scope, &stmt)?;
+            if ret.is_some() {
+                return Ok((Value::Unit, ret));
+            }
+        }
+
+        Ok((result, None))
+    }
+
+    fn define(&mut self, scope: usize, item: &Item<'a>) -> Result<(), RuntimeError> {
+        match item {
+            Item::NamedFn { name, params, body } => {
+                self.scopes[scope].values.insert(
+                    *name,
+                    Value::FnDef(FnDef {
+                        parent_scope: scope,
+                        params: params.clone(),
+                        body: FnBody::Code(body.clone()), // TODO somehow avoid clone
+                    }),
+                );
+            }
+        }
+
+        Ok(())
+    }
+
     fn execute(
         &mut self,
         scope: usize,
@@ -324,16 +363,13 @@ impl<'a> Runtime<'a> {
         }
 
         let mut result = Value::Unit;
-        let mut ret = None;
         match def.body {
-            FnBody::Code(stmts) => {
-                for stmt in stmts {
-                    (result, ret) = self.execute(execution_scope, &stmt)?;
-                    if let Some(return_value) = ret {
-                        result = return_value;
-                        break;
-                    }
-                }
+            FnBody::Code(block) => {
+                let (block_eval_result, ret) = self.execute_block(execution_scope, &block)?;
+                result = match ret {
+                    Some(return_value) => return_value,
+                    None => block_eval_result,
+                };
             }
             FnBody::Builtin(f) => {
                 result = f(self, execution_scope)?;
@@ -441,31 +477,27 @@ impl<'a> Runtime<'a> {
                 Value::FnDef(FnDef {
                     parent_scope: scope,
                     params: params.clone(),
-                    body: FnBody::Code(body.clone()),
+                    body: FnBody::Code(body.clone()), // TODO somehow avoid clone
                 }),
                 None,
             )),
             Expr::If { cond, then, els } => {
                 let (cond_value, ret) = self.evaluate(scope, cond)?;
-                if let Some(return_value) = ret {
-                    return Ok((Value::Unit, Some(return_value)));
+                if ret.is_some() {
+                    return Ok((Value::Unit, ret));
                 }
 
                 let mut result = Value::Unit;
                 let mut ret = None;
                 if cond_value.auto_coerce_bool()? {
-                    for stmt in then {
-                        (result, ret) = self.execute(scope, stmt)?;
-                        if let Some(return_value) = ret {
-                            return Ok((Value::Unit, Some(return_value)));
-                        }
+                    (result, ret) = self.execute_block(scope, then)?;
+                    if ret.is_some() {
+                        return Ok((Value::Unit, ret));
                     }
-                } else if let Some(stmts) = els {
-                    for stmt in stmts {
-                        (result, ret) = self.execute(scope, stmt)?;
-                        if let Some(return_value) = ret {
-                            return Ok((Value::Unit, Some(return_value)));
-                        }
+                } else if let Some(els) = els {
+                    (result, ret) = self.execute_block(scope, els)?;
+                    if ret.is_some() {
+                        return Ok((Value::Unit, ret));
                     }
                 }
 
@@ -483,11 +515,9 @@ impl<'a> Runtime<'a> {
                         return Ok((result, None));
                     }
 
-                    for stmt in body {
-                        (result, ret) = self.execute(scope, stmt)?;
-                        if let Some(return_value) = ret {
-                            return Ok((Value::Unit, Some(return_value)));
-                        }
+                    (result, ret) = self.execute_block(scope, body)?;
+                    if ret.is_some() {
+                        return Ok((Value::Unit, ret));
                     }
                 }
             }
@@ -495,17 +525,16 @@ impl<'a> Runtime<'a> {
                 loop {
                     let mut result = Value::Unit;
                     let mut ret = None;
-                    for stmt in body {
-                        (result, ret) = self.execute(scope, stmt)?;
-                        if let Some(return_value) = ret {
-                            return Ok((Value::Unit, Some(return_value)));
-                        }
+
+                    (result, ret) = self.execute_block(scope, body)?;
+                    if ret.is_some() {
+                        return Ok((Value::Unit, ret));
                     }
 
                     if let Some(cond) = cond {
                         let (cond_value, ret) = self.evaluate(scope, cond)?;
-                        if let Some(return_value) = ret {
-                            return Ok((Value::Unit, Some(return_value)));
+                        if ret.is_some() {
+                            return Ok((Value::Unit, ret));
                         }
                         if !cond_value.auto_coerce_bool()? {
                             return Ok((result, None));
@@ -517,12 +546,9 @@ impl<'a> Runtime<'a> {
             },
             Expr::Loop { body } => loop {
                 loop {
-                    let mut ret = None;
-                    for stmt in body {
-                        (_, ret) = self.execute(scope, stmt)?;
-                        if let Some(return_value) = ret {
-                            return Ok((Value::Unit, Some(return_value)));
-                        }
+                    let (result, ret) = self.execute_block(scope, body)?;
+                    if ret.is_some() {
+                        return Ok((Value::Unit, ret));
                     }
                 }
             },
@@ -576,15 +602,11 @@ pub fn execute<'a>(doc: &'a Document<'a>, stdin: String) -> Result<Value<'a>, Ru
         }),
     );
 
-    let mut result = Value::Unit;
-    let mut ret = None;
-    for stmt in &doc.body {
-        (result, ret) = runtime.execute(0, stmt)?;
-        if let Some(return_value) = ret {
-            result = return_value;
-            break;
-        }
-    }
+    let (body_eval_result, ret) = runtime.execute_block(0, &doc.body)?;
+    let result = match ret {
+        Some(return_value) => return_value,
+        None => body_eval_result,
+    };
 
     Ok(result)
 }

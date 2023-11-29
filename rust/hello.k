@@ -7,7 +7,7 @@ do {
   42
 } while (i < 10)
 
-let make_counter = |start| {
+fn make_counter(start) {
   let n = start
   |d| {
     if (d == 0) {

@@ -25,6 +25,8 @@ fn main() {
         exit(3);
     };
 
+    println!("Parsed: {doc:?}");
+
     let stdin = io::stdin()
         .lines()
         .map(|line| line.unwrap())

@@ -45,23 +45,32 @@ pub enum Expr<'a> {
     },
     AnonymousFn {
         params: Vec<Identifier<'a>>,
-        body: Vec<Stmt<'a>>,
+        body: Block<'a>,
     },
     If {
         cond: Box<Expr<'a>>,
-        then: Vec<Stmt<'a>>,
-        els: Option<Vec<Stmt<'a>>>,
+        then: Block<'a>,
+        els: Option<Block<'a>>,
     },
     While {
         cond: Box<Expr<'a>>,
-        body: Vec<Stmt<'a>>,
+        body: Block<'a>,
     },
     DoWhile {
-        body: Vec<Stmt<'a>>,
+        body: Block<'a>,
         cond: Option<Box<Expr<'a>>>,
     },
     Loop {
-        body: Vec<Stmt<'a>>,
+        body: Block<'a>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub enum Item<'a> {
+    NamedFn {
+        name: Identifier<'a>,
+        params: Vec<Identifier<'a>>,
+        body: Block<'a>,
     },
 }
 
@@ -83,7 +92,13 @@ pub enum Stmt<'a> {
     }, // ...
 }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct Block<'a> {
+    pub items: Vec<Item<'a>>,
+    pub stmts: Vec<Stmt<'a>>,
+}
+
 #[derive(Debug, PartialEq, PartialOrd)]
 pub struct Document<'a> {
-    pub body: Vec<Stmt<'a>>,
+    pub body: Block<'a>,
 }
