@@ -13,7 +13,7 @@ impl<'a> Display for Identifier<'a> {
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum StrLiteralPiece<'a> {
-    Fragment(&'a str),
+    Fragment(String),
     Interpolation(Expr<'a>),
 }
 

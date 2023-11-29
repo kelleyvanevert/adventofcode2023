@@ -1,4 +1,5 @@
 #![feature(let_chains)]
+#![feature(iterator_try_reduce)]
 use std::{env, fs, io, process::exit};
 
 pub mod ast;
@@ -25,7 +26,7 @@ fn main() {
         exit(3);
     };
 
-    println!("Parsed: {doc:?}");
+    // println!("Parsed: {doc:?}");
 
     let stdin = io::stdin()
         .lines()

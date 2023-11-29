@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Display};
+use std::{borrow::Cow, collections::HashMap, fmt::Display};
 
 use crate::ast::{Block, Document, Expr, Identifier, Item, Stmt, StrLiteralPiece};
 
@@ -34,6 +34,18 @@ impl Numeric {
             (a, Numeric::Int(b)) => Numeric::Int(a.get_int() + b),
 
             (Numeric::UInt(a), Numeric::UInt(b)) => Numeric::UInt(a + b),
+        }
+    }
+
+    fn max(&self, other: Numeric) -> Numeric {
+        match (self, other) {
+            (Numeric::Double(a), b) => Numeric::Double(a.max(b.get_double())),
+            (a, Numeric::Double(b)) => Numeric::Double(a.get_double().max(b)),
+
+            (Numeric::Int(a), b) => Numeric::Int(*a.max(&b.get_int())),
+            (a, Numeric::Int(b)) => Numeric::Int(a.get_int().max(b)),
+
+            (Numeric::UInt(a), Numeric::UInt(b)) => Numeric::UInt(*a.max(&b)),
         }
     }
 
@@ -79,42 +91,60 @@ pub enum FnBody<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value<'a> {
+    Nil,
     Unit,
     Bool(bool),
     Str(Str),
     Numeric(Numeric),
     FnDef(FnDef<'a>),
+    List(Box<Cow<'a, Vec<Value<'a>>>>),
 }
 
 impl<'a> Display for Value<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Value::Nil => write!(f, "nil"),
             Value::Unit => write!(f, "()"),
             Value::Bool(b) => write!(f, "{b}"),
             Value::Str(str) => write!(f, "{}", str.0),
             Value::Numeric(num) => write!(f, "{num}"),
             Value::FnDef(_) => write!(f, "[fn]"),
+            Value::List(list) => {
+                write!(f, "[")?;
+                let len = list.len();
+                for (i, item) in list.iter().enumerate() {
+                    write!(f, "{item}")?;
+                    if i < len - 1 {
+                        write!(f, ", ")?;
+                    }
+                }
+                write!(f, "]")
+            }
         }
     }
 }
 
 #[derive(Debug, PartialEq)]
 enum Type {
+    Nil,
     Unit,
     Bool,
     Str,
     Numeric,
     FnDef,
+    List,
 }
 
 impl Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Type::Nil => write!(f, "Nil"),
             Type::Unit => write!(f, "Unit"),
             Type::Bool => write!(f, "Bool"),
             Type::Str => write!(f, "Str"),
             Type::Numeric => write!(f, "Numeric"),
             Type::FnDef => write!(f, "FnDef"),
+            Type::List => write!(f, "List"),
         }
     }
 }
@@ -122,11 +152,13 @@ impl Display for Type {
 impl<'a> Value<'a> {
     fn negate(&self) -> Result<Value<'a>, RuntimeError> {
         match self {
-            Value::Unit => Err(RuntimeError(format!("Can't negate unit"))),
+            Value::Nil => Ok(Value::Nil),
+            Value::Unit => Ok(Value::Unit),
             Value::Bool(b) => Ok(Value::Bool(!b)),
             Value::Str(_) => Err(RuntimeError(format!("Can't negate str"))),
             Value::Numeric(n) => Ok(Value::Numeric(n.negate()?)),
             Value::FnDef(_) => Err(RuntimeError(format!("Can't negate fndef"))),
+            Value::List(_) => Err(RuntimeError(format!("Can't negate list"))),
         }
     }
 
@@ -136,6 +168,19 @@ impl<'a> Value<'a> {
             (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.add(b))),
             (a, b) => Err(RuntimeError(format!(
                 "can't perform {} + {}",
+                a.ty(),
+                b.ty()
+            ))),
+        }
+    }
+
+    fn max(&self, other: Value<'a>) -> Result<Value<'a>, RuntimeError> {
+        match (self, other) {
+            (Value::Numeric(a), Value::Nil) => Ok(Value::Numeric(a.clone())),
+            (Value::Nil, Value::Numeric(b)) => Ok(Value::Numeric(b)),
+            (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.max(b))),
+            (a, b) => Err(RuntimeError(format!(
+                "can't perform {} max {}",
                 a.ty(),
                 b.ty()
             ))),
@@ -173,6 +218,7 @@ impl<'a> Value<'a> {
     // TODO
     fn auto_coerce_str(&self) -> String {
         match self {
+            Value::Nil => "".into(),
             Value::Unit => "".into(),
             Value::Bool(b) => {
                 if *b {
@@ -184,16 +230,47 @@ impl<'a> Value<'a> {
             Value::Str(str) => str.0.clone(),
             Value::Numeric(n) => format!("{n}"),
             Value::FnDef(_) => "<fn>".into(),
+            Value::List(_) => "<list>".into(),
+        }
+    }
+
+    // TODO
+    fn auto_coerce_int(&self) -> Result<i64, RuntimeError> {
+        match self {
+            Value::Nil => Err(RuntimeError(format!("cannot coerce {} to int", self.ty()))),
+            Value::Unit => Err(RuntimeError(format!("cannot coerce {} to int", self.ty()))),
+            Value::Bool(b) => {
+                if *b {
+                    Ok(1)
+                } else {
+                    Ok(0)
+                }
+            }
+            Value::Str(str) => {
+                return str
+                    .0
+                    .parse::<i64>()
+                    .map_err(|_| RuntimeError(format!("cannot coerce '{}' to int", str.0)));
+            }
+            Value::Numeric(n) => match n {
+                Numeric::Double(_) => Err(RuntimeError(format!("cannot coerce double to int"))),
+                Numeric::Int(n) => Ok(*n),
+                Numeric::UInt(n) => Ok(*n as i64),
+            },
+            Value::FnDef(_) => Err(RuntimeError(format!("cannot coerce {} to int", self.ty()))),
+            Value::List(_) => Err(RuntimeError(format!("cannot coerce {} to int", self.ty()))),
         }
     }
 
     fn ty(&self) -> Type {
         match self {
+            Value::Nil => Type::Nil,
             Value::Unit => Type::Unit,
             Value::Bool(_) => Type::Bool,
             Value::Str(_) => Type::Str,
             Value::Numeric(_) => Type::Numeric,
             Value::FnDef(_) => Type::FnDef,
+            Value::List(_) => Type::List,
         }
     }
 
@@ -362,21 +439,16 @@ impl<'a> Runtime<'a> {
             return Err(RuntimeError(format!("unassigned params left")));
         }
 
-        let mut result = Value::Unit;
-        match def.body {
+        Ok(match def.body {
             FnBody::Code(block) => {
                 let (block_eval_result, ret) = self.execute_block(execution_scope, &block)?;
-                result = match ret {
+                match ret {
                     Some(return_value) => return_value,
                     None => block_eval_result,
-                };
+                }
             }
-            FnBody::Builtin(f) => {
-                result = f(self, execution_scope)?;
-            }
-        }
-
-        Ok(result)
+            FnBody::Builtin(f) => f(self, execution_scope)?,
+        })
     }
 
     fn evaluate(
@@ -546,7 +618,7 @@ impl<'a> Runtime<'a> {
             },
             Expr::Loop { body } => loop {
                 loop {
-                    let (result, ret) = self.execute_block(scope, body)?;
+                    let (_, ret) = self.execute_block(scope, body)?;
                     if ret.is_some() {
                         return Ok((Value::Unit, ret));
                     }
@@ -569,13 +641,12 @@ pub fn execute<'a>(doc: &'a Document<'a>, stdin: String) -> Result<Value<'a>, Ru
             parent_scope: 0,
             params: vec![Identifier("text")],
             body: FnBody::Builtin(|runtime, scope| {
-                println!(
-                    "{}",
-                    runtime.scopes[scope]
-                        .values
-                        .get(&Identifier("text"))
-                        .unwrap()
-                );
+                let text = runtime.scopes[scope]
+                    .values
+                    .get(&Identifier("text"))
+                    .unwrap();
+
+                println!("{}", text);
                 Ok(Value::Unit)
             }),
         }),
@@ -588,6 +659,7 @@ pub fn execute<'a>(doc: &'a Document<'a>, stdin: String) -> Result<Value<'a>, Ru
             params: vec![Identifier("f")],
             body: FnBody::Builtin(|runtime, scope| {
                 let f = runtime.scopes[scope].values.get(&Identifier("f")).unwrap();
+
                 match f {
                     Value::FnDef(def) => {
                         if def.params.len() > 0 {
@@ -598,6 +670,154 @@ pub fn execute<'a>(doc: &'a Document<'a>, stdin: String) -> Result<Value<'a>, Ru
                     }
                     _ => Err(RuntimeError(format!("cannot run: {}", f.ty()))),
                 }
+            }),
+        }),
+    );
+
+    runtime.scopes[0].values.insert(
+        Identifier("max"),
+        Value::FnDef(FnDef {
+            parent_scope: 0,
+            params: vec![Identifier("items")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let items = runtime.scopes[scope]
+                    .values
+                    .get(&Identifier("items"))
+                    .unwrap();
+
+                match items {
+                    Value::List(list) => {
+                        let mut result = Value::Nil;
+                        for item in list.iter() {
+                            result = result.max(item.clone())?;
+                        }
+
+                        Ok(result)
+                    }
+                    _ => Err(RuntimeError(format!("cannot get max of: {}", items.ty()))),
+                }
+            }),
+        }),
+    );
+
+    runtime.scopes[0].values.insert(
+        Identifier("map"),
+        Value::FnDef(FnDef {
+            parent_scope: 0,
+            params: vec![Identifier("items"), Identifier("cb")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let items = runtime.scopes[scope]
+                    .values
+                    .get(&Identifier("items"))
+                    .unwrap();
+
+                let Value::List(list) = items else {
+                    return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                };
+
+                let list = list.clone();
+
+                let cb = runtime.scopes[scope].values.get(&Identifier("cb")).unwrap();
+
+                let Value::FnDef(def) = cb else {
+                    return Err(RuntimeError(format!(
+                        "cannot use map w/ cb of type: {}",
+                        cb.ty()
+                    )));
+                };
+
+                let def = def.clone();
+
+                let mut result = vec![];
+                for item in list.iter() {
+                    result.push(runtime.invoke(def.clone(), vec![(None, item.clone())])?);
+                }
+
+                Ok(Value::List(Box::new(Cow::Owned(result))))
+            }),
+        }),
+    );
+
+    runtime.scopes[0].values.insert(
+        Identifier("sum"),
+        Value::FnDef(FnDef {
+            parent_scope: 0,
+            params: vec![Identifier("items")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let items = runtime.scopes[scope]
+                    .values
+                    .get(&Identifier("items"))
+                    .unwrap();
+
+                let Value::List(list) = items else {
+                    return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                };
+
+                let mut result = Value::Numeric(Numeric::UInt(0));
+                for item in list.iter() {
+                    result = result.add(item.clone())?;
+                }
+
+                Ok(result)
+            }),
+        }),
+    );
+
+    runtime.scopes[0].values.insert(
+        Identifier("split"),
+        Value::FnDef(FnDef {
+            parent_scope: 0,
+            params: vec![Identifier("text"), Identifier("sep")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let text = runtime.scopes[scope]
+                    .values
+                    .get(&Identifier("text"))
+                    .unwrap();
+
+                let Value::Str(text) = text else {
+                    return Err(RuntimeError(format!(
+                        "split[#1] must be a string, is a: {}",
+                        text.ty()
+                    )));
+                };
+
+                let sep = runtime.scopes[scope]
+                    .values
+                    .get(&Identifier("sep"))
+                    .unwrap();
+
+                let Value::Str(sep) = sep else {
+                    return Err(RuntimeError(format!(
+                        "split[#2] must be a string, is a: {}",
+                        sep.ty()
+                    )));
+                };
+
+                let result = text
+                    .0
+                    .split(&sep.0)
+                    .map(|piece| Value::Str(Str(piece.to_string())))
+                    .collect::<Vec<_>>();
+
+                Ok(Value::List(Box::new(Cow::Owned(result))))
+            }),
+        }),
+    );
+
+    runtime.scopes[0].values.insert(
+        Identifier("int"),
+        Value::FnDef(FnDef {
+            parent_scope: 0,
+            params: vec![Identifier("data")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let data = runtime.scopes[scope]
+                    .values
+                    .get(&Identifier("data"))
+                    .unwrap();
+
+                let result = data.auto_coerce_int()?;
+
+                Ok(Value::Numeric(Numeric::Int(result)))
             }),
         }),
     );

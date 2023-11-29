@@ -41,12 +41,16 @@ pub fn eof<'i>(input: &'i str) -> ParseResult<&'i str, ()> {
     }
 }
 
+fn unescape<'i>(input: &'i str) -> String {
+    input.replace("\\n", "\n")
+}
+
 pub fn str_literal<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
     map(
         delimited(
             tag("\""),
             many0(alt((
-                map(regex("^[^\"{]+"), StrLiteralPiece::Fragment),
+                map(map(regex("^[^\"{]+"), unescape), StrLiteralPiece::Fragment),
                 map(
                     seq((tag("{"), ws0, expr, ws0, tag("}"))),
                     |(_, _, expr, _, _)| StrLiteralPiece::Interpolation(expr),
@@ -339,7 +343,7 @@ pub fn infix_or_postfix_fn_call_stack<'i>(input: &'i str) -> ParseResult<&'i str
                         Op::Binary,
                     ),
                 )),
-                optional(preceded(ws0, parenthesized_args)),
+                optional(preceded(ws0, invocation_args)),
             ))),
         )),
         |(mut expr, ops)| {
@@ -582,7 +586,7 @@ mod tests {
 
     fn str<'a>(s: &'a str) -> Expr<'a> {
         Expr::StrLiteral {
-            pieces: vec![StrLiteralPiece::Fragment(s)],
+            pieces: vec![StrLiteralPiece::Fragment(s.into())],
         }
     }
 
@@ -784,15 +788,7 @@ mod tests {
                 }
             ))
         );
-        assert_eq!(
-            expr.parse(r#""world""#),
-            Some((
-                "",
-                Expr::StrLiteral {
-                    pieces: vec![StrLiteralPiece::Fragment("world")]
-                }
-            ))
-        );
+        assert_eq!(expr.parse(r#""world""#), Some(("", str("world"))));
         assert_eq!(expr.parse(r#"stdin"#), Some(("", var("stdin"))));
         assert_eq!(
             expr.parse(r#"stdin :split "\n\n""#),
@@ -883,13 +879,13 @@ mod tests {
                     id: Identifier("v"),
                     expr: Expr::StrLiteral {
                         pieces: vec![
-                            StrLiteralPiece::Fragment("wor"),
+                            StrLiteralPiece::Fragment("wor".into()),
                             StrLiteralPiece::Interpolation(Expr::BinaryExpr {
                                 left: Expr::Variable(Identifier("x")).into(),
                                 op: "+",
                                 right: Expr::Numeric(Numeric::Int(1)).into()
                             }),
-                            StrLiteralPiece::Fragment("ld"),
+                            StrLiteralPiece::Fragment("ld".into()),
                         ]
                     }
                     .into()
@@ -1126,10 +1122,7 @@ let h = 2
                         stmts: vec![
                             Stmt::Declare {
                                 id: Identifier("v"),
-                                expr: Expr::StrLiteral {
-                                    pieces: vec![StrLiteralPiece::Fragment("world")]
-                                }
-                                .into()
+                                expr: str("world").into()
                             },
                             Stmt::Declare {
                                 id: Identifier("h"),
@@ -1143,11 +1136,11 @@ let h = 2
                                         stmts: vec![Stmt::Expr {
                                             expr: Expr::StrLiteral {
                                                 pieces: vec![
-                                                    StrLiteralPiece::Fragment("hello "),
+                                                    StrLiteralPiece::Fragment("hello ".into()),
                                                     StrLiteralPiece::Interpolation(Expr::Variable(
                                                         Identifier("v")
                                                     )),
-                                                    StrLiteralPiece::Fragment(" "),
+                                                    StrLiteralPiece::Fragment(" ".into()),
                                                     StrLiteralPiece::Interpolation(Expr::Variable(
                                                         Identifier("h")
                                                     )),
