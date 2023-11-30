@@ -18,4 +18,4 @@ fn my_max(arr) {
 
 let result = stdin.trim :split "\n\n" :map |group| { group.lines.map(int).sum } .my_max
 
-result
+print("Sum of largest group: {result}")
