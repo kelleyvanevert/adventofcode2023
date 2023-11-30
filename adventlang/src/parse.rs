@@ -571,6 +571,7 @@ pub fn document(input: &str) -> ParseResult<&str, Document> {
 pub fn parse_document(input: &str) -> Option<Document> {
     let input = input
         .lines()
+        // remove //-style comments
         .map(|line| match line.split_once("//") {
             None => line,
             Some((code, _)) => code,

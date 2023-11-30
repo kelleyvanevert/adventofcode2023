@@ -3,6 +3,7 @@ fn lines(text) {
   text :split "\n"
 }
 
+// just a proof-of-concept, you can also just use built-in `max`
 fn my_max(arr) {
   let m = 0
 
