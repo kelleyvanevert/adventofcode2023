@@ -1,104 +1,96 @@
 use std::fmt::Display;
 
+use compact_str::CompactString;
+
 use crate::runtime::Numeric;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Identifier<'a>(pub &'a str);
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Identifier(pub CompactString);
 
-impl<'a> Display for Identifier<'a> {
+impl Display for Identifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub enum StrLiteralPiece<'a> {
+pub enum StrLiteralPiece {
     Fragment(String),
-    Interpolation(Expr<'a>),
+    Interpolation(Expr),
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub struct Argument<'a> {
-    pub name: Option<Identifier<'a>>,
-    pub expr: Expr<'a>,
+pub struct Argument {
+    pub name: Option<Identifier>,
+    pub expr: Expr,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub enum Expr<'a> {
+pub enum Expr {
     StrLiteral {
-        pieces: Vec<StrLiteralPiece<'a>>,
+        pieces: Vec<StrLiteralPiece>,
     },
     Numeric(Numeric),
-    Variable(Identifier<'a>),
+    Variable(Identifier),
     UnaryExpr {
-        expr: Box<Expr<'a>>,
-        op: &'a str,
+        expr: Box<Expr>,
+        op: CompactString,
     },
     BinaryExpr {
-        left: Box<Expr<'a>>,
-        op: &'a str,
-        right: Box<Expr<'a>>,
+        left: Box<Expr>,
+        op: CompactString,
+        right: Box<Expr>,
     },
     Invocation {
-        expr: Box<Expr<'a>>,
-        args: Vec<Argument<'a>>,
+        expr: Box<Expr>,
+        args: Vec<Argument>,
     },
     AnonymousFn {
-        params: Vec<Identifier<'a>>,
-        body: Block<'a>,
+        params: Vec<Identifier>,
+        body: Block,
     },
     If {
-        cond: Box<Expr<'a>>,
-        then: Block<'a>,
-        els: Option<Block<'a>>,
+        cond: Box<Expr>,
+        then: Block,
+        els: Option<Block>,
     },
     While {
-        cond: Box<Expr<'a>>,
-        body: Block<'a>,
+        cond: Box<Expr>,
+        body: Block,
     },
     DoWhile {
-        body: Block<'a>,
-        cond: Option<Box<Expr<'a>>>,
+        body: Block,
+        cond: Option<Box<Expr>>,
     },
     Loop {
-        body: Block<'a>,
+        body: Block,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub enum Item<'a> {
+pub enum Item {
     NamedFn {
-        name: Identifier<'a>,
-        params: Vec<Identifier<'a>>,
-        body: Block<'a>,
+        name: Identifier,
+        params: Vec<Identifier>,
+        body: Block,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub enum Stmt<'a> {
-    Return {
-        expr: Box<Expr<'a>>,
-    },
-    Declare {
-        id: Identifier<'a>,
-        expr: Box<Expr<'a>>,
-    },
-    Assign {
-        id: Identifier<'a>,
-        expr: Box<Expr<'a>>,
-    },
-    Expr {
-        expr: Box<Expr<'a>>,
-    }, // ...
+pub enum Stmt {
+    Return { expr: Box<Expr> },
+    Declare { id: Identifier, expr: Box<Expr> },
+    Assign { id: Identifier, expr: Box<Expr> },
+    Expr { expr: Box<Expr> }, // ...
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub struct Block<'a> {
-    pub items: Vec<Item<'a>>,
-    pub stmts: Vec<Stmt<'a>>,
+pub struct Block {
+    pub items: Vec<Item>,
+    pub stmts: Vec<Stmt>,
 }
 
 #[derive(Debug, PartialEq, PartialOrd)]
-pub struct Document<'a> {
-    pub body: Block<'a>,
+pub struct Document {
+    pub body: Block,
 }

@@ -7,13 +7,14 @@ use crate::{
     runtime::Numeric,
 };
 
-pub fn identifier<'i>(input: &'i str) -> ParseResult<&'i str, Identifier<'i>> {
-    let (input, id) = map(regex(r"^[_a-zA-Z][_a-zA-Z0-9]*"), Identifier).parse(input)?;
+pub fn identifier(input: &str) -> ParseResult<&str, Identifier> {
+    let (input, id) =
+        map(regex(r"^[_a-zA-Z][_a-zA-Z0-9]*"), |s| Identifier(s.into())).parse(input)?;
 
     if [
         "fn", "if", "else", "then", "while", "do", "for", "let", "loop",
     ]
-    .contains(&id.0)
+    .contains(&id.0.as_str())
     {
         return None;
     }
@@ -21,19 +22,19 @@ pub fn identifier<'i>(input: &'i str) -> ParseResult<&'i str, Identifier<'i>> {
     Some((input, id))
 }
 
-pub fn slws0<'i>(input: &'i str) -> ParseResult<&'i str, &'i str> {
+pub fn slws0(input: &str) -> ParseResult<&str, &str> {
     regex(r"^[ \t]*").parse(input)
 }
 
-pub fn ws0<'i>(input: &'i str) -> ParseResult<&'i str, &'i str> {
+pub fn ws0(input: &str) -> ParseResult<&str, &str> {
     regex(r"^\s*").parse(input)
 }
 
-pub fn ws1<'i>(input: &'i str) -> ParseResult<&'i str, &'i str> {
+pub fn ws1(input: &str) -> ParseResult<&str, &str> {
     regex(r"^\s+").parse(input)
 }
 
-pub fn eof<'i>(input: &'i str) -> ParseResult<&'i str, ()> {
+pub fn eof(input: &str) -> ParseResult<&str, ()> {
     if input.len() == 0 {
         Some((input, ()))
     } else {
@@ -41,11 +42,11 @@ pub fn eof<'i>(input: &'i str) -> ParseResult<&'i str, ()> {
     }
 }
 
-fn unescape<'i>(input: &'i str) -> String {
+fn unescape(input: &str) -> String {
     input.replace("\\n", "\n")
 }
 
-pub fn str_literal<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
+pub fn str_literal(input: &str) -> ParseResult<&str, Expr> {
     map(
         delimited(
             tag("\""),
@@ -64,14 +65,14 @@ pub fn str_literal<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
 }
 
 // TODO
-pub fn numeric<'i>(input: &'i str) -> ParseResult<&'i str, Numeric> {
+pub fn numeric(input: &str) -> ParseResult<&str, Numeric> {
     map(regex(r"^[0-9]+"), |s| {
         Numeric::Int(s.parse::<i64>().unwrap())
     })
     .parse(input)
 }
 
-pub fn anonymous_fn<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
+pub fn anonymous_fn(input: &str) -> ParseResult<&str, Expr> {
     map(
         seq((
             optional(delimited(
@@ -89,7 +90,7 @@ pub fn anonymous_fn<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
     .parse(input)
 }
 
-pub fn if_expr<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
+pub fn if_expr(input: &str) -> ParseResult<&str, Expr> {
     map(
         seq((
             tag("if"),
@@ -116,7 +117,7 @@ pub fn if_expr<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
     .parse(input)
 }
 
-pub fn do_while_expr<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
+pub fn do_while_expr(input: &str) -> ParseResult<&str, Expr> {
     map(
         seq((
             tag("do"),
@@ -136,7 +137,7 @@ pub fn do_while_expr<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
     .parse(input)
 }
 
-pub fn loop_expr<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
+pub fn loop_expr(input: &str) -> ParseResult<&str, Expr> {
     map(
         seq((
             tag("loop"),
@@ -148,7 +149,7 @@ pub fn loop_expr<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
     .parse(input)
 }
 
-pub fn while_expr<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
+pub fn while_expr(input: &str) -> ParseResult<&str, Expr> {
     map(
         seq((
             tag("while"),
@@ -169,7 +170,7 @@ pub fn while_expr<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
     .parse(input)
 }
 
-pub fn expr_leaf<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
+pub fn expr_leaf(input: &str) -> ParseResult<&str, Expr> {
     alt((
         do_while_expr,
         while_expr,
@@ -183,7 +184,7 @@ pub fn expr_leaf<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
     .parse(input)
 }
 
-pub fn argument<'i>(input: &'i str) -> ParseResult<&'i str, Argument<'i>> {
+pub fn argument(input: &str) -> ParseResult<&str, Argument> {
     map(
         seq((
             optional(terminated(identifier, seq((ws0, tag("="), ws0)))),
@@ -197,7 +198,7 @@ pub fn argument<'i>(input: &'i str) -> ParseResult<&'i str, Argument<'i>> {
     .parse(input)
 }
 
-pub fn parenthesized_args<'i>(input: &'i str) -> ParseResult<&'i str, Vec<Argument<'i>>> {
+pub fn parenthesized_args(input: &str) -> ParseResult<&str, Vec<Argument>> {
     map(
         seq((
             tag("("),
@@ -222,7 +223,7 @@ pub fn parenthesized_args<'i>(input: &'i str) -> ParseResult<&'i str, Vec<Argume
     .parse(input)
 }
 
-pub fn invocation_args<'i>(input: &'i str) -> ParseResult<&'i str, Vec<Argument<'i>>> {
+pub fn invocation_args(input: &str) -> ParseResult<&str, Vec<Argument>> {
     let trailing_anon_fn = map(anonymous_fn, |anon| Argument {
         name: None,
         expr: anon.into(),
@@ -251,7 +252,7 @@ pub fn invocation_args<'i>(input: &'i str) -> ParseResult<&'i str, Vec<Argument<
     }
 }
 
-pub fn expr_call_stack<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
+pub fn expr_call_stack(input: &str) -> ParseResult<&str, Expr> {
     map(
         seq((expr_leaf, many0(preceded(slws0, invocation_args)))),
         |(mut expr, invocations)| {
@@ -267,14 +268,14 @@ pub fn expr_call_stack<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
     .parse(input)
 }
 
-pub fn unary_expr_stack<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
+pub fn unary_expr_stack(input: &str) -> ParseResult<&str, Expr> {
     map(
         seq((many0(terminated(tag("!"), ws0)), expr_call_stack)),
         |(ops, mut expr)| {
             for op in ops.into_iter().rev() {
                 expr = Expr::UnaryExpr {
                     expr: expr.into(),
-                    op,
+                    op: op.into(),
                 }
             }
             expr
@@ -283,7 +284,7 @@ pub fn unary_expr_stack<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
     .parse(input)
 }
 
-pub fn mul_expr_stack<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
+pub fn mul_expr_stack(input: &str) -> ParseResult<&str, Expr> {
     map(
         seq((
             unary_expr_stack,
@@ -293,7 +294,7 @@ pub fn mul_expr_stack<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
             for (_, op, _, right) in ops {
                 expr = Expr::BinaryExpr {
                     left: expr.into(),
-                    op,
+                    op: op.into(),
                     right: right.into(),
                 }
             }
@@ -303,7 +304,7 @@ pub fn mul_expr_stack<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
     .parse(input)
 }
 
-pub fn add_expr_stack<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
+pub fn add_expr_stack(input: &str) -> ParseResult<&str, Expr> {
     map(
         seq((
             mul_expr_stack,
@@ -313,7 +314,7 @@ pub fn add_expr_stack<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
             for (_, op, _, right) in ops {
                 expr = Expr::BinaryExpr {
                     left: expr.into(),
-                    op,
+                    op: op.into(),
                     right: right.into(),
                 }
             }
@@ -323,10 +324,10 @@ pub fn add_expr_stack<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
     .parse(input)
 }
 
-pub fn infix_or_postfix_fn_call_stack<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
-    enum Op<'i> {
-        Unary(Identifier<'i>),
-        Binary((Identifier<'i>, Expr<'i>)),
+pub fn infix_or_postfix_fn_call_stack(input: &str) -> ParseResult<&str, Expr> {
+    enum Op {
+        Unary(Identifier),
+        Binary((Identifier, Expr)),
     }
 
     map(
@@ -379,7 +380,7 @@ pub fn infix_or_postfix_fn_call_stack<'i>(input: &'i str) -> ParseResult<&'i str
     .parse(input)
 }
 
-pub fn equ_expr_stack<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
+pub fn equ_expr_stack(input: &str) -> ParseResult<&str, Expr> {
     map(
         seq((
             infix_or_postfix_fn_call_stack,
@@ -401,7 +402,7 @@ pub fn equ_expr_stack<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
             for (_, op, _, right) in ops {
                 expr = Expr::BinaryExpr {
                     left: expr.into(),
-                    op,
+                    op: op.into(),
                     right: right.into(),
                 }
             }
@@ -411,11 +412,11 @@ pub fn equ_expr_stack<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
     .parse(input)
 }
 
-pub fn expr<'i>(input: &'i str) -> ParseResult<&'i str, Expr<'i>> {
+pub fn expr(input: &str) -> ParseResult<&str, Expr> {
     alt((if_expr, equ_expr_stack)).parse(input)
 }
 
-pub fn parameter_list<'i>(mut input: &'i str) -> ParseResult<&'i str, Vec<Identifier<'i>>> {
+pub fn parameter_list(mut input: &str) -> ParseResult<&str, Vec<Identifier>> {
     if let Some((rem, id)) = identifier.parse(input) {
         let mut ids = vec![];
         let mut seen_comma = false;
@@ -440,14 +441,14 @@ pub fn parameter_list<'i>(mut input: &'i str) -> ParseResult<&'i str, Vec<Identi
     Some((input, vec![]))
 }
 
-pub fn return_stmt<'i>(input: &'i str) -> ParseResult<&'i str, Stmt<'i>> {
+pub fn return_stmt(input: &str) -> ParseResult<&str, Stmt> {
     map(seq((tag("return"), ws1, expr)), |(_, _, expr)| {
         Stmt::Return { expr: expr.into() }
     })
     .parse(input)
 }
 
-pub fn declare_stmt<'i>(input: &'i str) -> ParseResult<&'i str, Stmt<'i>> {
+pub fn declare_stmt(input: &str) -> ParseResult<&str, Stmt> {
     map(
         seq((tag("let"), ws1, identifier, ws0, tag("="), ws0, expr)),
         |(_, _, id, _, _, _, expr)| Stmt::Declare {
@@ -458,7 +459,7 @@ pub fn declare_stmt<'i>(input: &'i str) -> ParseResult<&'i str, Stmt<'i>> {
     .parse(input)
 }
 
-pub fn assign_stmt<'i>(input: &'i str) -> ParseResult<&'i str, Stmt<'i>> {
+pub fn assign_stmt(input: &str) -> ParseResult<&str, Stmt> {
     map(
         seq((identifier, ws0, tag("="), ws0, expr)),
         |(id, _, _, _, expr)| Stmt::Assign {
@@ -469,7 +470,7 @@ pub fn assign_stmt<'i>(input: &'i str) -> ParseResult<&'i str, Stmt<'i>> {
     .parse(input)
 }
 
-pub fn stmt<'i>(input: &'i str) -> ParseResult<&'i str, Stmt<'i>> {
+pub fn stmt(input: &str) -> ParseResult<&str, Stmt> {
     alt((
         return_stmt,
         declare_stmt,
@@ -479,7 +480,7 @@ pub fn stmt<'i>(input: &'i str) -> ParseResult<&'i str, Stmt<'i>> {
     .parse(input)
 }
 
-pub fn named_fn_item<'i>(input: &'i str) -> ParseResult<&'i str, Item<'i>> {
+pub fn named_fn_item(input: &str) -> ParseResult<&str, Item> {
     map(
         seq((
             tag("fn"),
@@ -507,7 +508,7 @@ pub fn named_fn_item<'i>(input: &'i str) -> ParseResult<&'i str, Item<'i>> {
     .parse(input)
 }
 
-pub fn item<'i>(input: &'i str) -> ParseResult<&'i str, Item<'i>> {
+pub fn item(input: &str) -> ParseResult<&str, Item> {
     alt((
         named_fn_item,
         // declare_stmt,
@@ -517,16 +518,16 @@ pub fn item<'i>(input: &'i str) -> ParseResult<&'i str, Item<'i>> {
     .parse(input)
 }
 
-enum StmtOrItem<'i> {
-    Stmt(Stmt<'i>),
-    Item(Item<'i>),
+enum StmtOrItem {
+    Stmt(Stmt),
+    Item(Item),
 }
 
-fn stmt_or_item<'i>(input: &'i str) -> ParseResult<&'i str, StmtOrItem<'i>> {
+fn stmt_or_item(input: &str) -> ParseResult<&str, StmtOrItem> {
     alt((map(stmt, StmtOrItem::Stmt), map(item, StmtOrItem::Item))).parse(input)
 }
 
-pub fn block_contents<'i>(input: &'i str) -> ParseResult<&'i str, Block<'i>> {
+pub fn block_contents(input: &str) -> ParseResult<&str, Block> {
     let sep = regex(r"^[ \t]*([;\n][ \t]*)+");
 
     map(
@@ -560,15 +561,24 @@ pub fn block_contents<'i>(input: &'i str) -> ParseResult<&'i str, Block<'i>> {
     .parse(input)
 }
 
-pub fn document<'i>(input: &'i str) -> ParseResult<&'i str, Document<'i>> {
+pub fn document(input: &str) -> ParseResult<&str, Document> {
     map(seq((ws0, block_contents, ws0, eof)), |(_, body, _, _)| {
         Document { body }
     })
     .parse(input)
 }
 
-pub fn parse_document<'i>(input: &'i str) -> Option<Document<'i>> {
-    document.parse(input).map(|(_, doc)| doc)
+pub fn parse_document(input: &str) -> Option<Document> {
+    let input = input
+        .lines()
+        .map(|line| match line.split_once("//") {
+            None => line,
+            Some((code, _)) => code,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    document.parse(&input).map(|(_, doc)| doc)
 }
 
 #[cfg(test)]
@@ -580,32 +590,36 @@ mod tests {
         parser_combinators::{alt, recognize, seq, tag, Parser},
     };
 
-    fn var<'a>(name: &'a str) -> Expr<'a> {
-        Expr::Variable(Identifier(name))
+    fn id(id: &str) -> Identifier {
+        Identifier(id.into())
     }
 
-    fn str<'a>(s: &'a str) -> Expr<'a> {
+    fn var(name: &str) -> Expr {
+        Expr::Variable(Identifier(name.into()))
+    }
+
+    fn str(s: &str) -> Expr {
         Expr::StrLiteral {
             pieces: vec![StrLiteralPiece::Fragment(s.into())],
         }
     }
 
-    fn binary<'a>(op: &'a str, left: Expr<'a>, right: Expr<'a>) -> Expr<'a> {
+    fn binary(op: &str, left: Expr, right: Expr) -> Expr {
         Expr::BinaryExpr {
             left: left.into(),
-            op,
+            op: op.into(),
             right: right.into(),
         }
     }
 
-    fn unary<'a>(op: &'a str, expr: Expr<'a>) -> Expr<'a> {
+    fn unary(op: &str, expr: Expr) -> Expr {
         Expr::UnaryExpr {
-            op,
+            op: op.into(),
             expr: expr.into(),
         }
     }
 
-    fn empty_anon<'a>() -> Expr<'a> {
+    fn empty_anon() -> Expr {
         Expr::AnonymousFn {
             params: vec![],
             body: Block {
@@ -615,9 +629,9 @@ mod tests {
         }
     }
 
-    fn anon_expr<'a>(params: Vec<&'a str>, expr: Expr<'a>) -> Expr<'a> {
+    fn anon_expr(params: Vec<&str>, expr: Expr) -> Expr {
         Expr::AnonymousFn {
-            params: params.iter().map(|name| Identifier(name)).collect(),
+            params: params.iter().map(|&name| Identifier(name.into())).collect(),
             body: Block {
                 items: vec![],
                 stmts: vec![Stmt::Expr { expr: expr.into() }],
@@ -625,9 +639,9 @@ mod tests {
         }
     }
 
-    fn simple_invocation<'a>(name: &'a str, exprs: Vec<Expr<'a>>) -> Expr<'a> {
+    fn simple_invocation(name: &str, exprs: Vec<Expr>) -> Expr {
         Expr::Invocation {
-            expr: Expr::Variable(Identifier(name)).into(),
+            expr: Expr::Variable(Identifier(name.into())).into(),
             args: exprs
                 .into_iter()
                 .map(|expr| Argument { name: None, expr })
@@ -637,19 +651,19 @@ mod tests {
 
     #[test]
     fn bla() {
-        assert_eq!(identifier.parse("kelley"), Some(("", Identifier("kelley"))));
-        assert_eq!(identifier.parse("_kel6*"), Some(("*", Identifier("_kel6"))));
+        assert_eq!(identifier.parse("kelley"), Some(("", id("kelley"))));
+        assert_eq!(identifier.parse("_kel6*"), Some(("*", id("_kel6"))));
         assert_eq!(identifier.parse(" kelley"), None);
         assert_eq!(identifier.parse(""), None);
 
         assert_eq!(
             seq((ws0, identifier)).parse("kelley"),
-            Some(("", ("", Identifier("kelley"))))
+            Some(("", ("", id("kelley"))))
         );
         assert_eq!(seq((ws1, identifier)).parse("kelley"), None);
         assert_eq!(
             seq((ws1, identifier)).parse(" kelley"),
-            Some(("", (" ", Identifier("kelley"))))
+            Some(("", (" ", id("kelley"))))
         );
         assert_eq!(
             recognize(seq((ws1, identifier, ws0))).parse(" kelley ?"),
@@ -657,7 +671,7 @@ mod tests {
         );
         assert_eq!(
             seq((ws1, identifier, ws1, identifier)).parse(" kelley  bla"),
-            Some(("", (" ", Identifier("kelley"), "  ", Identifier("bla"))))
+            Some(("", (" ", id("kelley"), "  ", id("bla"))))
         );
         assert_eq!(alt((tag("blue"), tag("red"))).parse("  kelley"), None);
         assert_eq!(
@@ -670,27 +684,27 @@ mod tests {
         );
         assert_eq!(
             parameter_list.parse("blue , kelley"),
-            Some(("", vec![Identifier("blue"), Identifier("kelley")]))
+            Some(("", vec![id("blue"), id("kelley")]))
         );
         assert_eq!(
             parameter_list.parse("kelley ,,"),
-            Some((",", vec![Identifier("kelley")]))
+            Some((",", vec![id("kelley")]))
         );
         assert_eq!(
             parameter_list.parse("kelley , blue , )"),
-            Some((" )", vec![Identifier("kelley"), Identifier("blue")]))
+            Some((" )", vec![id("kelley"), id("blue")]))
         );
         assert_eq!(
             expr.parse("kelley ?"),
-            Some((" ?", Expr::Variable(Identifier("kelley"))))
+            Some((" ?", Expr::Variable(id("kelley"))))
         );
         assert_eq!(
             expr.parse("kelley + 21 ?"),
             Some((
                 " ?",
                 Expr::BinaryExpr {
-                    left: Expr::Variable(Identifier("kelley")).into(),
-                    op: "+",
+                    left: Expr::Variable(id("kelley")).into(),
+                    op: "+".into(),
                     right: Expr::Numeric(Numeric::Int(21)).into()
                 }
             ))
@@ -700,7 +714,7 @@ mod tests {
             Some((
                 " ?",
                 Expr::If {
-                    cond: Expr::Variable(Identifier("kelley")).into(),
+                    cond: Expr::Variable(id("kelley")).into(),
                     then: Block {
                         items: vec![],
                         stmts: vec![Stmt::Expr {
@@ -717,14 +731,14 @@ mod tests {
                 " ?",
                 Expr::BinaryExpr {
                     left: Expr::Invocation {
-                        expr: Expr::Variable(Identifier("kelley")).into(),
+                        expr: Expr::Variable(id("kelley")).into(),
                         args: vec![Argument {
                             name: None,
                             expr: Expr::Numeric(Numeric::Int(12)).into()
                         }]
                     }
                     .into(),
-                    op: "+",
+                    op: "+".into(),
                     right: Expr::Numeric(Numeric::Int(21)).into()
                 }
             ))
@@ -735,14 +749,14 @@ mod tests {
                 " ?",
                 Expr::BinaryExpr {
                     left: Expr::Invocation {
-                        expr: Expr::Variable(Identifier("kelley")).into(),
+                        expr: Expr::Variable(id("kelley")).into(),
                         args: vec![Argument {
-                            name: Some(Identifier("bla")),
+                            name: Some(id("bla")),
                             expr: Expr::Numeric(Numeric::Int(12)).into()
                         }]
                     }
                     .into(),
-                    op: "+",
+                    op: "+".into(),
                     right: Expr::Numeric(Numeric::Int(21)).into()
                 }
             ))
@@ -753,10 +767,10 @@ mod tests {
                 " ?",
                 Expr::BinaryExpr {
                     left: Expr::Invocation {
-                        expr: Expr::Variable(Identifier("kelley")).into(),
+                        expr: Expr::Variable(id("kelley")).into(),
                         args: vec![
                             Argument {
-                                name: Some(Identifier("bla")),
+                                name: Some(id("bla")),
                                 expr: Expr::Numeric(Numeric::Int(12)).into()
                             },
                             Argument {
@@ -773,7 +787,7 @@ mod tests {
                         ]
                     }
                     .into(),
-                    op: "+",
+                    op: "+".into(),
                     right: Expr::Numeric(Numeric::Int(21)).into()
                 }
             ))
@@ -783,7 +797,7 @@ mod tests {
             Some((
                 " ?",
                 Stmt::Declare {
-                    id: Identifier("h"),
+                    id: id("h"),
                     expr: Expr::Numeric(Numeric::Int(7)).into()
                 }
             ))
@@ -866,7 +880,7 @@ mod tests {
             Some((
                 "",
                 Stmt::Declare {
-                    id: Identifier("v"),
+                    id: id("v"),
                     expr: str("world").into()
                 }
             ))
@@ -876,13 +890,13 @@ mod tests {
             Some((
                 "",
                 Stmt::Declare {
-                    id: Identifier("v"),
+                    id: id("v"),
                     expr: Expr::StrLiteral {
                         pieces: vec![
                             StrLiteralPiece::Fragment("wor".into()),
                             StrLiteralPiece::Interpolation(Expr::BinaryExpr {
-                                left: Expr::Variable(Identifier("x")).into(),
-                                op: "+",
+                                left: Expr::Variable(id("x")).into(),
+                                op: "+".into(),
                                 right: Expr::Numeric(Numeric::Int(1)).into()
                             }),
                             StrLiteralPiece::Fragment("ld".into()),
@@ -897,7 +911,7 @@ mod tests {
             Some((
                 "",
                 Item::NamedFn {
-                    name: Identifier("main"),
+                    name: id("main"),
                     params: vec![],
                     body: Block {
                         items: vec![],
@@ -911,12 +925,12 @@ mod tests {
             Some((
                 "",
                 Item::NamedFn {
-                    name: Identifier("main"),
+                    name: id("main"),
                     params: vec![],
                     body: Block {
                         items: vec![],
                         stmts: vec![Stmt::Assign {
-                            id: Identifier("h"),
+                            id: id("h"),
                             expr: Expr::Numeric(Numeric::Int(1)).into()
                         }]
                     }
@@ -939,45 +953,43 @@ mod tests {
             Some((
                 "",
                 Item::NamedFn {
-                    name: Identifier("make_counter"),
-                    params: vec![Identifier("start")],
+                    name: id("make_counter"),
+                    params: vec![id("start")],
                     body: Block {
                         items: vec![],
                         stmts: vec![
                             Stmt::Declare {
-                                id: Identifier("n"),
-                                expr: Expr::Variable(Identifier("start")).into()
+                                id: id("n"),
+                                expr: Expr::Variable(id("start")).into()
                             },
                             Stmt::Expr {
                                 expr: Expr::AnonymousFn {
-                                    params: vec![Identifier("d")],
+                                    params: vec![id("d")],
                                     body: Block {
                                         items: vec![],
                                         stmts: vec![Stmt::Expr {
                                             expr: Expr::If {
                                                 cond: Expr::BinaryExpr {
-                                                    left: Expr::Variable(Identifier("d")).into(),
-                                                    op: "==",
+                                                    left: Expr::Variable(id("d")).into(),
+                                                    op: "==".into(),
                                                     right: Expr::Numeric(Numeric::Int(0)).into()
                                                 }
                                                 .into(),
                                                 then: Block {
                                                     items: vec![],
                                                     stmts: vec![Stmt::Assign {
-                                                        id: Identifier("n"),
+                                                        id: id("n"),
                                                         expr: Expr::Numeric(Numeric::Int(0)).into()
                                                     }]
                                                 },
                                                 els: Some(Block {
                                                     items: vec![],
                                                     stmts: vec![Stmt::Assign {
-                                                        id: Identifier("n"),
+                                                        id: id("n"),
                                                         expr: Expr::BinaryExpr {
-                                                            left: Expr::Variable(Identifier("n"))
-                                                                .into(),
-                                                            op: "+",
-                                                            right: Expr::Variable(Identifier("d"))
-                                                                .into()
+                                                            left: Expr::Variable(id("n")).into(),
+                                                            op: "+".into(),
+                                                            right: Expr::Variable(id("d")).into()
                                                         }
                                                         .into()
                                                     }]
@@ -1004,7 +1016,7 @@ mod tests {
                 Block {
                     items: vec![],
                     stmts: vec![Stmt::Declare {
-                        id: Identifier("h"),
+                        id: id("h"),
                         expr: Expr::Numeric(Numeric::Int(7)).into()
                     }]
                 }
@@ -1022,7 +1034,7 @@ mod tests {
                     items: vec![],
                     stmts: vec![
                         Stmt::Assign {
-                            id: Identifier("h"),
+                            id: id("h"),
                             expr: Expr::Numeric(Numeric::Int(7)).into()
                         },
                         Stmt::Expr {
@@ -1044,11 +1056,11 @@ mod tests {
                     items: vec![],
                     stmts: vec![
                         Stmt::Declare {
-                            id: Identifier("h"),
+                            id: id("h"),
                             expr: Expr::Numeric(Numeric::Int(7)).into()
                         },
                         Stmt::Assign {
-                            id: Identifier("kelley"),
+                            id: id("kelley"),
                             expr: Expr::Numeric(Numeric::Int(712)).into()
                         },
                         Stmt::Expr {
@@ -1064,7 +1076,7 @@ mod tests {
                 "",
                 Block {
                     items: vec![Item::NamedFn {
-                        name: Identifier("main"),
+                        name: id("main"),
                         params: vec![],
                         body: Block {
                             items: vec![],
@@ -1072,7 +1084,7 @@ mod tests {
                         }
                     }],
                     stmts: vec![Stmt::Declare {
-                        id: Identifier("h"),
+                        id: id("h"),
                         expr: Expr::Numeric(Numeric::Int(7)).into()
                     }]
                 }
@@ -1083,7 +1095,7 @@ mod tests {
             Some((
                 " ?",
                 Stmt::Declare {
-                    id: Identifier("h"),
+                    id: id("h"),
                     expr: Expr::AnonymousFn {
                         params: vec![],
                         body: Block {
@@ -1121,11 +1133,11 @@ let h = 2
                         items: vec![],
                         stmts: vec![
                             Stmt::Declare {
-                                id: Identifier("v"),
+                                id: id("v"),
                                 expr: str("world").into()
                             },
                             Stmt::Declare {
-                                id: Identifier("h"),
+                                id: id("h"),
                                 expr: Expr::Numeric(Numeric::Int(2)).into()
                             },
                             Stmt::Expr {
@@ -1138,11 +1150,11 @@ let h = 2
                                                 pieces: vec![
                                                     StrLiteralPiece::Fragment("hello ".into()),
                                                     StrLiteralPiece::Interpolation(Expr::Variable(
-                                                        Identifier("v")
+                                                        id("v")
                                                     )),
                                                     StrLiteralPiece::Fragment(" ".into()),
                                                     StrLiteralPiece::Interpolation(Expr::Variable(
-                                                        Identifier("h")
+                                                        id("h")
                                                     )),
                                                 ]
                                             }

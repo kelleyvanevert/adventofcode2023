@@ -19,10 +19,10 @@ where
     }
 }
 
-pub fn regex<'i>(str: &str) -> impl Parser<&'i str, Output = &'i str> {
+pub fn regex<'a>(str: &str) -> impl Parser<&'a str, Output = &'a str> {
     let re = Regex::new(str).unwrap();
 
-    move |input: &'i str| {
+    move |input: &'a str| {
         if let Some(m) = re.find(input) {
             let found = &input[m.range()];
             Some((&input[found.len()..], found))
@@ -32,8 +32,8 @@ pub fn regex<'i>(str: &str) -> impl Parser<&'i str, Output = &'i str> {
     }
 }
 
-pub fn tag<'i>(tag: &'static str) -> impl Parser<&'i str, Output = &'i str> {
-    move |input: &'i str| {
+pub fn tag<'a>(tag: &'static str) -> impl Parser<&'a str, Output = &'a str> {
+    move |input: &'a str| {
         if input.starts_with(tag) {
             Some((&input[tag.len()..], tag))
         } else {
@@ -222,11 +222,11 @@ pub fn alt<I, O, List: Alt<I, Output = O>>(mut list: List) -> impl Parser<I, Out
     move |input: I| list.choice(input)
 }
 
-pub fn recognize<'i, P, O>(mut p: P) -> impl Parser<&'i str, Output = &'i str>
+pub fn recognize<'a, P, O>(mut p: P) -> impl Parser<&'a str, Output = &'a str>
 where
-    P: Parser<&'i str, Output = O>,
+    P: Parser<&'a str, Output = O>,
 {
-    move |input: &'i str| {
+    move |input: &'a str| {
         p.parse(input).map(|(remaining, _)| {
             let len = input.len() - remaining.len();
             (remaining, &input[..len])

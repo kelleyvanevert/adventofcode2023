@@ -1,6 +1,10 @@
 #![feature(let_chains)]
 #![feature(iterator_try_reduce)]
-use std::{env, fs, io, process::exit};
+use std::{
+    env, fs,
+    io::{self, Read},
+    process::exit,
+};
 
 pub mod ast;
 pub mod parse;
@@ -28,11 +32,13 @@ fn main() {
 
     // println!("Parsed: {doc:?}");
 
-    let stdin = io::stdin()
-        .lines()
-        .map(|line| line.unwrap())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let stdin = if atty::is(atty::Stream::Stdin) {
+        "".to_string()
+    } else {
+        let mut str = String::new();
+        io::stdin().read_to_string(&mut str).unwrap();
+        str
+    };
 
     match execute(&doc, stdin) {
         Err(runtime_err) => {

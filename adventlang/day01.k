@@ -15,6 +15,6 @@ fn my_max(arr) {
   m
 }
 
-let result = stdin :split "\n\n" :map |group| { group.lines.map(int).sum } .my_max
+let result = stdin.trim :split "\n\n" :map |group| { group.lines.map(int).sum } .my_max
 
 result

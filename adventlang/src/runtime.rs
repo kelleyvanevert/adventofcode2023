@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, fmt::Display};
+use std::{collections::HashMap, fmt::Display};
 
 use crate::ast::{Block, Document, Expr, Identifier, Item, Stmt, StrLiteralPiece};
 
@@ -7,6 +7,10 @@ pub struct RuntimeError(pub String);
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Str(pub String);
+
+fn id(id: &str) -> Identifier {
+    Identifier(id.into())
+}
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum Numeric {
@@ -77,30 +81,30 @@ impl Display for Numeric {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct FnDef<'a> {
+pub struct FnDef {
     parent_scope: usize,
-    params: Vec<Identifier<'a>>,
-    body: FnBody<'a>,
+    params: Vec<Identifier>,
+    body: FnBody,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum FnBody<'a> {
-    Code(Block<'a>),
-    Builtin(fn(&mut Runtime<'a>, usize) -> Result<Value<'a>, RuntimeError>),
+pub enum FnBody {
+    Code(Block),
+    Builtin(fn(&mut Runtime, usize) -> Result<Value, RuntimeError>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Value<'a> {
+pub enum Value {
     Nil,
     Unit,
     Bool(bool),
     Str(Str),
     Numeric(Numeric),
-    FnDef(FnDef<'a>),
-    List(Box<Cow<'a, Vec<Value<'a>>>>),
+    FnDef(FnDef),
+    List(Vec<Value>),
 }
 
-impl<'a> Display for Value<'a> {
+impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Value::Nil => write!(f, "nil"),
@@ -149,8 +153,8 @@ impl Display for Type {
     }
 }
 
-impl<'a> Value<'a> {
-    fn negate(&self) -> Result<Value<'a>, RuntimeError> {
+impl Value {
+    fn negate(&self) -> Result<Value, RuntimeError> {
         match self {
             Value::Nil => Ok(Value::Nil),
             Value::Unit => Ok(Value::Unit),
@@ -162,7 +166,7 @@ impl<'a> Value<'a> {
         }
     }
 
-    fn add(&self, other: Value<'a>) -> Result<Value<'a>, RuntimeError> {
+    fn add(&self, other: Value) -> Result<Value, RuntimeError> {
         match (self, other) {
             (Value::Str(a), Value::Str(b)) => Ok(Value::Str(Str(a.0.to_string() + &b.0))),
             (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.add(b))),
@@ -174,7 +178,7 @@ impl<'a> Value<'a> {
         }
     }
 
-    fn max(&self, other: Value<'a>) -> Result<Value<'a>, RuntimeError> {
+    fn max(&self, other: Value) -> Result<Value, RuntimeError> {
         match (self, other) {
             (Value::Numeric(a), Value::Nil) => Ok(Value::Numeric(a.clone())),
             (Value::Nil, Value::Numeric(b)) => Ok(Value::Numeric(b)),
@@ -187,7 +191,7 @@ impl<'a> Value<'a> {
         }
     }
 
-    fn lt(&self, other: Value<'a>) -> Result<Value<'a>, RuntimeError> {
+    fn lt(&self, other: Value) -> Result<Value, RuntimeError> {
         match (self, other) {
             (Value::Str(a), Value::Str(b)) => Ok(Value::Bool(a.0.len() < b.0.len())),
             (Value::Numeric(a), Value::Numeric(b)) => {
@@ -201,7 +205,7 @@ impl<'a> Value<'a> {
         }
     }
 
-    fn eq(&self, other: Value<'a>) -> Result<Value<'a>, RuntimeError> {
+    fn eq(&self, other: Value) -> Result<Value, RuntimeError> {
         match (self, other) {
             // (Value::Str(a), Value::Str(b)) => Ok(Value::Bool(a.0.len() < b.0.len())),
             (Value::Numeric(a), Value::Numeric(b)) => {
@@ -283,17 +287,17 @@ impl<'a> Value<'a> {
 }
 
 #[derive(Debug, PartialEq)]
-struct Scope<'a> {
+struct Scope {
     parent_scope: Option<usize>,
-    values: HashMap<Identifier<'a>, Value<'a>>,
+    values: HashMap<Identifier, Value>,
 }
 
-pub struct Runtime<'a> {
-    scopes: Vec<Scope<'a>>,
+pub struct Runtime {
+    scopes: Vec<Scope>,
 }
 
-impl<'a> Runtime<'a> {
-    fn new() -> Runtime<'a> {
+impl Runtime {
+    fn new() -> Runtime {
         Runtime {
             scopes: vec![Scope {
                 parent_scope: None,
@@ -302,7 +306,7 @@ impl<'a> Runtime<'a> {
         }
     }
 
-    fn lookup(&self, scope_id: usize, id: &Identifier<'a>) -> Option<(usize, Value<'a>)> {
+    fn lookup(&self, scope_id: usize, id: &Identifier) -> Option<(usize, Value)> {
         let scope = self.scopes.get(scope_id)?;
         if let Some(value) = scope.values.get(id) {
             return Some((scope_id, value.clone()));
@@ -318,8 +322,8 @@ impl<'a> Runtime<'a> {
     fn execute_block(
         &mut self,
         scope: usize,
-        block: &Block<'a>,
-    ) -> Result<(Value<'a>, Option<Value<'a>>), RuntimeError> {
+        block: &Block,
+    ) -> Result<(Value, Option<Value>), RuntimeError> {
         let mut result = Value::Unit;
         let mut ret = None;
 
@@ -337,11 +341,11 @@ impl<'a> Runtime<'a> {
         Ok((result, None))
     }
 
-    fn define(&mut self, scope: usize, item: &Item<'a>) -> Result<(), RuntimeError> {
+    fn define(&mut self, scope: usize, item: &Item) -> Result<(), RuntimeError> {
         match item {
             Item::NamedFn { name, params, body } => {
                 self.scopes[scope].values.insert(
-                    *name,
+                    name.clone(),
                     Value::FnDef(FnDef {
                         parent_scope: scope,
                         params: params.clone(),
@@ -357,8 +361,8 @@ impl<'a> Runtime<'a> {
     fn execute(
         &mut self,
         scope: usize,
-        stmt: &Stmt<'a>,
-    ) -> Result<(Value<'a>, Option<Value<'a>>), RuntimeError> {
+        stmt: &Stmt,
+    ) -> Result<(Value, Option<Value>), RuntimeError> {
         match stmt {
             Stmt::Return { expr } => {
                 let (value, ret) = self.evaluate(scope, expr)?;
@@ -375,7 +379,7 @@ impl<'a> Runtime<'a> {
                     return Ok((Value::Unit, Some(return_value)));
                 }
 
-                self.scopes[scope].values.insert(*id, value);
+                self.scopes[scope].values.insert(id.clone(), value);
 
                 Ok((Value::Unit, None))
             }
@@ -391,7 +395,9 @@ impl<'a> Runtime<'a> {
                     return Ok((Value::Unit, Some(return_value)));
                 }
 
-                self.scopes[def_scope].values.insert(*id, value.clone());
+                self.scopes[def_scope]
+                    .values
+                    .insert(id.clone(), value.clone());
 
                 Ok((value, None))
             }
@@ -400,9 +406,9 @@ impl<'a> Runtime<'a> {
 
     fn invoke(
         &mut self,
-        def: FnDef<'a>,
-        args: Vec<(Option<Identifier<'a>>, Value<'a>)>,
-    ) -> Result<Value<'a>, RuntimeError> {
+        def: FnDef,
+        args: Vec<(Option<Identifier>, Value)>,
+    ) -> Result<Value, RuntimeError> {
         let execution_scope = self.scopes.len();
         self.scopes.push(Scope {
             parent_scope: Some(def.parent_scope),
@@ -413,7 +419,7 @@ impl<'a> Runtime<'a> {
         for (arg_name, arg_value) in args {
             if let Some(name) = arg_name {
                 // assign named param
-                match params_remaining.iter().position(|&p| p == name) {
+                match params_remaining.iter().position(|p| p == &name) {
                     Some(i) => {
                         params_remaining.remove(i);
                         self.scopes[execution_scope].values.insert(name, arg_value);
@@ -424,7 +430,7 @@ impl<'a> Runtime<'a> {
                         )));
                     }
                 }
-            } else if let Some(&name) = params_remaining.get(0) {
+            } else if let Some(name) = params_remaining.get(0).cloned() {
                 // assign next available param
                 params_remaining.remove(0);
                 self.scopes[execution_scope].values.insert(name, arg_value);
@@ -454,8 +460,8 @@ impl<'a> Runtime<'a> {
     fn evaluate(
         &mut self,
         scope: usize,
-        expr: &Expr<'a>,
-    ) -> Result<(Value<'a>, Option<Value<'a>>), RuntimeError> {
+        expr: &Expr,
+    ) -> Result<(Value, Option<Value>), RuntimeError> {
         match expr {
             Expr::StrLiteral { pieces } => {
                 let mut build = "".to_string();
@@ -490,8 +496,8 @@ impl<'a> Runtime<'a> {
                 if let Some(return_value) = ret {
                     return Ok((Value::Unit, Some(return_value)));
                 }
-                match op {
-                    &"!" => Ok((value.negate()?, None)),
+                match op.as_str() {
+                    "!" => Ok((value.negate()?, None)),
                     _ => Err(RuntimeError(format!("Unknown unary operation: {op}"))),
                 }
             }
@@ -500,22 +506,22 @@ impl<'a> Runtime<'a> {
                 if let Some(return_value) = ret {
                     return Ok((Value::Unit, Some(return_value)));
                 }
-                match op {
-                    &"+" => {
+                match op.as_str() {
+                    "+" => {
                         let (right_value, ret) = self.evaluate(scope, right)?;
                         if let Some(return_value) = ret {
                             return Ok((Value::Unit, Some(return_value)));
                         }
                         Ok((left_value.add(right_value)?, None))
                     }
-                    &"<" => {
+                    "<" => {
                         let (right_value, ret) = self.evaluate(scope, right)?;
                         if let Some(return_value) = ret {
                             return Ok((Value::Unit, Some(return_value)));
                         }
                         Ok((left_value.lt(right_value)?, None))
                     }
-                    &"==" => {
+                    "==" => {
                         let (right_value, ret) = self.evaluate(scope, right)?;
                         if let Some(return_value) = ret {
                             return Ok((Value::Unit, Some(return_value)));
@@ -540,7 +546,7 @@ impl<'a> Runtime<'a> {
                     if let Some(return_value) = ret {
                         return Ok((Value::Unit, Some(return_value)));
                     }
-                    evaluated_args.push((arg.name, arg_value));
+                    evaluated_args.push((arg.name.clone(), arg_value));
                 }
 
                 Ok((self.invoke(def, evaluated_args)?, None))
@@ -628,23 +634,20 @@ impl<'a> Runtime<'a> {
     }
 }
 
-pub fn execute<'a>(doc: &'a Document<'a>, stdin: String) -> Result<Value<'a>, RuntimeError> {
+pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
     let mut runtime = Runtime::new();
 
     runtime.scopes[0]
         .values
-        .insert(Identifier("stdin"), Value::Str(Str(stdin)));
+        .insert(id("stdin"), Value::Str(Str(stdin)));
 
     runtime.scopes[0].values.insert(
-        Identifier("print"),
+        id("print"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![Identifier("text")],
+            params: vec![id("text")],
             body: FnBody::Builtin(|runtime, scope| {
-                let text = runtime.scopes[scope]
-                    .values
-                    .get(&Identifier("text"))
-                    .unwrap();
+                let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
                 println!("{}", text);
                 Ok(Value::Unit)
@@ -653,12 +656,12 @@ pub fn execute<'a>(doc: &'a Document<'a>, stdin: String) -> Result<Value<'a>, Ru
     );
 
     runtime.scopes[0].values.insert(
-        Identifier("run"),
+        id("run"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![Identifier("f")],
+            params: vec![id("f")],
             body: FnBody::Builtin(|runtime, scope| {
-                let f = runtime.scopes[scope].values.get(&Identifier("f")).unwrap();
+                let f = runtime.scopes[scope].values.get(&id("f")).unwrap();
 
                 match f {
                     Value::FnDef(def) => {
@@ -675,15 +678,12 @@ pub fn execute<'a>(doc: &'a Document<'a>, stdin: String) -> Result<Value<'a>, Ru
     );
 
     runtime.scopes[0].values.insert(
-        Identifier("max"),
+        id("max"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![Identifier("items")],
+            params: vec![id("items")],
             body: FnBody::Builtin(|runtime, scope| {
-                let items = runtime.scopes[scope]
-                    .values
-                    .get(&Identifier("items"))
-                    .unwrap();
+                let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
                 match items {
                     Value::List(list) => {
@@ -701,15 +701,12 @@ pub fn execute<'a>(doc: &'a Document<'a>, stdin: String) -> Result<Value<'a>, Ru
     );
 
     runtime.scopes[0].values.insert(
-        Identifier("map"),
+        id("map"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![Identifier("items"), Identifier("cb")],
+            params: vec![id("items"), id("cb")],
             body: FnBody::Builtin(|runtime, scope| {
-                let items = runtime.scopes[scope]
-                    .values
-                    .get(&Identifier("items"))
-                    .unwrap();
+                let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
                 let Value::List(list) = items else {
                     return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
@@ -717,7 +714,7 @@ pub fn execute<'a>(doc: &'a Document<'a>, stdin: String) -> Result<Value<'a>, Ru
 
                 let list = list.clone();
 
-                let cb = runtime.scopes[scope].values.get(&Identifier("cb")).unwrap();
+                let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
 
                 let Value::FnDef(def) = cb else {
                     return Err(RuntimeError(format!(
@@ -733,21 +730,18 @@ pub fn execute<'a>(doc: &'a Document<'a>, stdin: String) -> Result<Value<'a>, Ru
                     result.push(runtime.invoke(def.clone(), vec![(None, item.clone())])?);
                 }
 
-                Ok(Value::List(Box::new(Cow::Owned(result))))
+                Ok(Value::List(result))
             }),
         }),
     );
 
     runtime.scopes[0].values.insert(
-        Identifier("sum"),
+        id("sum"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![Identifier("items")],
+            params: vec![id("items")],
             body: FnBody::Builtin(|runtime, scope| {
-                let items = runtime.scopes[scope]
-                    .values
-                    .get(&Identifier("items"))
-                    .unwrap();
+                let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
                 let Value::List(list) = items else {
                     return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
@@ -764,15 +758,12 @@ pub fn execute<'a>(doc: &'a Document<'a>, stdin: String) -> Result<Value<'a>, Ru
     );
 
     runtime.scopes[0].values.insert(
-        Identifier("split"),
+        id("split"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![Identifier("text"), Identifier("sep")],
+            params: vec![id("text"), id("sep")],
             body: FnBody::Builtin(|runtime, scope| {
-                let text = runtime.scopes[scope]
-                    .values
-                    .get(&Identifier("text"))
-                    .unwrap();
+                let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
                 let Value::Str(text) = text else {
                     return Err(RuntimeError(format!(
@@ -781,10 +772,7 @@ pub fn execute<'a>(doc: &'a Document<'a>, stdin: String) -> Result<Value<'a>, Ru
                     )));
                 };
 
-                let sep = runtime.scopes[scope]
-                    .values
-                    .get(&Identifier("sep"))
-                    .unwrap();
+                let sep = runtime.scopes[scope].values.get(&id("sep")).unwrap();
 
                 let Value::Str(sep) = sep else {
                     return Err(RuntimeError(format!(
@@ -799,21 +787,38 @@ pub fn execute<'a>(doc: &'a Document<'a>, stdin: String) -> Result<Value<'a>, Ru
                     .map(|piece| Value::Str(Str(piece.to_string())))
                     .collect::<Vec<_>>();
 
-                Ok(Value::List(Box::new(Cow::Owned(result))))
+                Ok(Value::List(result))
             }),
         }),
     );
 
     runtime.scopes[0].values.insert(
-        Identifier("int"),
+        id("trim"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![Identifier("data")],
+            params: vec![id("text")],
             body: FnBody::Builtin(|runtime, scope| {
-                let data = runtime.scopes[scope]
-                    .values
-                    .get(&Identifier("data"))
-                    .unwrap();
+                let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
+
+                let Value::Str(text) = text else {
+                    return Err(RuntimeError(format!(
+                        "trim[#1] must be a string, is a: {}",
+                        text.ty()
+                    )));
+                };
+
+                Ok(Value::Str(Str(text.0.trim().to_string())))
+            }),
+        }),
+    );
+
+    runtime.scopes[0].values.insert(
+        id("int"),
+        Value::FnDef(FnDef {
+            parent_scope: 0,
+            params: vec![id("data")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let data = runtime.scopes[scope].values.get(&id("data")).unwrap();
 
                 let result = data.auto_coerce_int()?;
 
