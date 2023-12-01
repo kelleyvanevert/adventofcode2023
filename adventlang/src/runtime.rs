@@ -35,8 +35,7 @@ impl Numeric {
             (Numeric::Double(a), b) => Numeric::Double(a + b.get_double()),
             (a, Numeric::Double(b)) => Numeric::Double(a.get_double() + b),
 
-            (Numeric::Int(a), b) => Numeric::Int(a + b.round_to_int()),
-            (a, Numeric::Int(b)) => Numeric::Int(a.round_to_int() + b),
+            (Numeric::Int(a), Numeric::Int(b)) => Numeric::Int(a + b),
         }
     }
 
@@ -45,8 +44,7 @@ impl Numeric {
             (Numeric::Double(a), b) => Numeric::Double(a.max(b.get_double())),
             (a, Numeric::Double(b)) => Numeric::Double(a.get_double().max(b)),
 
-            (Numeric::Int(a), b) => Numeric::Int(*a.max(&b.round_to_int())),
-            (a, Numeric::Int(b)) => Numeric::Int(a.round_to_int().max(b)),
+            (Numeric::Int(a), Numeric::Int(b)) => Numeric::Int(*a.max(&b)),
         }
     }
 
@@ -57,17 +55,10 @@ impl Numeric {
         }
     }
 
-    fn round_to_int(&self) -> i64 {
-        match self {
-            Numeric::Int(a) => *a as i64,
-            Numeric::Double(a) => *a as i64,
-        }
-    }
-
     fn get_int(&self) -> Result<i64, RuntimeError> {
         match self {
             Numeric::Int(a) => Ok(*a as i64),
-            Numeric::Double(a) => Err(RuntimeError(
+            Numeric::Double(_) => Err(RuntimeError(
                 "value is a double, cannot be converted to an int".to_string(),
             )),
         }
@@ -115,7 +106,7 @@ impl Display for Value {
             Value::Str(str) => write!(f, "{}", str.0),
             Value::Numeric(num) => write!(f, "{num}"),
             Value::FnDef(_) => write!(f, "[fn]"),
-            Value::List(t, list) => {
+            Value::List(_, list) => {
                 write!(f, "[")?;
                 let len = list.len();
                 for (i, item) in list.iter().enumerate() {
