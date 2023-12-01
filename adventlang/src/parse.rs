@@ -228,11 +228,11 @@ pub fn expr_leaf(input: &str) -> ParseResult<&str, Expr> {
         do_while_expr,
         while_expr,
         loop_expr,
+        map(tag("nil"), |_| Expr::NilLiteral),
         map(identifier, Expr::Variable),
         map(numeric, Expr::Numeric),
         str_literal,
         anonymous_fn,
-        map(tag("()"), |_| Expr::UnitLiteral),
         tuple_literal_or_parenthesized_expr,
         list_literal,
     ))

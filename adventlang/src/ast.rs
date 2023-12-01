@@ -30,7 +30,7 @@ pub enum Expr {
     StrLiteral {
         pieces: Vec<StrLiteralPiece>,
     },
-    UnitLiteral,
+    NilLiteral,
     Numeric(Numeric),
     Variable(Identifier),
     UnaryExpr {

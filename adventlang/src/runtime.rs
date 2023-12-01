@@ -106,7 +106,6 @@ pub enum FnBody {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Nil,
-    Unit,
     Bool(bool),
     Str(Str),
     Numeric(Numeric),
@@ -119,7 +118,6 @@ impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Value::Nil => write!(f, "nil"),
-            Value::Unit => write!(f, "()"),
             Value::Bool(b) => write!(f, "{b}"),
             Value::Str(str) => write!(f, "{}", str.0),
             Value::Numeric(num) => write!(f, "{num}"),
@@ -155,27 +153,43 @@ impl Display for Value {
 
 #[derive(Debug, PartialEq)]
 enum Type {
+    Any,
     Nil,
-    Unit,
     Bool,
     Str,
     Numeric,
     FnDef,
-    List, // TODO paremetrize with element type
+    List(Box<Type>),
     Tuple,
+    Union(Vec<Type>),
 }
 
 impl Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Type::Any => write!(f, "Any"),
             Type::Nil => write!(f, "Nil"),
-            Type::Unit => write!(f, "Unit"),
             Type::Bool => write!(f, "Bool"),
             Type::Str => write!(f, "Str"),
             Type::Numeric => write!(f, "Numeric"),
             Type::FnDef => write!(f, "FnDef"),
-            Type::List => write!(f, "List"),
+            Type::List(t) => write!(f, "List[{t}]"),
             Type::Tuple => write!(f, "Tuple"),
+            Type::Union(types) => {
+                if types.len() == 0 {
+                    write!(f, "!")
+                } else {
+                    write!(
+                        f,
+                        "{}",
+                        types
+                            .iter()
+                            .map(|t| format!("{t}"))
+                            .collect::<Vec<_>>()
+                            .join(" | ")
+                    )
+                }
+            }
         }
     }
 }
@@ -184,7 +198,6 @@ impl Value {
     fn negate(&self) -> Result<Value, RuntimeError> {
         match self {
             Value::Nil => Ok(Value::Nil),
-            Value::Unit => Ok(Value::Unit),
             Value::Bool(b) => Ok(Value::Bool(!b)),
             Value::Str(_) => Err(RuntimeError(format!("Can't negate str"))),
             Value::Numeric(n) => Ok(Value::Numeric(n.negate()?)),
@@ -251,7 +264,6 @@ impl Value {
     fn auto_coerce_str(&self) -> String {
         match self {
             Value::Nil => "".into(),
-            Value::Unit => "".into(),
             Value::Bool(b) => {
                 if *b {
                     "true".into()
@@ -271,7 +283,6 @@ impl Value {
     fn auto_coerce_int(&self) -> Result<i64, RuntimeError> {
         match self {
             Value::Nil => Err(RuntimeError(format!("cannot coerce {} to int", self.ty()))),
-            Value::Unit => Err(RuntimeError(format!("cannot coerce {} to int", self.ty()))),
             Value::Bool(b) => {
                 if *b {
                     Ok(1)
@@ -297,12 +308,14 @@ impl Value {
     fn ty(&self) -> Type {
         match self {
             Value::Nil => Type::Nil,
-            Value::Unit => Type::Unit,
             Value::Bool(_) => Type::Bool,
             Value::Str(_) => Type::Str,
             Value::Numeric(_) => Type::Numeric,
             Value::FnDef(_) => Type::FnDef,
-            Value::List(_) => Type::List,
+            Value::List(elements) => match elements.get(0) {
+                None => Type::List(Type::Any.into()),
+                Some(el) => Type::List(el.ty().into()),
+            },
             Value::Tuple(_) => Type::Tuple,
         }
     }
@@ -353,7 +366,7 @@ impl Runtime {
         scope: usize,
         block: &Block,
     ) -> Result<(Value, Option<Value>), RuntimeError> {
-        let mut result = Value::Unit;
+        let mut result = Value::Nil;
         let mut ret = None;
 
         for item in &block.items {
@@ -363,7 +376,7 @@ impl Runtime {
         for stmt in &block.stmts {
             (result, ret) = self.execute(scope, &stmt)?;
             if ret.is_some() {
-                return Ok((Value::Unit, ret));
+                return Ok((Value::Nil, ret));
             }
         }
 
@@ -396,21 +409,21 @@ impl Runtime {
             Stmt::Return { expr } => {
                 let (value, ret) = self.evaluate(scope, expr)?;
                 if let Some(return_value) = ret {
-                    return Ok((Value::Unit, Some(return_value)));
+                    return Ok((Value::Nil, Some(return_value)));
                 }
 
-                Ok((Value::Unit, Some(value)))
+                Ok((Value::Nil, Some(value)))
             }
             Stmt::Expr { expr } => self.evaluate(scope, expr),
             Stmt::Declare { id, expr } => {
                 let (value, ret) = self.evaluate(scope, expr)?;
                 if let Some(return_value) = ret {
-                    return Ok((Value::Unit, Some(return_value)));
+                    return Ok((Value::Nil, Some(return_value)));
                 }
 
                 self.scopes[scope].values.insert(id.clone(), value);
 
-                Ok((Value::Unit, None))
+                Ok((Value::Nil, None))
             }
             Stmt::Assign { id, expr } => {
                 let Some((def_scope, _)) = self.lookup(scope, id) else {
@@ -421,7 +434,7 @@ impl Runtime {
 
                 let (value, ret) = self.evaluate(scope, expr)?;
                 if let Some(return_value) = ret {
-                    return Ok((Value::Unit, Some(return_value)));
+                    return Ok((Value::Nil, Some(return_value)));
                 }
 
                 self.scopes[def_scope]
@@ -492,7 +505,7 @@ impl Runtime {
         expr: &Expr,
     ) -> Result<(Value, Option<Value>), RuntimeError> {
         match expr {
-            Expr::UnitLiteral => Ok((Value::Unit, None)),
+            Expr::NilLiteral => Ok((Value::Nil, None)),
             Expr::StrLiteral { pieces } => {
                 let mut build = "".to_string();
 
@@ -504,7 +517,7 @@ impl Runtime {
                         StrLiteralPiece::Interpolation(expr) => {
                             let (value, ret) = self.evaluate(scope, expr)?;
                             if let Some(return_value) = ret {
-                                return Ok((Value::Unit, Some(return_value)));
+                                return Ok((Value::Nil, Some(return_value)));
                             }
                             build += &value.auto_coerce_str();
                         }
@@ -524,7 +537,7 @@ impl Runtime {
             Expr::UnaryExpr { expr, op } => {
                 let (value, ret) = self.evaluate(scope, expr)?;
                 if let Some(return_value) = ret {
-                    return Ok((Value::Unit, Some(return_value)));
+                    return Ok((Value::Nil, Some(return_value)));
                 }
                 match op.as_str() {
                     "!" => Ok((value.negate()?, None)),
@@ -534,27 +547,27 @@ impl Runtime {
             Expr::BinaryExpr { left, op, right } => {
                 let (left_value, ret) = self.evaluate(scope, left)?;
                 if let Some(return_value) = ret {
-                    return Ok((Value::Unit, Some(return_value)));
+                    return Ok((Value::Nil, Some(return_value)));
                 }
                 match op.as_str() {
                     "+" => {
                         let (right_value, ret) = self.evaluate(scope, right)?;
                         if let Some(return_value) = ret {
-                            return Ok((Value::Unit, Some(return_value)));
+                            return Ok((Value::Nil, Some(return_value)));
                         }
                         Ok((left_value.add(right_value)?, None))
                     }
                     "<" => {
                         let (right_value, ret) = self.evaluate(scope, right)?;
                         if let Some(return_value) = ret {
-                            return Ok((Value::Unit, Some(return_value)));
+                            return Ok((Value::Nil, Some(return_value)));
                         }
                         Ok((left_value.lt(right_value)?, None))
                     }
                     "==" => {
                         let (right_value, ret) = self.evaluate(scope, right)?;
                         if let Some(return_value) = ret {
-                            return Ok((Value::Unit, Some(return_value)));
+                            return Ok((Value::Nil, Some(return_value)));
                         }
                         Ok((left_value.eq(right_value)?, None))
                     }
@@ -566,7 +579,7 @@ impl Runtime {
                 for expr in elements {
                     let (expr_value, ret) = self.evaluate(scope, expr)?;
                     if ret.is_some() {
-                        return Ok((Value::Unit, ret));
+                        return Ok((Value::Nil, ret));
                     }
                     element_values.push(expr_value);
                 }
@@ -579,7 +592,7 @@ impl Runtime {
                 for expr in elements {
                     let (expr_value, ret) = self.evaluate(scope, expr)?;
                     if ret.is_some() {
-                        return Ok((Value::Unit, ret));
+                        return Ok((Value::Nil, ret));
                     }
                     element_values.push(expr_value);
                 }
@@ -590,7 +603,7 @@ impl Runtime {
             Expr::Invocation { expr, args } => {
                 let (expr_value, ret) = self.evaluate(scope, expr)?;
                 if ret.is_some() {
-                    return Ok((Value::Unit, ret));
+                    return Ok((Value::Nil, ret));
                 }
                 let Value::FnDef(def) = expr_value else {
                     return Err(RuntimeError(format!("cannot call {}", expr_value.ty())));
@@ -600,7 +613,7 @@ impl Runtime {
                 for arg in args {
                     let (arg_value, ret) = self.evaluate(scope, &arg.expr)?;
                     if let Some(return_value) = ret {
-                        return Ok((Value::Unit, Some(return_value)));
+                        return Ok((Value::Nil, Some(return_value)));
                     }
                     evaluated_args.push((arg.name.clone(), arg_value));
                 }
@@ -618,32 +631,32 @@ impl Runtime {
             Expr::If { cond, then, els } => {
                 let (cond_value, ret) = self.evaluate(scope, cond)?;
                 if ret.is_some() {
-                    return Ok((Value::Unit, ret));
+                    return Ok((Value::Nil, ret));
                 }
 
-                let mut result = Value::Unit;
+                let mut result = Value::Nil;
                 let mut ret = None;
                 if cond_value.auto_coerce_bool()? {
                     (result, ret) = self.execute_block(scope, then)?;
                     if ret.is_some() {
-                        return Ok((Value::Unit, ret));
+                        return Ok((Value::Nil, ret));
                     }
                 } else if let Some(els) = els {
                     (result, ret) = self.execute_block(scope, els)?;
                     if ret.is_some() {
-                        return Ok((Value::Unit, ret));
+                        return Ok((Value::Nil, ret));
                     }
                 }
 
                 Ok((result, None))
             }
             Expr::While { cond, body } => {
-                let mut result = Value::Unit;
+                let mut result = Value::Nil;
                 let mut ret = None;
                 loop {
                     let (cond_value, cond_ret) = self.evaluate(scope, cond)?;
                     if let Some(return_value) = cond_ret {
-                        return Ok((Value::Unit, Some(return_value)));
+                        return Ok((Value::Nil, Some(return_value)));
                     }
                     if !cond_value.auto_coerce_bool()? {
                         return Ok((result, None));
@@ -651,24 +664,24 @@ impl Runtime {
 
                     (result, ret) = self.execute_block(scope, body)?;
                     if ret.is_some() {
-                        return Ok((Value::Unit, ret));
+                        return Ok((Value::Nil, ret));
                     }
                 }
             }
             Expr::DoWhile { cond, body } => loop {
                 loop {
-                    let mut result = Value::Unit;
+                    let mut result = Value::Nil;
                     let mut ret = None;
 
                     (result, ret) = self.execute_block(scope, body)?;
                     if ret.is_some() {
-                        return Ok((Value::Unit, ret));
+                        return Ok((Value::Nil, ret));
                     }
 
                     if let Some(cond) = cond {
                         let (cond_value, ret) = self.evaluate(scope, cond)?;
                         if ret.is_some() {
-                            return Ok((Value::Unit, ret));
+                            return Ok((Value::Nil, ret));
                         }
                         if !cond_value.auto_coerce_bool()? {
                             return Ok((result, None));
@@ -682,7 +695,7 @@ impl Runtime {
                 loop {
                     let (_, ret) = self.execute_block(scope, body)?;
                     if ret.is_some() {
-                        return Ok((Value::Unit, ret));
+                        return Ok((Value::Nil, ret));
                     }
                 }
             },
@@ -706,7 +719,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                 let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
                 println!("{}", text);
-                Ok(Value::Unit)
+                Ok(Value::Nil)
             }),
         }),
     );
@@ -885,7 +898,6 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                     match item {
                         // TODO fix the "nil as well as unit" problem
                         Value::Nil => {}
-                        Value::Unit => {}
                         _ => {
                             result.push(item);
                         }
@@ -928,14 +940,13 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                     match item {
                         // TODO fix the "nil as well as unit" problem
                         Value::Nil => {}
-                        Value::Unit => {}
                         _ => {
                             return Ok(item);
                         }
                     }
                 }
 
-                Ok(Value::Unit)
+                Ok(Value::Nil)
             }),
         }),
     );
