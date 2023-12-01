@@ -1,4 +1,8 @@
-use std::{collections::HashMap, fmt::Display};
+use std::{
+    cmp::Ordering,
+    collections::{HashMap, HashSet},
+    fmt::Display,
+};
 
 use crate::ast::{Block, Document, Expr, Identifier, Item, Stmt, StrLiteralPiece};
 
@@ -110,7 +114,7 @@ pub enum Value {
     Str(Str),
     Numeric(Numeric),
     FnDef(FnDef),
-    List(Vec<Value>),
+    List(Type, Vec<Value>),
     Tuple(Vec<Value>),
 }
 
@@ -122,7 +126,7 @@ impl Display for Value {
             Value::Str(str) => write!(f, "{}", str.0),
             Value::Numeric(num) => write!(f, "{num}"),
             Value::FnDef(_) => write!(f, "[fn]"),
-            Value::List(list) => {
+            Value::List(t, list) => {
                 write!(f, "[")?;
                 let len = list.len();
                 for (i, item) in list.iter().enumerate() {
@@ -151,8 +155,8 @@ impl Display for Value {
     }
 }
 
-#[derive(Debug, PartialEq)]
-enum Type {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Type {
     Any,
     Nil,
     Bool,
@@ -162,6 +166,129 @@ enum Type {
     List(Box<Type>),
     Tuple,
     Union(Vec<Type>),
+}
+
+impl Type {
+    fn flatten_unions(&self) -> Vec<Type> {
+        match self {
+            Type::Union(types) => types.into_iter().flat_map(Type::flatten_unions).collect(),
+            _ => vec![self.clone()],
+        }
+    }
+
+    fn canonicalize(&self) -> Type {
+        match self {
+            // does:
+            // - flatten nested unions
+            // - remove duplicates
+            // - if single type -> return that single type
+            Type::Union(_) => {
+                let types = self
+                    .flatten_unions()
+                    .iter()
+                    .map(Type::canonicalize)
+                    .collect::<HashSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>();
+
+                if types.len() == 1 {
+                    types[0].clone()
+                } else if types.contains(&Type::Any) {
+                    Type::Any
+                } else {
+                    Type::Union(types)
+                }
+            }
+            t => t.clone(),
+        }
+    }
+
+    fn narrow(&self, other: &Type) -> Option<Type> {
+        match self.partial_cmp(other) {
+            None => None,
+            Some(comparison) => match comparison {
+                Ordering::Greater => Some(other.clone()),
+                _ => Some(self.clone()),
+            },
+        }
+    }
+}
+
+// lower = more specific, higher = less specific
+// - Any is the highest i.e. least specific, it permits all types
+// - Nil contains 1 element "nil" (it's basically unit, but, I call it differently)
+// - Union([]) contains zero elements
+impl PartialOrd for Type {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        let a = self.canonicalize();
+        let b = other.canonicalize();
+
+        let simple = [Type::Nil, Type::Bool, Type::Numeric, Type::Str, Type::Tuple];
+
+        match (&a, &b) {
+            (Type::Any, Type::Any) => Some(Ordering::Equal),
+            (Type::Any, _) => Some(Ordering::Greater),
+            (_, Type::Any) => Some(Ordering::Less),
+
+            (a, b) if simple.contains(a) & simple.contains(b) => {
+                if a == b {
+                    Some(Ordering::Equal)
+                } else {
+                    None
+                }
+            }
+
+            (Type::List(_), b) if simple.contains(b) => None,
+            (a, Type::List(_)) if simple.contains(a) => None,
+            (Type::List(a), Type::List(b)) => a.partial_cmp(b),
+
+            // TODO make fn types comparable as well
+            (Type::FnDef, _) => None,
+            (_, Type::FnDef) => None,
+
+            (_, _) => {
+                println!("REL");
+                let a_types = a.flatten_unions();
+                let b_types = b.flatten_unions();
+
+                let mut a_gte_b = true;
+                let mut b_gte_a = true;
+
+                for b in &b_types {
+                    // disprove that a >= b
+                    if a_gte_b && !a_types.iter().any(|a| a >= b) {
+                        a_gte_b = false;
+                        println!("found b {} not in A {:?}", b, a_types);
+                        if !b_gte_a {
+                            return None;
+                        }
+                    }
+                }
+
+                for a in &a_types {
+                    // try to find any other type that is not covered in my types
+                    if b_gte_a && !b_types.iter().any(|b| b >= a) {
+                        println!("found a {} not in B {:?}", a, b_types);
+                        b_gte_a = false;
+                        if !a_gte_b {
+                            return None;
+                        }
+                    }
+                }
+
+                println!("res a >= b {a_gte_b}, b >= a {b_gte_a}");
+                if a_gte_b && b_gte_a {
+                    Some(Ordering::Equal)
+                } else if a_gte_b {
+                    Some(Ordering::Greater)
+                } else if b_gte_a {
+                    Some(Ordering::Less)
+                } else {
+                    None
+                }
+            }
+        }
+    }
 }
 
 impl Display for Type {
@@ -202,7 +329,7 @@ impl Value {
             Value::Str(_) => Err(RuntimeError(format!("Can't negate str"))),
             Value::Numeric(n) => Ok(Value::Numeric(n.negate()?)),
             Value::FnDef(_) => Err(RuntimeError(format!("Can't negate fndef"))),
-            Value::List(_) => Err(RuntimeError(format!("Can't negate list"))),
+            Value::List(_, _) => Err(RuntimeError(format!("Can't negate list"))),
             Value::Tuple(_) => Err(RuntimeError(format!("Can't negate tuple"))),
         }
     }
@@ -274,7 +401,7 @@ impl Value {
             Value::Str(str) => str.0.clone(),
             Value::Numeric(n) => format!("{n}"),
             Value::FnDef(_) => "<fn>".into(),
-            Value::List(_) => "<list>".into(),
+            Value::List(_, _) => "<list>".into(),
             Value::Tuple(_) => "<tuple>".into(),
         }
     }
@@ -312,10 +439,7 @@ impl Value {
             Value::Str(_) => Type::Str,
             Value::Numeric(_) => Type::Numeric,
             Value::FnDef(_) => Type::FnDef,
-            Value::List(elements) => match elements.get(0) {
-                None => Type::List(Type::Any.into()),
-                Some(el) => Type::List(el.ty().into()),
-            },
+            Value::List(t, _) => Type::List(t.clone().into()),
             Value::Tuple(_) => Type::Tuple,
         }
     }
@@ -575,16 +699,22 @@ impl Runtime {
                 }
             }
             Expr::ListLiteral { elements } => {
+                let mut ty = Type::Any;
                 let mut element_values = vec![];
                 for expr in elements {
                     let (expr_value, ret) = self.evaluate(scope, expr)?;
                     if ret.is_some() {
                         return Ok((Value::Nil, ret));
                     }
+                    if let Some(narrowed) = ty.narrow(&expr_value.ty()) {
+                        ty = narrowed;
+                    } else {
+                        return Err(RuntimeError("list contains distinct types".into()));
+                    }
                     element_values.push(expr_value);
                 }
 
-                let list = Value::List(element_values);
+                let list = Value::List(ty, element_values);
                 Ok((list, None))
             }
             Expr::TupleLiteral { elements } => {
@@ -755,7 +885,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
                 match items {
-                    Value::List(list) => {
+                    Value::List(_, list) => {
                         let mut result = Value::Nil;
                         for item in list.iter() {
                             result = result.max(item.clone())?;
@@ -777,7 +907,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
-                let Value::List(list) = items else {
+                let Value::List(_, list) = items else {
                     return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
                 };
 
@@ -799,7 +929,8 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                     result.push(runtime.invoke(def.clone(), vec![(None, item.clone())])?);
                 }
 
-                Ok(Value::List(result))
+                // TODO
+                Ok(Value::List(Type::Any, result))
             }),
         }),
     );
@@ -814,7 +945,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
 
                 let haystack = runtime.scopes[scope].values.get(&id("haystack")).unwrap();
 
-                let Value::List(haystack) = haystack else {
+                let Value::List(_, haystack) = haystack else {
                     return Err(RuntimeError(format!(
                         "cannot get max of: {}",
                         haystack.ty()
@@ -834,7 +965,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
-                let Value::List(list) = items else {
+                let Value::List(_, list) = items else {
                     return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
                 };
 
@@ -861,7 +992,8 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                     }
                 }
 
-                Ok(Value::List(result))
+                // TODO
+                Ok(Value::List(Type::Any, result))
             }),
         }),
     );
@@ -874,7 +1006,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
-                let Value::List(list) = items else {
+                let Value::List(_, list) = items else {
                     return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
                 };
 
@@ -904,7 +1036,8 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                     }
                 }
 
-                Ok(Value::List(result))
+                // TODO
+                Ok(Value::List(Type::Any, result))
             }),
         }),
     );
@@ -917,7 +1050,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
-                let Value::List(list) = items else {
+                let Value::List(_, list) = items else {
                     return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
                 };
 
@@ -981,12 +1114,14 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
 
                 if end >= start {
                     Ok(Value::List(
+                        Type::Numeric,
                         (start..end)
                             .map(|n| Value::Numeric(Numeric::Int(n)))
                             .collect(),
                     ))
                 } else {
                     Ok(Value::List(
+                        Type::Numeric,
                         (0..(start - end))
                             .map(|n| Value::Numeric(Numeric::Int(start - n)))
                             .collect(),
@@ -1004,7 +1139,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
-                let Value::List(list) = items else {
+                let Value::List(_, list) = items else {
                     return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
                 };
 
@@ -1048,7 +1183,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                     .map(|piece| Value::Str(Str(piece.to_string())))
                     .collect::<Vec<_>>();
 
-                Ok(Value::List(result))
+                Ok(Value::List(Type::Str, result))
             }),
         }),
     );
@@ -1128,7 +1263,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                 let list = runtime.scopes[scope].values.get(&id("list")).unwrap();
 
                 let list = match list {
-                    Value::List(list) => list,
+                    Value::List(_, list) => list,
                     Value::Tuple(list) => list,
                     _ => {
                         return Err(RuntimeError(format!(
@@ -1189,7 +1324,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
 
                 let len = match data {
                     Value::Str(text) => text.0.len(),
-                    Value::List(list) => list.len(),
+                    Value::List(_, list) => list.len(),
                     Value::Tuple(tuple) => tuple.len(),
                     _ => {
                         return Err(RuntimeError(format!("cannot get len of: {}", data.ty())));
@@ -1217,6 +1352,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                 };
 
                 Ok(Value::List(
+                    Type::Str,
                     text.0
                         .chars()
                         .map(|c| Value::Str(Str(c.to_string())))
@@ -1255,8 +1391,8 @@ mod tests {
     use super::*;
     use crate::*;
 
-    fn list(elements: Vec<Value>) -> Value {
-        Value::List(elements)
+    fn list(t: Type, elements: Vec<Value>) -> Value {
+        Value::List(t, elements)
     }
 
     fn tuple(elements: Vec<Value>) -> Value {
@@ -1268,15 +1404,61 @@ mod tests {
     }
 
     #[test]
+    fn types_po() {
+        assert_eq!(Type::Bool.partial_cmp(&Type::Bool), Some(Ordering::Equal));
+
+        assert_eq!(Type::Bool.partial_cmp(&Type::Nil), None);
+
+        assert_eq!(Type::Any.partial_cmp(&Type::Bool), Some(Ordering::Greater));
+
+        assert_eq!(
+            Type::Union(vec![Type::Bool]).partial_cmp(&Type::Bool),
+            Some(Ordering::Equal)
+        );
+
+        assert_eq!(
+            Type::Union(vec![Type::Bool, Type::Nil]).partial_cmp(&Type::Bool),
+            Some(Ordering::Greater)
+        );
+
+        assert_eq!(
+            Type::Union(vec![Type::Bool, Type::FnDef]).partial_cmp(&Type::Bool),
+            Some(Ordering::Greater)
+        );
+
+        assert_eq!(
+            Type::Union(vec![
+                Type::Bool,
+                Type::List(Type::Union(vec![Type::Bool, Type::FnDef]).into())
+            ])
+            .partial_cmp(&Type::List(Type::Bool.into())),
+            Some(Ordering::Greater)
+        );
+    }
+
+    #[test]
+    fn list_literals() {
+        assert_eq!(
+            execute(&parse_document(r#"[0]"#).unwrap(), "".into()),
+            Ok(list(Type::Numeric, vec![int(0)]))
+        );
+
+        assert_eq!(
+            execute(&parse_document(r#"[0, "hello"]"#).unwrap(), "".into()),
+            Err(RuntimeError("list contains distinct types".into()))
+        );
+    }
+
+    #[test]
     fn bla() {
         assert_eq!(
             execute(&parse_document("range(0, 10)").unwrap(), "".into()),
-            Ok(list((0..10).map(int).collect()))
+            Ok(list(Type::Numeric, (0..10).map(int).collect()))
         );
 
         assert_eq!(
             execute(&parse_document("range(6, 2)").unwrap(), "".into()),
-            Ok(list(vec![int(6), int(5), int(4), int(3)]))
+            Ok(list(Type::Numeric, vec![int(6), int(5), int(4), int(3)]))
         );
     }
 
