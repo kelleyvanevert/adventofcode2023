@@ -1,5 +1,6 @@
 #![feature(let_chains)]
 #![feature(iterator_try_reduce)]
+#![feature(iterator_try_collect)]
 use std::{
     fs,
     io::{self, Read},
@@ -69,7 +70,6 @@ fn main() {
             let result = execute(&doc, stdin);
             if timings {
                 eprintln!("Executed in {:?}", t0.elapsed());
-                eprintln!("===");
             }
             if let Err(runtime_err) = result {
                 eprintln!("Runtime error: {}", runtime_err.0);

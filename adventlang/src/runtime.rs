@@ -207,7 +207,7 @@ impl Value {
 
     fn eq(&self, other: Value) -> Result<Value, RuntimeError> {
         match (self, other) {
-            // (Value::Str(a), Value::Str(b)) => Ok(Value::Bool(a.0.len() < b.0.len())),
+            (Value::Str(a), Value::Str(b)) => Ok(Value::Bool(a.0 == b.0)),
             (Value::Numeric(a), Value::Numeric(b)) => {
                 Ok(Value::Bool(a.get_double() == b.get_double()))
             }
@@ -531,10 +531,23 @@ impl Runtime {
                     _ => Err(RuntimeError(format!("Unknown binary operation: {op}"))),
                 }
             }
+            Expr::ListLiteral { elements } => {
+                let mut element_values = vec![];
+                for expr in elements {
+                    let (expr_value, ret) = self.evaluate(scope, expr)?;
+                    if ret.is_some() {
+                        return Ok((Value::Unit, ret));
+                    }
+                    element_values.push(expr_value);
+                }
+
+                let list = Value::List(element_values);
+                Ok((list, None))
+            }
             Expr::Invocation { expr, args } => {
                 let (expr_value, ret) = self.evaluate(scope, expr)?;
-                if let Some(return_value) = ret {
-                    return Ok((Value::Unit, Some(return_value)));
+                if ret.is_some() {
+                    return Ok((Value::Unit, ret));
                 }
                 let Value::FnDef(def) = expr_value else {
                     return Err(RuntimeError(format!("cannot call {}", expr_value.ty())));
@@ -736,6 +749,68 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
     );
 
     runtime.scopes[0].values.insert(
+        id("in"),
+        Value::FnDef(FnDef {
+            parent_scope: 0,
+            params: vec![id("needle"), id("haystack")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let needle = runtime.scopes[scope].values.get(&id("needle")).unwrap();
+
+                let haystack = runtime.scopes[scope].values.get(&id("haystack")).unwrap();
+
+                let Value::List(haystack) = haystack else {
+                    return Err(RuntimeError(format!(
+                        "cannot get max of: {}",
+                        haystack.ty()
+                    )));
+                };
+
+                Ok(Value::Bool(haystack.contains(needle)))
+            }),
+        }),
+    );
+
+    runtime.scopes[0].values.insert(
+        id("filter"),
+        Value::FnDef(FnDef {
+            parent_scope: 0,
+            params: vec![id("items"), id("cb")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
+
+                let Value::List(list) = items else {
+                    return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                };
+
+                let list = list.clone();
+
+                let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
+
+                let Value::FnDef(def) = cb else {
+                    return Err(RuntimeError(format!(
+                        "cannot use filter w/ cb of type: {}",
+                        cb.ty()
+                    )));
+                };
+
+                let def = def.clone();
+
+                let mut result = vec![];
+                for item in list.iter() {
+                    if runtime
+                        .invoke(def.clone(), vec![(None, item.clone())])?
+                        .auto_coerce_bool()?
+                    {
+                        result.push(item.clone());
+                    }
+                }
+
+                Ok(Value::List(result))
+            }),
+        }),
+    );
+
+    runtime.scopes[0].values.insert(
         id("sum"),
         Value::FnDef(FnDef {
             parent_scope: 0,
@@ -793,6 +868,50 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
     );
 
     runtime.scopes[0].values.insert(
+        id("index"),
+        Value::FnDef(FnDef {
+            parent_scope: 0,
+            params: vec![id("list"), id("i")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let list = runtime.scopes[scope].values.get(&id("list")).unwrap();
+
+                let Value::List(list) = list else {
+                    return Err(RuntimeError(format!(
+                        "index[#1] must be a list, is a: {}",
+                        list.ty()
+                    )));
+                };
+
+                let i = runtime.scopes[scope].values.get(&id("i")).unwrap();
+
+                let Value::Numeric(i) = i else {
+                    return Err(RuntimeError(format!(
+                        "split[#2] must be an int, is a: {}",
+                        i.ty()
+                    )));
+                };
+
+                let i = match i {
+                    Numeric::Int(n) => *n as i64,
+                    Numeric::UInt(n) => *n as i64,
+                    Numeric::Double(_) => {
+                        return Err(RuntimeError(format!(
+                            "split[#2] must be an int, is a: double"
+                        )));
+                    }
+                };
+
+                let el = match i {
+                    i if i >= 0 => list.get(i as usize),
+                    _ => list.get((list.len() as i64 + i) as usize),
+                };
+
+                Ok(el.cloned().unwrap_or(Value::Nil))
+            }),
+        }),
+    );
+
+    runtime.scopes[0].values.insert(
         id("trim"),
         Value::FnDef(FnDef {
             parent_scope: 0,
@@ -808,6 +927,31 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                 };
 
                 Ok(Value::Str(Str(text.0.trim().to_string())))
+            }),
+        }),
+    );
+
+    runtime.scopes[0].values.insert(
+        id("chars"),
+        Value::FnDef(FnDef {
+            parent_scope: 0,
+            params: vec![id("text")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
+
+                let Value::Str(text) = text else {
+                    return Err(RuntimeError(format!(
+                        "trim[#1] must be a string, is a: {}",
+                        text.ty()
+                    )));
+                };
+
+                Ok(Value::List(
+                    text.0
+                        .chars()
+                        .map(|c| Value::Str(Str(c.to_string())))
+                        .collect(),
+                ))
             }),
         }),
     );

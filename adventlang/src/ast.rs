@@ -41,6 +41,13 @@ pub enum Expr {
         op: CompactString,
         right: Box<Expr>,
     },
+    ListLiteral {
+        elements: Vec<Expr>,
+    },
+    // Index {
+    //     expr: Box<Expr>,
+    //     index: Box<Expr>,
+    // },
     Invocation {
         expr: Box<Expr>,
         args: Vec<Argument>,

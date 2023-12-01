@@ -66,7 +66,7 @@ pub fn str_literal(input: &str) -> ParseResult<&str, Expr> {
 
 // TODO
 pub fn numeric(input: &str) -> ParseResult<&str, Numeric> {
-    map(regex(r"^[0-9]+"), |s| {
+    map(regex(r"^-?[0-9]+"), |s| {
         Numeric::Int(s.parse::<i64>().unwrap())
     })
     .parse(input)
@@ -170,6 +170,31 @@ pub fn while_expr(input: &str) -> ParseResult<&str, Expr> {
     .parse(input)
 }
 
+pub fn list_literal(input: &str) -> ParseResult<&str, Expr> {
+    delimited(
+        seq((tag("["), ws0)),
+        map(
+            optional(seq((
+                expr,
+                many0(preceded(seq((ws0, tag(","), ws0)), expr)),
+                ws0,
+                optional(tag(",")),
+            ))),
+            |opt| Expr::ListLiteral {
+                elements: match opt {
+                    None => vec![],
+                    Some((first_el, mut els, _, _)) => {
+                        els.insert(0, first_el);
+                        els
+                    }
+                },
+            },
+        ),
+        seq((ws0, tag("]"))),
+    )
+    .parse(input)
+}
+
 pub fn expr_leaf(input: &str) -> ParseResult<&str, Expr> {
     alt((
         do_while_expr,
@@ -180,6 +205,7 @@ pub fn expr_leaf(input: &str) -> ParseResult<&str, Expr> {
         str_literal,
         anonymous_fn,
         delimited(seq((tag("("), ws0)), expr, seq((ws0, tag(")")))),
+        list_literal,
     ))
     .parse(input)
 }
@@ -252,9 +278,38 @@ pub fn invocation_args(input: &str) -> ParseResult<&str, Vec<Argument>> {
     }
 }
 
+pub fn expr_index_stack(input: &str) -> ParseResult<&str, Expr> {
+    map(
+        seq((
+            expr_leaf,
+            many0(delimited(
+                seq((ws0, tag("["), ws0)),
+                expr,
+                seq((ws0, tag("]"))),
+            )),
+        )),
+        |(mut expr, indices)| {
+            for index in indices {
+                expr = Expr::Invocation {
+                    expr: Expr::Variable(Identifier("index".into())).into(),
+                    args: vec![
+                        Argument { name: None, expr },
+                        Argument {
+                            name: None,
+                            expr: index,
+                        },
+                    ],
+                }
+            }
+            expr
+        },
+    )
+    .parse(input)
+}
+
 pub fn expr_call_stack(input: &str) -> ParseResult<&str, Expr> {
     map(
-        seq((expr_leaf, many0(preceded(slws0, invocation_args)))),
+        seq((expr_index_stack, many0(preceded(slws0, invocation_args)))),
         |(mut expr, invocations)| {
             for args in invocations {
                 expr = Expr::Invocation {
@@ -605,6 +660,10 @@ mod tests {
         }
     }
 
+    fn int(n: i64) -> Expr {
+        Expr::Numeric(Numeric::Int(n))
+    }
+
     fn binary(op: &str, left: Expr, right: Expr) -> Expr {
         Expr::BinaryExpr {
             left: left.into(),
@@ -766,8 +825,9 @@ mod tests {
             expr.parse("kelley ( bla = 12, ) || { } + 21 ?"),
             Some((
                 " ?",
-                Expr::BinaryExpr {
-                    left: Expr::Invocation {
+                binary(
+                    "+",
+                    Expr::Invocation {
                         expr: Expr::Variable(id("kelley")).into(),
                         args: vec![
                             Argument {
@@ -786,11 +846,9 @@ mod tests {
                                 .into(),
                             }
                         ]
-                    }
-                    .into(),
-                    op: "+".into(),
-                    right: Expr::Numeric(Numeric::Int(21)).into()
-                }
+                    },
+                    int(21)
+                )
             ))
         );
         assert_eq!(
@@ -799,7 +857,27 @@ mod tests {
                 " ?",
                 Stmt::Declare {
                     id: id("h"),
-                    expr: Expr::Numeric(Numeric::Int(7)).into()
+                    expr: int(7).into()
+                }
+            ))
+        );
+        assert_eq!(
+            stmt.parse("let h= -7 ?"),
+            Some((
+                " ?",
+                Stmt::Declare {
+                    id: id("h"),
+                    expr: int(-7).into()
+                }
+            ))
+        );
+        assert_eq!(
+            stmt.parse("let h= !-7 ?"),
+            Some((
+                " ?",
+                Stmt::Declare {
+                    id: id("h"),
+                    expr: unary("!", int(-7)).into()
                 }
             ))
         );
@@ -809,7 +887,7 @@ mod tests {
             expr.parse(r#"stdin :split "\n\n""#),
             Some((
                 "",
-                simple_invocation("split", vec![var("stdin"), str(r"\n\n")])
+                simple_invocation("split", vec![var("stdin"), str("\n\n")])
             ))
         );
         assert_eq!(
@@ -819,7 +897,7 @@ mod tests {
                 simple_invocation(
                     "map",
                     vec![
-                        simple_invocation("split", vec![var("stdin"), str(r"\n\n")]),
+                        simple_invocation("split", vec![var("stdin"), str("\n\n")]),
                         empty_anon()
                     ]
                 )
@@ -832,7 +910,7 @@ mod tests {
                 simple_invocation(
                     "map",
                     vec![
-                        simple_invocation("split", vec![var("stdin"), str(r"\n\n")]),
+                        simple_invocation("split", vec![var("stdin"), str("\n\n")]),
                         anon_expr(vec!["group"], var("group"))
                     ]
                 )
@@ -847,7 +925,7 @@ mod tests {
                     vec![simple_invocation(
                         "map",
                         vec![
-                            simple_invocation("split", vec![var("stdin"), str(r"\n\n")]),
+                            simple_invocation("split", vec![var("stdin"), str("\n\n")]),
                             anon_expr(vec!["group"], var("group"))
                         ]
                     )]
@@ -866,7 +944,7 @@ mod tests {
                             vec![simple_invocation(
                                 "map",
                                 vec![
-                                    simple_invocation("split", vec![var("stdin"), str(r"\n\n")]),
+                                    simple_invocation("split", vec![var("stdin"), str("\n\n")]),
                                     anon_expr(vec!["group"], var("group"))
                                 ]
                             )]
@@ -883,6 +961,17 @@ mod tests {
                 Stmt::Declare {
                     id: id("v"),
                     expr: str("world").into()
+                }
+            ))
+        );
+        assert_eq!(
+            stmt.parse(r#"let v = "world"[0]"#),
+            Some((
+                "",
+                Stmt::Declare {
+                    id: id("v"),
+                    expr: simple_invocation("index", vec![str("world").into(), int(0).into(),])
+                        .into()
                 }
             ))
         );
