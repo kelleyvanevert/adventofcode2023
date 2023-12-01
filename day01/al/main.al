@@ -83,5 +83,5 @@ print("Test: {solve(test)}")
 // ±50ms
 print("Solution: {solve(stdin:trim)}")
 
-// ±2.3s
+// ±2.3s 🥲 -- I need to avoid string slice reallocations
 print("Bonus: {bonus(stdin:trim)}")
