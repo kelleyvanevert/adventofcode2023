@@ -7,6 +7,8 @@ See https://adventofcode.com/2023
 - [Previous year's repo](https://github.com/kelleyvanevert/adventofcode2022)
 - Friends also participating:
   - [Markus](https://github.com/mklinik/advent-of-code2023/)
+  - [Blaž](https://codeberg.org/blazp/advent_of_code_2023)
+  - Stijn
 
 ## Goals
 
