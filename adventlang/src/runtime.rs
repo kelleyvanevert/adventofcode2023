@@ -18,7 +18,6 @@ fn id(id: &str) -> Identifier {
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum Numeric {
-    UInt(u64),
     Int(i64),
     Double(f64),
 }
@@ -26,8 +25,6 @@ pub enum Numeric {
 impl Numeric {
     fn negate(&self) -> Result<Numeric, RuntimeError> {
         match self {
-            Numeric::UInt(n) if *n == 0 => Ok(Numeric::UInt(0)),
-            Numeric::UInt(n) => Err(RuntimeError(format!("Could not negate uint {n}"))),
             Numeric::Int(n) => Ok(Numeric::Int(-n)),
             Numeric::Double(n) => Ok(Numeric::Double(-n)),
         }
@@ -40,8 +37,6 @@ impl Numeric {
 
             (Numeric::Int(a), b) => Numeric::Int(a + b.round_to_int()),
             (a, Numeric::Int(b)) => Numeric::Int(a.round_to_int() + b),
-
-            (Numeric::UInt(a), Numeric::UInt(b)) => Numeric::UInt(a + b),
         }
     }
 
@@ -52,14 +47,11 @@ impl Numeric {
 
             (Numeric::Int(a), b) => Numeric::Int(*a.max(&b.round_to_int())),
             (a, Numeric::Int(b)) => Numeric::Int(a.round_to_int().max(b)),
-
-            (Numeric::UInt(a), Numeric::UInt(b)) => Numeric::UInt(*a.max(&b)),
         }
     }
 
     fn get_double(&self) -> f64 {
         match self {
-            Numeric::UInt(a) => *a as f64,
             Numeric::Int(a) => *a as f64,
             Numeric::Double(a) => *a as f64,
         }
@@ -67,7 +59,6 @@ impl Numeric {
 
     fn round_to_int(&self) -> i64 {
         match self {
-            Numeric::UInt(a) => *a as i64,
             Numeric::Int(a) => *a as i64,
             Numeric::Double(a) => *a as i64,
         }
@@ -75,7 +66,6 @@ impl Numeric {
 
     fn get_int(&self) -> Result<i64, RuntimeError> {
         match self {
-            Numeric::UInt(a) => Ok(*a as i64),
             Numeric::Int(a) => Ok(*a as i64),
             Numeric::Double(a) => Err(RuntimeError(
                 "value is a double, cannot be converted to an int".to_string(),
@@ -87,7 +77,6 @@ impl Numeric {
 impl Display for Numeric {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Numeric::UInt(n) => write!(f, "{n}"),
             Numeric::Int(n) => write!(f, "{n}"),
             Numeric::Double(n) => write!(f, "{n}"),
         }
@@ -423,11 +412,7 @@ impl Value {
                     .parse::<i64>()
                     .map_err(|_| RuntimeError(format!("cannot coerce '{}' to int", str.0)));
             }
-            Value::Numeric(n) => match n {
-                Numeric::Double(_) => Err(RuntimeError(format!("cannot coerce double to int"))),
-                Numeric::Int(n) => Ok(*n),
-                Numeric::UInt(n) => Ok(*n as i64),
-            },
+            Value::Numeric(n) => n.get_int(),
             _ => Err(RuntimeError(format!("cannot coerce {} to int", self.ty()))),
         }
     }
@@ -1143,7 +1128,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                     return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
                 };
 
-                let mut result = Value::Numeric(Numeric::UInt(0));
+                let mut result = Value::Numeric(Numeric::Int(0));
                 for item in list.iter() {
                     result = result.add(item.clone())?;
                 }
