@@ -30,6 +30,7 @@ pub enum Expr {
     StrLiteral {
         pieces: Vec<StrLiteralPiece>,
     },
+    UnitLiteral,
     Numeric(Numeric),
     Variable(Identifier),
     UnaryExpr {
@@ -42,6 +43,9 @@ pub enum Expr {
         right: Box<Expr>,
     },
     ListLiteral {
+        elements: Vec<Expr>,
+    },
+    TupleLiteral {
         elements: Vec<Expr>,
     },
     // Index {

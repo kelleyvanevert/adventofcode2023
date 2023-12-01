@@ -34,8 +34,8 @@ impl Numeric {
             (Numeric::Double(a), b) => Numeric::Double(a + b.get_double()),
             (a, Numeric::Double(b)) => Numeric::Double(a.get_double() + b),
 
-            (Numeric::Int(a), b) => Numeric::Int(a + b.get_int()),
-            (a, Numeric::Int(b)) => Numeric::Int(a.get_int() + b),
+            (Numeric::Int(a), b) => Numeric::Int(a + b.round_to_int()),
+            (a, Numeric::Int(b)) => Numeric::Int(a.round_to_int() + b),
 
             (Numeric::UInt(a), Numeric::UInt(b)) => Numeric::UInt(a + b),
         }
@@ -46,8 +46,8 @@ impl Numeric {
             (Numeric::Double(a), b) => Numeric::Double(a.max(b.get_double())),
             (a, Numeric::Double(b)) => Numeric::Double(a.get_double().max(b)),
 
-            (Numeric::Int(a), b) => Numeric::Int(*a.max(&b.get_int())),
-            (a, Numeric::Int(b)) => Numeric::Int(a.get_int().max(b)),
+            (Numeric::Int(a), b) => Numeric::Int(*a.max(&b.round_to_int())),
+            (a, Numeric::Int(b)) => Numeric::Int(a.round_to_int().max(b)),
 
             (Numeric::UInt(a), Numeric::UInt(b)) => Numeric::UInt(*a.max(&b)),
         }
@@ -61,11 +61,21 @@ impl Numeric {
         }
     }
 
-    fn get_int(&self) -> i64 {
+    fn round_to_int(&self) -> i64 {
         match self {
             Numeric::UInt(a) => *a as i64,
             Numeric::Int(a) => *a as i64,
             Numeric::Double(a) => *a as i64,
+        }
+    }
+
+    fn get_int(&self) -> Result<i64, RuntimeError> {
+        match self {
+            Numeric::UInt(a) => Ok(*a as i64),
+            Numeric::Int(a) => Ok(*a as i64),
+            Numeric::Double(a) => Err(RuntimeError(
+                "value is a double, cannot be converted to an int".to_string(),
+            )),
         }
     }
 }
@@ -102,6 +112,7 @@ pub enum Value {
     Numeric(Numeric),
     FnDef(FnDef),
     List(Vec<Value>),
+    Tuple(Vec<Value>),
 }
 
 impl Display for Value {
@@ -124,6 +135,20 @@ impl Display for Value {
                 }
                 write!(f, "]")
             }
+            Value::Tuple(list) => {
+                write!(f, "(")?;
+                let len = list.len();
+                for (i, item) in list.iter().enumerate() {
+                    write!(f, "{item}")?;
+                    if i < len - 1 {
+                        write!(f, ", ")?;
+                    }
+                }
+                if len == 1 {
+                    write!(f, ",")?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -136,7 +161,8 @@ enum Type {
     Str,
     Numeric,
     FnDef,
-    List,
+    List, // TODO paremetrize with element type
+    Tuple,
 }
 
 impl Display for Type {
@@ -149,6 +175,7 @@ impl Display for Type {
             Type::Numeric => write!(f, "Numeric"),
             Type::FnDef => write!(f, "FnDef"),
             Type::List => write!(f, "List"),
+            Type::Tuple => write!(f, "Tuple"),
         }
     }
 }
@@ -163,6 +190,7 @@ impl Value {
             Value::Numeric(n) => Ok(Value::Numeric(n.negate()?)),
             Value::FnDef(_) => Err(RuntimeError(format!("Can't negate fndef"))),
             Value::List(_) => Err(RuntimeError(format!("Can't negate list"))),
+            Value::Tuple(_) => Err(RuntimeError(format!("Can't negate tuple"))),
         }
     }
 
@@ -235,6 +263,7 @@ impl Value {
             Value::Numeric(n) => format!("{n}"),
             Value::FnDef(_) => "<fn>".into(),
             Value::List(_) => "<list>".into(),
+            Value::Tuple(_) => "<tuple>".into(),
         }
     }
 
@@ -261,8 +290,7 @@ impl Value {
                 Numeric::Int(n) => Ok(*n),
                 Numeric::UInt(n) => Ok(*n as i64),
             },
-            Value::FnDef(_) => Err(RuntimeError(format!("cannot coerce {} to int", self.ty()))),
-            Value::List(_) => Err(RuntimeError(format!("cannot coerce {} to int", self.ty()))),
+            _ => Err(RuntimeError(format!("cannot coerce {} to int", self.ty()))),
         }
     }
 
@@ -275,6 +303,7 @@ impl Value {
             Value::Numeric(_) => Type::Numeric,
             Value::FnDef(_) => Type::FnDef,
             Value::List(_) => Type::List,
+            Value::Tuple(_) => Type::Tuple,
         }
     }
 
@@ -463,6 +492,7 @@ impl Runtime {
         expr: &Expr,
     ) -> Result<(Value, Option<Value>), RuntimeError> {
         match expr {
+            Expr::UnitLiteral => Ok((Value::Unit, None)),
             Expr::StrLiteral { pieces } => {
                 let mut build = "".to_string();
 
@@ -542,6 +572,19 @@ impl Runtime {
                 }
 
                 let list = Value::List(element_values);
+                Ok((list, None))
+            }
+            Expr::TupleLiteral { elements } => {
+                let mut element_values = vec![];
+                for expr in elements {
+                    let (expr_value, ret) = self.evaluate(scope, expr)?;
+                    if ret.is_some() {
+                        return Ok((Value::Unit, ret));
+                    }
+                    element_values.push(expr_value);
+                }
+
+                let list = Value::Tuple(element_values);
                 Ok((list, None))
             }
             Expr::Invocation { expr, args } => {
@@ -811,6 +854,138 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
     );
 
     runtime.scopes[0].values.insert(
+        id("filter_map"),
+        Value::FnDef(FnDef {
+            parent_scope: 0,
+            params: vec![id("items"), id("cb")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
+
+                let Value::List(list) = items else {
+                    return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                };
+
+                let list = list.clone();
+
+                let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
+
+                let Value::FnDef(def) = cb else {
+                    return Err(RuntimeError(format!(
+                        "cannot use filter w/ cb of type: {}",
+                        cb.ty()
+                    )));
+                };
+
+                let def = def.clone();
+
+                let mut result = vec![];
+                for item in list.iter() {
+                    let item = runtime.invoke(def.clone(), vec![(None, item.clone())])?;
+
+                    match item {
+                        // TODO fix the "nil as well as unit" problem
+                        Value::Nil => {}
+                        Value::Unit => {}
+                        _ => {
+                            result.push(item);
+                        }
+                    }
+                }
+
+                Ok(Value::List(result))
+            }),
+        }),
+    );
+
+    runtime.scopes[0].values.insert(
+        id("find_map"),
+        Value::FnDef(FnDef {
+            parent_scope: 0,
+            params: vec![id("items"), id("cb")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
+
+                let Value::List(list) = items else {
+                    return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                };
+
+                let list = list.clone();
+
+                let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
+
+                let Value::FnDef(def) = cb else {
+                    return Err(RuntimeError(format!(
+                        "cannot use filter w/ cb of type: {}",
+                        cb.ty()
+                    )));
+                };
+
+                let def = def.clone();
+
+                for item in list.iter() {
+                    let item = runtime.invoke(def.clone(), vec![(None, item.clone())])?;
+
+                    match item {
+                        // TODO fix the "nil as well as unit" problem
+                        Value::Nil => {}
+                        Value::Unit => {}
+                        _ => {
+                            return Ok(item);
+                        }
+                    }
+                }
+
+                Ok(Value::Unit)
+            }),
+        }),
+    );
+
+    runtime.scopes[0].values.insert(
+        id("range"),
+        Value::FnDef(FnDef {
+            parent_scope: 0,
+            params: vec![id("start"), id("end")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let start = runtime.scopes[scope].values.get(&id("start")).unwrap();
+
+                let Value::Numeric(start) = start else {
+                    return Err(RuntimeError(format!(
+                        "range() start must be int, is: {}",
+                        start.ty()
+                    )));
+                };
+
+                let start = start.get_int()?;
+
+                let end = runtime.scopes[scope].values.get(&id("end")).unwrap();
+
+                let Value::Numeric(end) = end else {
+                    return Err(RuntimeError(format!(
+                        "range() end must be int, is: {}",
+                        end.ty()
+                    )));
+                };
+
+                let end = end.get_int()?;
+
+                if end >= start {
+                    Ok(Value::List(
+                        (start..end)
+                            .map(|n| Value::Numeric(Numeric::Int(n)))
+                            .collect(),
+                    ))
+                } else {
+                    Ok(Value::List(
+                        (0..(start - end))
+                            .map(|n| Value::Numeric(Numeric::Int(start - n)))
+                            .collect(),
+                    ))
+                }
+            }),
+        }),
+    );
+
+    runtime.scopes[0].values.insert(
         id("sum"),
         Value::FnDef(FnDef {
             parent_scope: 0,
@@ -868,6 +1043,72 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
     );
 
     runtime.scopes[0].values.insert(
+        id("starts_with"),
+        Value::FnDef(FnDef {
+            parent_scope: 0,
+            params: vec![id("text"), id("substr")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
+
+                let Value::Str(text) = text else {
+                    return Err(RuntimeError(format!(
+                        "starts_with() text must be a string, is a: {}",
+                        text.ty()
+                    )));
+                };
+
+                let substr = runtime.scopes[scope].values.get(&id("substr")).unwrap();
+
+                let Value::Str(substr) = substr else {
+                    return Err(RuntimeError(format!(
+                        "starts_with() substr must be a string, is a: {}",
+                        substr.ty()
+                    )));
+                };
+
+                Ok(Value::Bool(text.0.starts_with(&substr.0)))
+            }),
+        }),
+    );
+
+    runtime.scopes[0].values.insert(
+        id("slice"),
+        Value::FnDef(FnDef {
+            parent_scope: 0,
+            params: vec![id("text"), id("i")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
+
+                let Value::Str(text) = text else {
+                    return Err(RuntimeError(format!(
+                        "starts_with() text must be a string, is a: {}",
+                        text.ty()
+                    )));
+                };
+
+                let i = runtime.scopes[scope].values.get(&id("i")).unwrap();
+
+                let Value::Numeric(i) = i else {
+                    return Err(RuntimeError(format!(
+                        "starts_with() i must be an int, is a: {}",
+                        i.ty()
+                    )));
+                };
+
+                let i = i.get_int()?;
+
+                if i < 0 {
+                    return Err(RuntimeError(format!(
+                        "starts_with() i must be a positive int"
+                    )));
+                }
+
+                Ok(Value::Str(Str(text.0[(i as usize)..].to_string())))
+            }),
+        }),
+    );
+
+    runtime.scopes[0].values.insert(
         id("index"),
         Value::FnDef(FnDef {
             parent_scope: 0,
@@ -875,11 +1116,15 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
             body: FnBody::Builtin(|runtime, scope| {
                 let list = runtime.scopes[scope].values.get(&id("list")).unwrap();
 
-                let Value::List(list) = list else {
-                    return Err(RuntimeError(format!(
-                        "index[#1] must be a list, is a: {}",
-                        list.ty()
-                    )));
+                let list = match list {
+                    Value::List(list) => list,
+                    Value::Tuple(list) => list,
+                    _ => {
+                        return Err(RuntimeError(format!(
+                            "index() list must be a list or tuple, is a: {}",
+                            list.ty()
+                        )));
+                    }
                 };
 
                 let i = runtime.scopes[scope].values.get(&id("i")).unwrap();
@@ -891,15 +1136,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                     )));
                 };
 
-                let i = match i {
-                    Numeric::Int(n) => *n as i64,
-                    Numeric::UInt(n) => *n as i64,
-                    Numeric::Double(_) => {
-                        return Err(RuntimeError(format!(
-                            "split[#2] must be an int, is a: double"
-                        )));
-                    }
-                };
+                let i = i.get_int()?;
 
                 let el = match i {
                     i if i >= 0 => list.get(i as usize),
@@ -927,6 +1164,28 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                 };
 
                 Ok(Value::Str(Str(text.0.trim().to_string())))
+            }),
+        }),
+    );
+
+    runtime.scopes[0].values.insert(
+        id("len"),
+        Value::FnDef(FnDef {
+            parent_scope: 0,
+            params: vec![id("data")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let data = runtime.scopes[scope].values.get(&id("data")).unwrap();
+
+                let len = match data {
+                    Value::Str(text) => text.0.len(),
+                    Value::List(list) => list.len(),
+                    Value::Tuple(tuple) => tuple.len(),
+                    _ => {
+                        return Err(RuntimeError(format!("cannot get len of: {}", data.ty())));
+                    }
+                };
+
+                Ok(Value::Numeric(Numeric::Int(len as i64)))
             }),
         }),
     );
@@ -978,4 +1237,39 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
     };
 
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        ast::{Argument, Identifier},
+        parse::{identifier, parse_document},
+        parser_combinators::{alt, recognize, seq, tag, Parser},
+    };
+
+    fn id(id: &str) -> Identifier {
+        Identifier(id.into())
+    }
+
+    fn list(elements: Vec<Value>) -> Value {
+        Value::List(elements)
+    }
+
+    fn int(n: i64) -> Value {
+        Value::Numeric(Numeric::Int(n))
+    }
+
+    #[test]
+    fn bla() {
+        assert_eq!(
+            execute(&parse_document("range(0, 10)").unwrap(), "".into()),
+            Ok(list((0..10).map(int).collect()))
+        );
+
+        assert_eq!(
+            execute(&parse_document("range(6, 2)").unwrap(), "".into()),
+            Ok(list(vec![int(6), int(5), int(4), int(3)]))
+        );
+    }
 }

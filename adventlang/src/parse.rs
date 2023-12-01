@@ -195,6 +195,34 @@ pub fn list_literal(input: &str) -> ParseResult<&str, Expr> {
     .parse(input)
 }
 
+pub fn tuple_literal_or_parenthesized_expr(input: &str) -> ParseResult<&str, Expr> {
+    delimited(
+        seq((tag("("), ws0)),
+        map(
+            seq((
+                expr,
+                many0(preceded(seq((ws0, tag(","), ws0)), expr)),
+                ws0,
+                optional(tag(",")),
+            )),
+            |(first_el, mut els, _, final_comma)| {
+                if els.len() == 0 && final_comma.is_none() {
+                    return first_el;
+                }
+
+                Expr::TupleLiteral {
+                    elements: {
+                        els.insert(0, first_el);
+                        els
+                    },
+                }
+            },
+        ),
+        seq((ws0, tag(")"))),
+    )
+    .parse(input)
+}
+
 pub fn expr_leaf(input: &str) -> ParseResult<&str, Expr> {
     alt((
         do_while_expr,
@@ -204,7 +232,8 @@ pub fn expr_leaf(input: &str) -> ParseResult<&str, Expr> {
         map(numeric, Expr::Numeric),
         str_literal,
         anonymous_fn,
-        delimited(seq((tag("("), ws0)), expr, seq((ws0, tag(")")))),
+        map(tag("()"), |_| Expr::UnitLiteral),
+        tuple_literal_or_parenthesized_expr,
         list_literal,
     ))
     .parse(input)
@@ -654,6 +683,10 @@ mod tests {
         Expr::Variable(Identifier(name.into()))
     }
 
+    fn tuple(elements: Vec<Expr>) -> Expr {
+        Expr::TupleLiteral { elements }
+    }
+
     fn str(s: &str) -> Expr {
         Expr::StrLiteral {
             pieces: vec![StrLiteralPiece::Fragment(s.into())],
@@ -754,9 +787,15 @@ mod tests {
             parameter_list.parse("kelley , blue , )"),
             Some((" )", vec![id("kelley"), id("blue")]))
         );
+        assert_eq!(expr.parse("kelley ?"), Some((" ?", var("kelley"))));
+        assert_eq!(expr.parse("(kelley) ?"), Some((" ?", var("kelley"))));
         assert_eq!(
-            expr.parse("kelley ?"),
-            Some((" ?", Expr::Variable(id("kelley"))))
+            expr.parse("(kelley,) ?"),
+            Some((" ?", tuple(vec![var("kelley")])))
+        );
+        assert_eq!(
+            expr.parse("(kelley, 21,) ?"),
+            Some((" ?", tuple(vec![var("kelley"), int(21)])))
         );
         assert_eq!(
             expr.parse("kelley + 21 ?"),
