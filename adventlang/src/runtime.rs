@@ -14,10 +14,6 @@ fn id(id: &str) -> Identifier {
     Identifier(id.into())
 }
 
-fn idpat(id: &str) -> Pattern {
-    Pattern::Id(Identifier(id.into()), Some(Type::Any))
-}
-
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum Numeric {
     Int(i64),
@@ -38,6 +34,15 @@ impl Numeric {
             (a, Numeric::Double(b)) => Numeric::Double(a.get_double() + b),
 
             (Numeric::Int(a), Numeric::Int(b)) => Numeric::Int(a + b),
+        }
+    }
+
+    fn mul(&self, other: Numeric) -> Numeric {
+        match (self, other) {
+            (Numeric::Double(a), b) => Numeric::Double(a * b.get_double()),
+            (a, Numeric::Double(b)) => Numeric::Double(a.get_double() * b),
+
+            (Numeric::Int(a), Numeric::Int(b)) => Numeric::Int(a * b),
         }
     }
 
@@ -79,6 +84,11 @@ impl Display for Numeric {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FnDef {
     parent_scope: usize,
+    signatures: Vec<FnSig>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FnSig {
     params: Vec<Pattern>,
     body: FnBody,
 }
@@ -165,11 +175,22 @@ impl Value {
         }
     }
 
-    fn max(&self, other: Value) -> Result<Value, RuntimeError> {
+    fn mul(&self, other: Value) -> Result<Value, RuntimeError> {
+        match (self, other) {
+            (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.mul(b))),
+            (a, b) => Err(RuntimeError(format!(
+                "can't perform {} + {}",
+                a.ty(),
+                b.ty()
+            ))),
+        }
+    }
+
+    fn max(&self, other: &Value) -> Result<Value, RuntimeError> {
         match (self, other) {
             (Value::Numeric(a), Value::Nil) => Ok(Value::Numeric(a.clone())),
-            (Value::Nil, Value::Numeric(b)) => Ok(Value::Numeric(b)),
-            (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.max(b))),
+            (Value::Nil, Value::Numeric(b)) => Ok(Value::Numeric(b.clone())),
+            (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.max(b.clone()))),
             (a, b) => Err(RuntimeError(format!(
                 "can't perform {} max {}",
                 a.ty(),
@@ -345,8 +366,10 @@ impl Runtime {
                     name.clone(),
                     Value::FnDef(FnDef {
                         parent_scope: scope,
-                        params: params.clone(),
-                        body: FnBody::Code(body.clone()), // TODO somehow avoid clone
+                        signatures: vec![FnSig {
+                            params: params.clone(),
+                            body: FnBody::Code(body.clone()), // TODO somehow avoid clone
+                        }],
                     }),
                 );
             }
@@ -446,18 +469,45 @@ impl Runtime {
         }
     }
 
+    // TODO
+    fn matches_signature(sig: &FnSig, args: &Vec<(Option<Identifier>, Value)>) -> bool {
+        if sig.params.len() != args.len() {
+            false
+        } else {
+            true
+        }
+    }
+
     fn invoke(
         &mut self,
         def: FnDef,
         args: Vec<(Option<Identifier>, Value)>,
     ) -> Result<Value, RuntimeError> {
+        let FnDef {
+            parent_scope,
+            signatures,
+        } = def;
+
+        let mut matching_signatures = signatures
+            .into_iter()
+            .filter(|sig| Runtime::matches_signature(sig, &args))
+            .collect::<Vec<_>>();
+
+        let FnSig { params, body } = if matching_signatures.len() == 0 {
+            return Err(RuntimeError(format!("could not find matching signature")));
+        } else if matching_signatures.len() == 1 {
+            matching_signatures.swap_remove(0)
+        } else {
+            unimplemented!("todo select fn signature based on closest type-match")
+        };
+
         let execution_scope = self.scopes.len();
         self.scopes.push(Scope {
-            parent_scope: Some(def.parent_scope),
+            parent_scope: Some(parent_scope),
             values: HashMap::new(),
         });
 
-        let mut params_remaining = def.params.clone();
+        let mut params_remaining = params.clone();
         for (arg_name, arg_value) in args {
             if let Some(name) = arg_name {
                 // assign named param
@@ -490,7 +540,7 @@ impl Runtime {
             return Err(RuntimeError(format!("unassigned params left")));
         }
 
-        Ok(match def.body {
+        Ok(match body {
             FnBody::Code(block) => {
                 let (block_eval_result, ret) = self.execute_block(execution_scope, &block)?;
                 match ret {
@@ -559,6 +609,13 @@ impl Runtime {
                             return Ok((Value::Nil, Some(return_value)));
                         }
                         Ok((left_value.add(right_value)?, None))
+                    }
+                    "*" => {
+                        let (right_value, ret) = self.evaluate(scope, right)?;
+                        if let Some(return_value) = ret {
+                            return Ok((Value::Nil, Some(return_value)));
+                        }
+                        Ok((left_value.mul(right_value)?, None))
                     }
                     "<" => {
                         let (right_value, ret) = self.evaluate(scope, right)?;
@@ -661,8 +718,10 @@ impl Runtime {
             Expr::AnonymousFn { params, body } => Ok((
                 Value::FnDef(FnDef {
                     parent_scope: scope,
-                    params: params.clone(),
-                    body: FnBody::Code(body.clone()), // TODO somehow avoid clone
+                    signatures: vec![FnSig {
+                        params: params.clone(),
+                        body: FnBody::Code(body.clone()), // TODO somehow avoid clone
+                    }],
                 }),
                 None,
             )),
@@ -742,6 +801,14 @@ impl Runtime {
 }
 
 pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
+    fn idpat(id: &str) -> Pattern {
+        Pattern::Id(Identifier(id.into()), None)
+    }
+
+    fn idpat_ty(id: &str, ty: Type) -> Pattern {
+        Pattern::Id(Identifier(id.into()), Some(ty))
+    }
+
     let mut runtime = Runtime::new();
 
     runtime.scopes[0]
@@ -752,13 +819,15 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("print"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![idpat("text")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
+            signatures: vec![FnSig {
+                params: vec![idpat("text")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
-                println!("{}", text);
-                Ok(Value::Nil)
-            }),
+                    println!("{}", text);
+                    Ok(Value::Nil)
+                }),
+            }],
         }),
     );
 
@@ -766,21 +835,17 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("run"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![idpat("f")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let f = runtime.scopes[scope].values.get(&id("f")).unwrap();
+            signatures: vec![FnSig {
+                params: vec![idpat("f")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let f = runtime.scopes[scope].values.get(&id("f")).unwrap();
 
-                match f {
-                    Value::FnDef(def) => {
-                        if def.params.len() > 0 {
-                            return Err(RuntimeError(format!("cannot run fn w/ params")));
-                        }
-
-                        runtime.invoke(def.clone(), vec![])
+                    match f {
+                        Value::FnDef(def) => runtime.invoke(def.clone(), vec![]),
+                        _ => Err(RuntimeError(format!("cannot run: {}", f.ty()))),
                     }
-                    _ => Err(RuntimeError(format!("cannot run: {}", f.ty()))),
-                }
-            }),
+                }),
+            }],
         }),
     );
 
@@ -788,22 +853,35 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("max"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![idpat("items")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
+            signatures: vec![
+                FnSig {
+                    params: vec![idpat_ty("items", Type::List(Type::Any.into()))],
+                    body: FnBody::Builtin(|runtime, scope| {
+                        let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
-                match items {
-                    Value::List(_, list) => {
-                        let mut result = Value::Nil;
-                        for item in list.iter() {
-                            result = result.max(item.clone())?;
+                        match items {
+                            Value::List(_, list) => {
+                                let mut result = Value::Nil;
+                                for item in list.iter() {
+                                    result = result.max(item)?;
+                                }
+
+                                Ok(result)
+                            }
+                            _ => Err(RuntimeError(format!("cannot get max of: {}", items.ty()))),
                         }
+                    }),
+                },
+                FnSig {
+                    params: vec![idpat_ty("a", Type::Numeric), idpat_ty("b", Type::Numeric)],
+                    body: FnBody::Builtin(|runtime, scope| {
+                        let a = runtime.scopes[scope].values.get(&id("a")).unwrap();
+                        let b = runtime.scopes[scope].values.get(&id("b")).unwrap();
 
-                        Ok(result)
-                    }
-                    _ => Err(RuntimeError(format!("cannot get max of: {}", items.ty()))),
-                }
-            }),
+                        Ok(a.max(b)?)
+                    }),
+                },
+            ],
         }),
     );
 
@@ -811,35 +889,37 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("map"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![idpat("items"), idpat("cb")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
+            signatures: vec![FnSig {
+                params: vec![idpat("items"), idpat("cb")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
-                let Value::List(_, list) = items else {
-                    return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
-                };
+                    let Value::List(_, list) = items else {
+                        return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                    };
 
-                let list = list.clone();
+                    let list = list.clone();
 
-                let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
+                    let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
 
-                let Value::FnDef(def) = cb else {
-                    return Err(RuntimeError(format!(
-                        "cannot use map w/ cb of type: {}",
-                        cb.ty()
-                    )));
-                };
+                    let Value::FnDef(def) = cb else {
+                        return Err(RuntimeError(format!(
+                            "cannot use map w/ cb of type: {}",
+                            cb.ty()
+                        )));
+                    };
 
-                let def = def.clone();
+                    let def = def.clone();
 
-                let mut result = vec![];
-                for item in list.iter() {
-                    result.push(runtime.invoke(def.clone(), vec![(None, item.clone())])?);
-                }
+                    let mut result = vec![];
+                    for item in list.iter() {
+                        result.push(runtime.invoke(def.clone(), vec![(None, item.clone())])?);
+                    }
 
-                // TODO
-                Ok(Value::List(Type::Any, result))
-            }),
+                    // TODO
+                    Ok(Value::List(Type::Any, result))
+                }),
+            }],
         }),
     );
 
@@ -847,45 +927,47 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("flat_map"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![idpat("items"), idpat("cb")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
+            signatures: vec![FnSig {
+                params: vec![idpat("items"), idpat("cb")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
-                let Value::List(_, list) = items else {
-                    return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
-                };
+                    let Value::List(_, list) = items else {
+                        return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                    };
 
-                let list = list.clone();
+                    let list = list.clone();
 
-                let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
+                    let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
 
-                let Value::FnDef(def) = cb else {
-                    return Err(RuntimeError(format!(
-                        "cannot use map w/ cb of type: {}",
-                        cb.ty()
-                    )));
-                };
-
-                let def = def.clone();
-
-                let mut result = vec![];
-                for item in list.iter() {
-                    let value = runtime.invoke(def.clone(), vec![(None, item.clone())])?;
-                    let Value::List(_, items) = value else {
+                    let Value::FnDef(def) = cb else {
                         return Err(RuntimeError(format!(
-                            "flat_map cb should return lists, returned: {}",
-                            value.ty()
+                            "cannot use map w/ cb of type: {}",
+                            cb.ty()
                         )));
                     };
 
-                    // TODO type-check
+                    let def = def.clone();
 
-                    result.extend(items);
-                }
+                    let mut result = vec![];
+                    for item in list.iter() {
+                        let value = runtime.invoke(def.clone(), vec![(None, item.clone())])?;
+                        let Value::List(_, items) = value else {
+                            return Err(RuntimeError(format!(
+                                "flat_map cb should return lists, returned: {}",
+                                value.ty()
+                            )));
+                        };
 
-                // TODO type
-                Ok(Value::List(Type::Any, result))
-            }),
+                        // TODO type-check
+
+                        result.extend(items);
+                    }
+
+                    // TODO type
+                    Ok(Value::List(Type::Any, result))
+                }),
+            }],
         }),
     );
 
@@ -893,21 +975,23 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("in"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![idpat("needle"), idpat("haystack")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let needle = runtime.scopes[scope].values.get(&id("needle")).unwrap();
+            signatures: vec![FnSig {
+                params: vec![idpat("needle"), idpat("haystack")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let needle = runtime.scopes[scope].values.get(&id("needle")).unwrap();
 
-                let haystack = runtime.scopes[scope].values.get(&id("haystack")).unwrap();
+                    let haystack = runtime.scopes[scope].values.get(&id("haystack")).unwrap();
 
-                let Value::List(_, haystack) = haystack else {
-                    return Err(RuntimeError(format!(
-                        "cannot get max of: {}",
-                        haystack.ty()
-                    )));
-                };
+                    let Value::List(_, haystack) = haystack else {
+                        return Err(RuntimeError(format!(
+                            "cannot get max of: {}",
+                            haystack.ty()
+                        )));
+                    };
 
-                Ok(Value::Bool(haystack.contains(needle)))
-            }),
+                    Ok(Value::Bool(haystack.contains(needle)))
+                }),
+            }],
         }),
     );
 
@@ -915,40 +999,42 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("filter"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![idpat("items"), idpat("cb")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
+            signatures: vec![FnSig {
+                params: vec![idpat("items"), idpat("cb")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
-                let Value::List(_, list) = items else {
-                    return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
-                };
+                    let Value::List(_, list) = items else {
+                        return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                    };
 
-                let list = list.clone();
+                    let list = list.clone();
 
-                let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
+                    let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
 
-                let Value::FnDef(def) = cb else {
-                    return Err(RuntimeError(format!(
-                        "cannot use filter w/ cb of type: {}",
-                        cb.ty()
-                    )));
-                };
+                    let Value::FnDef(def) = cb else {
+                        return Err(RuntimeError(format!(
+                            "cannot use filter w/ cb of type: {}",
+                            cb.ty()
+                        )));
+                    };
 
-                let def = def.clone();
+                    let def = def.clone();
 
-                let mut result = vec![];
-                for item in list.iter() {
-                    if runtime
-                        .invoke(def.clone(), vec![(None, item.clone())])?
-                        .auto_coerce_bool()?
-                    {
-                        result.push(item.clone());
+                    let mut result = vec![];
+                    for item in list.iter() {
+                        if runtime
+                            .invoke(def.clone(), vec![(None, item.clone())])?
+                            .auto_coerce_bool()?
+                        {
+                            result.push(item.clone());
+                        }
                     }
-                }
 
-                // TODO
-                Ok(Value::List(Type::Any, result))
-            }),
+                    // TODO
+                    Ok(Value::List(Type::Any, result))
+                }),
+            }],
         }),
     );
 
@@ -956,43 +1042,45 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("filter_map"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![idpat("items"), idpat("cb")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
+            signatures: vec![FnSig {
+                params: vec![idpat("items"), idpat("cb")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
-                let Value::List(_, list) = items else {
-                    return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
-                };
+                    let Value::List(_, list) = items else {
+                        return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                    };
 
-                let list = list.clone();
+                    let list = list.clone();
 
-                let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
+                    let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
 
-                let Value::FnDef(def) = cb else {
-                    return Err(RuntimeError(format!(
-                        "cannot use filter w/ cb of type: {}",
-                        cb.ty()
-                    )));
-                };
+                    let Value::FnDef(def) = cb else {
+                        return Err(RuntimeError(format!(
+                            "cannot use filter w/ cb of type: {}",
+                            cb.ty()
+                        )));
+                    };
 
-                let def = def.clone();
+                    let def = def.clone();
 
-                let mut result = vec![];
-                for item in list.iter() {
-                    let item = runtime.invoke(def.clone(), vec![(None, item.clone())])?;
+                    let mut result = vec![];
+                    for item in list.iter() {
+                        let item = runtime.invoke(def.clone(), vec![(None, item.clone())])?;
 
-                    match item {
-                        // TODO fix the "nil as well as unit" problem
-                        Value::Nil => {}
-                        _ => {
-                            result.push(item);
+                        match item {
+                            // TODO fix the "nil as well as unit" problem
+                            Value::Nil => {}
+                            _ => {
+                                result.push(item);
+                            }
                         }
                     }
-                }
 
-                // TODO
-                Ok(Value::List(Type::Any, result))
-            }),
+                    // TODO
+                    Ok(Value::List(Type::Any, result))
+                }),
+            }],
         }),
     );
 
@@ -1000,41 +1088,43 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("find_map"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![idpat("items"), idpat("cb")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
+            signatures: vec![FnSig {
+                params: vec![idpat("items"), idpat("cb")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
-                let Value::List(_, list) = items else {
-                    return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
-                };
+                    let Value::List(_, list) = items else {
+                        return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                    };
 
-                let list = list.clone();
+                    let list = list.clone();
 
-                let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
+                    let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
 
-                let Value::FnDef(def) = cb else {
-                    return Err(RuntimeError(format!(
-                        "cannot use filter w/ cb of type: {}",
-                        cb.ty()
-                    )));
-                };
+                    let Value::FnDef(def) = cb else {
+                        return Err(RuntimeError(format!(
+                            "cannot use filter w/ cb of type: {}",
+                            cb.ty()
+                        )));
+                    };
 
-                let def = def.clone();
+                    let def = def.clone();
 
-                for item in list {
-                    let item = runtime.invoke(def.clone(), vec![(None, item)])?;
+                    for item in list {
+                        let item = runtime.invoke(def.clone(), vec![(None, item)])?;
 
-                    match item {
-                        // TODO fix the "nil as well as unit" problem
-                        Value::Nil => {}
-                        _ => {
-                            return Ok(item);
+                        match item {
+                            // TODO fix the "nil as well as unit" problem
+                            Value::Nil => {}
+                            _ => {
+                                return Ok(item);
+                            }
                         }
                     }
-                }
 
-                Ok(Value::Nil)
-            }),
+                    Ok(Value::Nil)
+                }),
+            }],
         }),
     );
 
@@ -1042,36 +1132,38 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("find"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![idpat("items"), idpat("cb")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
+            signatures: vec![FnSig {
+                params: vec![idpat("items"), idpat("cb")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
-                let Value::List(_, list) = items else {
-                    return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
-                };
+                    let Value::List(_, list) = items else {
+                        return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                    };
 
-                let list = list.clone();
+                    let list = list.clone();
 
-                let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
+                    let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
 
-                let Value::FnDef(def) = cb else {
-                    return Err(RuntimeError(format!(
-                        "cannot use filter w/ cb of type: {}",
-                        cb.ty()
-                    )));
-                };
+                    let Value::FnDef(def) = cb else {
+                        return Err(RuntimeError(format!(
+                            "cannot use filter w/ cb of type: {}",
+                            cb.ty()
+                        )));
+                    };
 
-                let def = def.clone();
+                    let def = def.clone();
 
-                for item in list {
-                    let check = runtime.invoke(def.clone(), vec![(None, item.clone())])?;
-                    if check.truthy()? {
-                        return Ok(item);
+                    for item in list {
+                        let check = runtime.invoke(def.clone(), vec![(None, item.clone())])?;
+                        if check.truthy()? {
+                            return Ok(item);
+                        }
                     }
-                }
 
-                Ok(Value::Nil)
-            }),
+                    Ok(Value::Nil)
+                }),
+            }],
         }),
     );
 
@@ -1079,46 +1171,48 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("range"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![idpat("start"), idpat("end")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let start = runtime.scopes[scope].values.get(&id("start")).unwrap();
+            signatures: vec![FnSig {
+                params: vec![idpat("start"), idpat("end")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let start = runtime.scopes[scope].values.get(&id("start")).unwrap();
 
-                let Value::Numeric(start) = start else {
-                    return Err(RuntimeError(format!(
-                        "range() start must be int, is: {}",
-                        start.ty()
-                    )));
-                };
+                    let Value::Numeric(start) = start else {
+                        return Err(RuntimeError(format!(
+                            "range() start must be int, is: {}",
+                            start.ty()
+                        )));
+                    };
 
-                let start = start.get_int()?;
+                    let start = start.get_int()?;
 
-                let end = runtime.scopes[scope].values.get(&id("end")).unwrap();
+                    let end = runtime.scopes[scope].values.get(&id("end")).unwrap();
 
-                let Value::Numeric(end) = end else {
-                    return Err(RuntimeError(format!(
-                        "range() end must be int, is: {}",
-                        end.ty()
-                    )));
-                };
+                    let Value::Numeric(end) = end else {
+                        return Err(RuntimeError(format!(
+                            "range() end must be int, is: {}",
+                            end.ty()
+                        )));
+                    };
 
-                let end = end.get_int()?;
+                    let end = end.get_int()?;
 
-                if end >= start {
-                    Ok(Value::List(
-                        Type::Numeric,
-                        (start..end)
-                            .map(|n| Value::Numeric(Numeric::Int(n)))
-                            .collect(),
-                    ))
-                } else {
-                    Ok(Value::List(
-                        Type::Numeric,
-                        (0..(start - end))
-                            .map(|n| Value::Numeric(Numeric::Int(start - n)))
-                            .collect(),
-                    ))
-                }
-            }),
+                    if end >= start {
+                        Ok(Value::List(
+                            Type::Numeric,
+                            (start..end)
+                                .map(|n| Value::Numeric(Numeric::Int(n)))
+                                .collect(),
+                        ))
+                    } else {
+                        Ok(Value::List(
+                            Type::Numeric,
+                            (0..(start - end))
+                                .map(|n| Value::Numeric(Numeric::Int(start - n)))
+                                .collect(),
+                        ))
+                    }
+                }),
+            }],
         }),
     );
 
@@ -1126,21 +1220,23 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("sum"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![idpat("items")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
+            signatures: vec![FnSig {
+                params: vec![idpat("items")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
-                let Value::List(_, list) = items else {
-                    return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
-                };
+                    let Value::List(_, list) = items else {
+                        return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                    };
 
-                let mut result = Value::Numeric(Numeric::Int(0));
-                for item in list.iter() {
-                    result = result.add(item.clone())?;
-                }
+                    let mut result = Value::Numeric(Numeric::Int(0));
+                    for item in list.iter() {
+                        result = result.add(item.clone())?;
+                    }
 
-                Ok(result)
-            }),
+                    Ok(result)
+                }),
+            }],
         }),
     );
 
@@ -1148,33 +1244,35 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("split"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![idpat("text"), idpat("sep")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
+            signatures: vec![FnSig {
+                params: vec![idpat("text"), idpat("sep")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
-                let Value::Str(text) = text else {
-                    return Err(RuntimeError(format!(
-                        "split[#1] must be a string, is a: {}",
-                        text.ty()
-                    )));
-                };
+                    let Value::Str(text) = text else {
+                        return Err(RuntimeError(format!(
+                            "split[#1] must be a string, is a: {}",
+                            text.ty()
+                        )));
+                    };
 
-                let sep = runtime.scopes[scope].values.get(&id("sep")).unwrap();
+                    let sep = runtime.scopes[scope].values.get(&id("sep")).unwrap();
 
-                let Value::Str(sep) = sep else {
-                    return Err(RuntimeError(format!(
-                        "split[#2] must be a string, is a: {}",
-                        sep.ty()
-                    )));
-                };
+                    let Value::Str(sep) = sep else {
+                        return Err(RuntimeError(format!(
+                            "split[#2] must be a string, is a: {}",
+                            sep.ty()
+                        )));
+                    };
 
-                let result = text
-                    .split(sep.as_str())
-                    .map(|piece| Value::Str(text.substr_from(piece)))
-                    .collect::<Vec<_>>();
+                    let result = text
+                        .split(sep.as_str())
+                        .map(|piece| Value::Str(text.substr_from(piece)))
+                        .collect::<Vec<_>>();
 
-                Ok(Value::List(Type::Str, result))
-            }),
+                    Ok(Value::List(Type::Str, result))
+                }),
+            }],
         }),
     );
 
@@ -1182,28 +1280,30 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("starts_with"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![idpat("text"), idpat("substr")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
+            signatures: vec![FnSig {
+                params: vec![idpat("text"), idpat("substr")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
-                let Value::Str(text) = text else {
-                    return Err(RuntimeError(format!(
-                        "starts_with() text must be a string, is a: {}",
-                        text.ty()
-                    )));
-                };
+                    let Value::Str(text) = text else {
+                        return Err(RuntimeError(format!(
+                            "starts_with() text must be a string, is a: {}",
+                            text.ty()
+                        )));
+                    };
 
-                let substr = runtime.scopes[scope].values.get(&id("substr")).unwrap();
+                    let substr = runtime.scopes[scope].values.get(&id("substr")).unwrap();
 
-                let Value::Str(substr) = substr else {
-                    return Err(RuntimeError(format!(
-                        "starts_with() substr must be a string, is a: {}",
-                        substr.ty()
-                    )));
-                };
+                    let Value::Str(substr) = substr else {
+                        return Err(RuntimeError(format!(
+                            "starts_with() substr must be a string, is a: {}",
+                            substr.ty()
+                        )));
+                    };
 
-                Ok(Value::Bool(text.starts_with(substr.as_str())))
-            }),
+                    Ok(Value::Bool(text.starts_with(substr.as_str())))
+                }),
+            }],
         }),
     );
 
@@ -1211,38 +1311,40 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("replace"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![idpat("text"), idpat("def")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
+            signatures: vec![FnSig {
+                params: vec![idpat("text"), idpat("def")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
-                let Value::Str(text) = text else {
-                    return Err(RuntimeError(format!(
-                        "replace() text must be a string, is a: {}",
-                        text.ty()
-                    )));
-                };
+                    let Value::Str(text) = text else {
+                        return Err(RuntimeError(format!(
+                            "replace() text must be a string, is a: {}",
+                            text.ty()
+                        )));
+                    };
 
-                let def = runtime.scopes[scope].values.get(&id("def")).unwrap();
+                    let def = runtime.scopes[scope].values.get(&id("def")).unwrap();
 
-                let Value::Tuple(def) = def else {
-                    return Err(RuntimeError(format!(
-                        "replace() def must be a string, is a: {}",
-                        def.ty()
-                    )));
-                };
+                    let Value::Tuple(def) = def else {
+                        return Err(RuntimeError(format!(
+                            "replace() def must be a string, is a: {}",
+                            def.ty()
+                        )));
+                    };
 
-                let Some(Value::Str(find)) = def.get(0) else {
-                    return Err(RuntimeError(format!("replace() def[0] must be a string")));
-                };
+                    let Some(Value::Str(find)) = def.get(0) else {
+                        return Err(RuntimeError(format!("replace() def[0] must be a string")));
+                    };
 
-                let Some(Value::Str(replace)) = def.get(1) else {
-                    return Err(RuntimeError(format!("replace() def[1] must be a string")));
-                };
+                    let Some(Value::Str(replace)) = def.get(1) else {
+                        return Err(RuntimeError(format!("replace() def[1] must be a string")));
+                    };
 
-                let result = text.replace(find.as_str(), replace).into();
+                    let result = text.replace(find.as_str(), replace).into();
 
-                Ok(Value::Str(result))
-            }),
+                    Ok(Value::Str(result))
+                }),
+            }],
         }),
     );
 
@@ -1250,36 +1352,38 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("slice"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![idpat("text"), idpat("i")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
+            signatures: vec![FnSig {
+                params: vec![idpat("text"), idpat("i")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
-                let Value::Str(text) = text else {
-                    return Err(RuntimeError(format!(
-                        "starts_with() text must be a string, is a: {}",
-                        text.ty()
-                    )));
-                };
+                    let Value::Str(text) = text else {
+                        return Err(RuntimeError(format!(
+                            "starts_with() text must be a string, is a: {}",
+                            text.ty()
+                        )));
+                    };
 
-                let i = runtime.scopes[scope].values.get(&id("i")).unwrap();
+                    let i = runtime.scopes[scope].values.get(&id("i")).unwrap();
 
-                let Value::Numeric(i) = i else {
-                    return Err(RuntimeError(format!(
-                        "starts_with() i must be an int, is a: {}",
-                        i.ty()
-                    )));
-                };
+                    let Value::Numeric(i) = i else {
+                        return Err(RuntimeError(format!(
+                            "starts_with() i must be an int, is a: {}",
+                            i.ty()
+                        )));
+                    };
 
-                let i = i.get_int()?;
+                    let i = i.get_int()?;
 
-                if i < 0 {
-                    return Err(RuntimeError(format!(
-                        "starts_with() i must be a positive int"
-                    )));
-                }
+                    if i < 0 {
+                        return Err(RuntimeError(format!(
+                            "starts_with() i must be a positive int"
+                        )));
+                    }
 
-                Ok(Value::Str(text.substr((i as usize)..)))
-            }),
+                    Ok(Value::Str(text.substr((i as usize)..)))
+                }),
+            }],
         }),
     );
 
@@ -1287,39 +1391,41 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("index"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![idpat("list"), idpat("i")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let list = runtime.scopes[scope].values.get(&id("list")).unwrap();
+            signatures: vec![FnSig {
+                params: vec![idpat("list"), idpat("i")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let list = runtime.scopes[scope].values.get(&id("list")).unwrap();
 
-                let list = match list {
-                    Value::List(_, list) => list,
-                    Value::Tuple(list) => list,
-                    _ => {
+                    let list = match list {
+                        Value::List(_, list) => list,
+                        Value::Tuple(list) => list,
+                        _ => {
+                            return Err(RuntimeError(format!(
+                                "index() list must be a list or tuple, is a: {}",
+                                list.ty()
+                            )));
+                        }
+                    };
+
+                    let i = runtime.scopes[scope].values.get(&id("i")).unwrap();
+
+                    let Value::Numeric(i) = i else {
                         return Err(RuntimeError(format!(
-                            "index() list must be a list or tuple, is a: {}",
-                            list.ty()
+                            "split[#2] must be an int, is a: {}",
+                            i.ty()
                         )));
-                    }
-                };
+                    };
 
-                let i = runtime.scopes[scope].values.get(&id("i")).unwrap();
+                    let i = i.get_int()?;
 
-                let Value::Numeric(i) = i else {
-                    return Err(RuntimeError(format!(
-                        "split[#2] must be an int, is a: {}",
-                        i.ty()
-                    )));
-                };
+                    let el = match i {
+                        i if i >= 0 => list.get(i as usize),
+                        _ => list.get((list.len() as i64 + i) as usize),
+                    };
 
-                let i = i.get_int()?;
-
-                let el = match i {
-                    i if i >= 0 => list.get(i as usize),
-                    _ => list.get((list.len() as i64 + i) as usize),
-                };
-
-                Ok(el.cloned().unwrap_or(Value::Nil))
-            }),
+                    Ok(el.cloned().unwrap_or(Value::Nil))
+                }),
+            }],
         }),
     );
 
@@ -1327,20 +1433,22 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("trim"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![idpat("text")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
+            signatures: vec![FnSig {
+                params: vec![idpat("text")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
-                let Value::Str(text) = text else {
-                    return Err(RuntimeError(format!(
-                        "trim[#1] must be a string, is a: {}",
-                        text.ty()
-                    )));
-                };
+                    let Value::Str(text) = text else {
+                        return Err(RuntimeError(format!(
+                            "trim[#1] must be a string, is a: {}",
+                            text.ty()
+                        )));
+                    };
 
-                // TODO // substr_from
-                Ok(Value::Str(text.trim().to_string().into()))
-            }),
+                    // TODO // substr_from
+                    Ok(Value::Str(text.trim().to_string().into()))
+                }),
+            }],
         }),
     );
 
@@ -1348,21 +1456,23 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("len"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![idpat("data")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let data = runtime.scopes[scope].values.get(&id("data")).unwrap();
+            signatures: vec![FnSig {
+                params: vec![idpat("data")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let data = runtime.scopes[scope].values.get(&id("data")).unwrap();
 
-                let len = match data {
-                    Value::Str(text) => text.len(),
-                    Value::List(_, list) => list.len(),
-                    Value::Tuple(tuple) => tuple.len(),
-                    _ => {
-                        return Err(RuntimeError(format!("cannot get len of: {}", data.ty())));
-                    }
-                };
+                    let len = match data {
+                        Value::Str(text) => text.len(),
+                        Value::List(_, list) => list.len(),
+                        Value::Tuple(tuple) => tuple.len(),
+                        _ => {
+                            return Err(RuntimeError(format!("cannot get len of: {}", data.ty())));
+                        }
+                    };
 
-                Ok(Value::Numeric(Numeric::Int(len as i64)))
-            }),
+                    Ok(Value::Numeric(Numeric::Int(len as i64)))
+                }),
+            }],
         }),
     );
 
@@ -1370,24 +1480,26 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("chars"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![idpat("text")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
+            signatures: vec![FnSig {
+                params: vec![idpat("text")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
-                let Value::Str(text) = text else {
-                    return Err(RuntimeError(format!(
-                        "trim[#1] must be a string, is a: {}",
-                        text.ty()
-                    )));
-                };
+                    let Value::Str(text) = text else {
+                        return Err(RuntimeError(format!(
+                            "trim[#1] must be a string, is a: {}",
+                            text.ty()
+                        )));
+                    };
 
-                Ok(Value::List(
-                    Type::Str,
-                    text.chars()
-                        .map(|c| Value::Str(c.to_string().into()))
-                        .collect(),
-                ))
-            }),
+                    Ok(Value::List(
+                        Type::Str,
+                        text.chars()
+                            .map(|c| Value::Str(c.to_string().into()))
+                            .collect(),
+                    ))
+                }),
+            }],
         }),
     );
 
@@ -1395,14 +1507,16 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("int"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![idpat("data")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let data = runtime.scopes[scope].values.get(&id("data")).unwrap();
+            signatures: vec![FnSig {
+                params: vec![idpat("data")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let data = runtime.scopes[scope].values.get(&id("data")).unwrap();
 
-                let result = data.auto_coerce_int()?;
+                    let result = data.auto_coerce_int()?;
 
-                Ok(Value::Numeric(Numeric::Int(result)))
-            }),
+                    Ok(Value::Numeric(Numeric::Int(result)))
+                }),
+            }],
         }),
     );
 

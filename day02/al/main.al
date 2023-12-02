@@ -57,11 +57,12 @@ fn bonus(input) {
           if (color == "red") {
             red = red :max num
           }
-          // else if (color == "green") {
-          //   green = green :max num
-          // } else if (color == "blue") {
-          //   blue = blue :max num
-          // }
+          if (color == "green") {
+            green = green :max num
+          }
+          if (color == "blue") {
+            blue = blue :max num
+          }
         }
 
       red * green * blue
@@ -75,3 +76,6 @@ print("Example: {solve(example_input, 12, 13, 14)}")
 print("Solution: {solve(stdin, 12, 13, 14)}")
 
 print("Bonus example: {bonus(example_input)}")
+
+// ±10ms
+print("Bonus: {bonus(stdin)}")
