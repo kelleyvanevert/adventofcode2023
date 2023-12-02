@@ -556,8 +556,8 @@ pub fn expr(input: &str) -> ParseResult<&str, Expr> {
     alt((if_expr, or_expr_stack)).parse(input)
 }
 
-pub fn parameter_list(mut input: &str) -> ParseResult<&str, Vec<Identifier>> {
-    if let Some((rem, id)) = identifier.parse(input) {
+pub fn parameter_list(mut input: &str) -> ParseResult<&str, Vec<Pattern>> {
+    if let Some((rem, id)) = pattern.parse(input) {
         let mut ids = vec![];
         let mut seen_comma = false;
 
@@ -565,7 +565,7 @@ pub fn parameter_list(mut input: &str) -> ParseResult<&str, Vec<Identifier>> {
         input = rem;
 
         loop {
-            if seen_comma && let Some((rem, id)) = preceded(ws0, identifier).parse(input) {
+            if seen_comma && let Some((rem, id)) = preceded(ws0, pattern).parse(input) {
                 ids.push(id);
                 input = rem;
                 seen_comma = false;
@@ -611,6 +611,27 @@ pub fn pattern(input: &str) -> ParseResult<&str, Pattern> {
                 },
             ),
             seq((ws0, tag("]"))),
+        ),
+        delimited(
+            seq((tag("("), ws0)),
+            map(
+                optional(seq((
+                    pattern,
+                    many0(preceded(seq((ws0, tag(","), ws0)), pattern)),
+                    ws0,
+                    optional(tag(",")),
+                ))),
+                |opt| {
+                    Pattern::Tuple(match opt {
+                        None => vec![],
+                        Some((first, mut ps, _, _)) => {
+                            ps.insert(0, first);
+                            ps
+                        }
+                    })
+                },
+            ),
+            seq((ws0, tag(")"))),
         ),
     ))
     .parse(input)
@@ -808,7 +829,10 @@ mod tests {
 
     fn anon_expr(params: Vec<&str>, expr: Expr) -> Expr {
         Expr::AnonymousFn {
-            params: params.iter().map(|&name| Identifier(name.into())).collect(),
+            params: params
+                .iter()
+                .map(|&name| Pattern::Id(Identifier(name.into())))
+                .collect(),
             body: Block {
                 items: vec![],
                 stmts: vec![Stmt::Expr { expr: expr.into() }],
@@ -861,15 +885,18 @@ mod tests {
         );
         assert_eq!(
             parameter_list.parse("blue , kelley"),
-            Some(("", vec![id("blue"), id("kelley")]))
+            Some(("", vec![Pattern::Id(id("blue")), Pattern::Id(id("kelley"))]))
         );
         assert_eq!(
             parameter_list.parse("kelley ,,"),
-            Some((",", vec![id("kelley")]))
+            Some((",", vec![Pattern::Id(id("kelley"))]))
         );
         assert_eq!(
             parameter_list.parse("kelley , blue , )"),
-            Some((" )", vec![id("kelley"), id("blue")]))
+            Some((
+                " )",
+                vec![Pattern::Id(id("kelley")), Pattern::Id(id("blue"))]
+            ))
         );
         assert_eq!(expr.parse("kelley ?"), Some((" ?", var("kelley"))));
         assert_eq!(expr.parse("(kelley) ?"), Some((" ?", var("kelley"))));
@@ -972,6 +999,48 @@ mod tests {
                     },
                     int(21)
                 )
+            ))
+        );
+        assert_eq!(
+            expr.parse("|| { } ?"),
+            Some((
+                " ?",
+                Expr::AnonymousFn {
+                    params: vec![],
+                    body: Block {
+                        items: vec![],
+                        stmts: vec![]
+                    }
+                }
+            ))
+        );
+        assert_eq!(
+            expr.parse("|a| { } ?"),
+            Some((
+                " ?",
+                Expr::AnonymousFn {
+                    params: vec![Pattern::Id(id("a"))],
+                    body: Block {
+                        items: vec![],
+                        stmts: vec![]
+                    }
+                }
+            ))
+        );
+        assert_eq!(
+            expr.parse("|(a, b)| { } ?"),
+            Some((
+                " ?",
+                Expr::AnonymousFn {
+                    params: vec![Pattern::Tuple(vec![
+                        Pattern::Id(id("a")),
+                        Pattern::Id(id("b"))
+                    ])],
+                    body: Block {
+                        items: vec![],
+                        stmts: vec![]
+                    }
+                }
             ))
         );
         assert_eq!(
@@ -1167,7 +1236,7 @@ mod tests {
                 "",
                 Item::NamedFn {
                     name: id("make_counter"),
-                    params: vec![id("start")],
+                    params: vec![Pattern::Id(id("start"))],
                     body: Block {
                         items: vec![],
                         stmts: vec![
@@ -1177,7 +1246,7 @@ mod tests {
                             },
                             Stmt::Expr {
                                 expr: Expr::AnonymousFn {
-                                    params: vec![id("d")],
+                                    params: vec![Pattern::Id(id("d"))],
                                     body: Block {
                                         items: vec![],
                                         stmts: vec![Stmt::Expr {

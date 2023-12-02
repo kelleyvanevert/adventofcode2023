@@ -18,6 +18,10 @@ fn id(id: &str) -> Identifier {
     Identifier(id.into())
 }
 
+fn idpat(id: &str) -> Pattern {
+    Pattern::Id(Identifier(id.into()))
+}
+
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum Numeric {
     Int(i64),
@@ -79,7 +83,7 @@ impl Display for Numeric {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FnDef {
     parent_scope: usize,
-    params: Vec<Identifier>,
+    params: Vec<Pattern>,
     body: FnBody,
 }
 
@@ -545,6 +549,21 @@ impl Runtime {
                     self.assign(scope, pattern, value)?;
                 }
             }
+            Pattern::Tuple(ps) => {
+                let Value::Tuple(items) = value else {
+                    return Err(RuntimeError(format!(
+                        "cannot assign to tiple pattern: {}",
+                        value.ty()
+                    )));
+                };
+
+                for (pattern, value) in ps
+                    .into_iter()
+                    .zip(items.into_iter().chain(std::iter::repeat(Value::Nil)))
+                {
+                    self.assign(scope, pattern, value)?;
+                }
+            }
         }
 
         Ok(())
@@ -611,7 +630,10 @@ impl Runtime {
         for (arg_name, arg_value) in args {
             if let Some(name) = arg_name {
                 // assign named param
-                match params_remaining.iter().position(|p| p == &name) {
+                match params_remaining
+                    .iter()
+                    .position(|p| p == &Pattern::Id(name.clone()))
+                {
                     Some(i) => {
                         params_remaining.remove(i);
                         self.scopes[execution_scope].values.insert(name, arg_value);
@@ -622,10 +644,10 @@ impl Runtime {
                         )));
                     }
                 }
-            } else if let Some(name) = params_remaining.get(0).cloned() {
+            } else if let Some(pattern) = params_remaining.get(0).cloned() {
                 // assign next available param
                 params_remaining.remove(0);
-                self.scopes[execution_scope].values.insert(name, arg_value);
+                self.assign(execution_scope, &pattern, arg_value)?;
             } else {
                 // no params left
                 return Err(RuntimeError(format!("no param to pass arg to")));
@@ -899,7 +921,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("print"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![id("text")],
+            params: vec![idpat("text")],
             body: FnBody::Builtin(|runtime, scope| {
                 let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
@@ -913,7 +935,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("run"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![id("f")],
+            params: vec![idpat("f")],
             body: FnBody::Builtin(|runtime, scope| {
                 let f = runtime.scopes[scope].values.get(&id("f")).unwrap();
 
@@ -935,7 +957,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("max"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![id("items")],
+            params: vec![idpat("items")],
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
@@ -958,7 +980,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("map"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![id("items"), id("cb")],
+            params: vec![idpat("items"), idpat("cb")],
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
@@ -994,7 +1016,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("flat_map"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![id("items"), id("cb")],
+            params: vec![idpat("items"), idpat("cb")],
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
@@ -1040,7 +1062,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("in"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![id("needle"), id("haystack")],
+            params: vec![idpat("needle"), idpat("haystack")],
             body: FnBody::Builtin(|runtime, scope| {
                 let needle = runtime.scopes[scope].values.get(&id("needle")).unwrap();
 
@@ -1062,7 +1084,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("filter"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![id("items"), id("cb")],
+            params: vec![idpat("items"), idpat("cb")],
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
@@ -1103,7 +1125,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("filter_map"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![id("items"), id("cb")],
+            params: vec![idpat("items"), idpat("cb")],
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
@@ -1147,7 +1169,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("find_map"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![id("items"), id("cb")],
+            params: vec![idpat("items"), idpat("cb")],
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
@@ -1189,7 +1211,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("find"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![id("items"), id("cb")],
+            params: vec![idpat("items"), idpat("cb")],
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
@@ -1226,7 +1248,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("range"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![id("start"), id("end")],
+            params: vec![idpat("start"), idpat("end")],
             body: FnBody::Builtin(|runtime, scope| {
                 let start = runtime.scopes[scope].values.get(&id("start")).unwrap();
 
@@ -1273,7 +1295,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("sum"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![id("items")],
+            params: vec![idpat("items")],
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
@@ -1295,7 +1317,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("split"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![id("text"), id("sep")],
+            params: vec![idpat("text"), idpat("sep")],
             body: FnBody::Builtin(|runtime, scope| {
                 let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
@@ -1329,7 +1351,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("starts_with"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![id("text"), id("substr")],
+            params: vec![idpat("text"), idpat("substr")],
             body: FnBody::Builtin(|runtime, scope| {
                 let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
@@ -1358,7 +1380,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("replace"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![id("text"), id("def")],
+            params: vec![idpat("text"), idpat("def")],
             body: FnBody::Builtin(|runtime, scope| {
                 let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
@@ -1397,7 +1419,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("slice"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![id("text"), id("i")],
+            params: vec![idpat("text"), idpat("i")],
             body: FnBody::Builtin(|runtime, scope| {
                 let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
@@ -1434,7 +1456,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("index"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![id("list"), id("i")],
+            params: vec![idpat("list"), idpat("i")],
             body: FnBody::Builtin(|runtime, scope| {
                 let list = runtime.scopes[scope].values.get(&id("list")).unwrap();
 
@@ -1474,7 +1496,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("trim"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![id("text")],
+            params: vec![idpat("text")],
             body: FnBody::Builtin(|runtime, scope| {
                 let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
@@ -1495,7 +1517,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("len"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![id("data")],
+            params: vec![idpat("data")],
             body: FnBody::Builtin(|runtime, scope| {
                 let data = runtime.scopes[scope].values.get(&id("data")).unwrap();
 
@@ -1517,7 +1539,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("chars"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![id("text")],
+            params: vec![idpat("text")],
             body: FnBody::Builtin(|runtime, scope| {
                 let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
@@ -1542,7 +1564,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         id("int"),
         Value::FnDef(FnDef {
             parent_scope: 0,
-            params: vec![id("data")],
+            params: vec![idpat("data")],
             body: FnBody::Builtin(|runtime, scope| {
                 let data = runtime.scopes[scope].values.get(&id("data")).unwrap();
 

@@ -24,8 +24,8 @@ fn solve(input, red, green, blue) {
           let [num, color] = draw:split(" ")
           (num:int, color)
         }
-        :find |t| {
-          t[1] == "red" && t[0] > red || t[1] == "green" && t[0] > green || t[1] == "blue" && t[0] > blue
+        :find |(num, color)| {
+          color == "red" && num > red || color == "green" && num > green || color == "blue" && num > blue
         }
 
       if (invalid) {

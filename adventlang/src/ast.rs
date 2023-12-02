@@ -11,7 +11,7 @@ pub struct Identifier(pub CompactString);
 pub enum Pattern {
     Id(Identifier),
     List(Vec<Pattern>),
-    // more..
+    Tuple(Vec<Pattern>),
 }
 
 impl Display for Identifier {
@@ -64,7 +64,7 @@ pub enum Expr {
         args: Vec<Argument>,
     },
     AnonymousFn {
-        params: Vec<Identifier>,
+        params: Vec<Pattern>,
         body: Block,
     },
     If {
@@ -89,7 +89,7 @@ pub enum Expr {
 pub enum Item {
     NamedFn {
         name: Identifier,
-        params: Vec<Identifier>,
+        params: Vec<Pattern>,
         body: Block,
     },
 }
