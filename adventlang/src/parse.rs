@@ -1,5 +1,7 @@
 use crate::{
-    ast::{Argument, Block, Document, Expr, Identifier, Item, Pattern, Stmt, StrLiteralPiece},
+    ast::{
+        Argument, Block, Document, Expr, Identifier, Item, Pattern, Stmt, StrLiteralPiece, Type,
+    },
     parser_combinators::{
         alt, delimited, many0, map, optional, preceded, regex, seq, tag, terminated, ParseResult,
         Parser,
@@ -588,9 +590,48 @@ pub fn return_stmt(input: &str) -> ParseResult<&str, Stmt> {
     .parse(input)
 }
 
+fn type_leaf(input: &str) -> ParseResult<&str, Type> {
+    alt((
+        map(tag("any"), |_| Type::Any),
+        map(tag("nil"), |_| Type::Nil),
+        map(tag("bool"), |_| Type::Bool),
+        map(tag("str"), |_| Type::Str),
+        map(tag("int"), |_| Type::Numeric),
+        map(tag("double"), |_| Type::Numeric),
+        // TODO fns
+        map(tag("list"), |_| Type::List(Type::Any.into())),
+        map(tag("tuple"), |_| Type::Tuple),
+    ))
+    .parse(input)
+}
+
+pub fn typespec(input: &str) -> ParseResult<&str, Type> {
+    map(
+        seq((
+            type_leaf,
+            many0(preceded(seq((ws0, tag("|"), ws0)), type_leaf)),
+        )),
+        |(first, mut rest)| {
+            if rest.len() > 0 {
+                rest.insert(0, first);
+                Type::Union(rest)
+            } else {
+                first
+            }
+        },
+    )
+    .parse(input)
+}
+
 pub fn pattern(input: &str) -> ParseResult<&str, Pattern> {
     alt((
-        map(identifier, Pattern::Id),
+        map(
+            seq((
+                identifier,
+                optional(preceded(seq((ws0, tag(":"), ws0)), typespec)),
+            )),
+            |(id, ty)| Pattern::Id(id, ty),
+        ),
         delimited(
             seq((tag("["), ws0)),
             map(
@@ -831,7 +872,7 @@ mod tests {
         Expr::AnonymousFn {
             params: params
                 .iter()
-                .map(|&name| Pattern::Id(Identifier(name.into())))
+                .map(|&name| Pattern::Id(Identifier(name.into()), None))
                 .collect(),
             body: Block {
                 items: vec![],
@@ -885,17 +926,26 @@ mod tests {
         );
         assert_eq!(
             parameter_list.parse("blue , kelley"),
-            Some(("", vec![Pattern::Id(id("blue")), Pattern::Id(id("kelley"))]))
+            Some((
+                "",
+                vec![
+                    Pattern::Id(id("blue"), None),
+                    Pattern::Id(id("kelley"), None)
+                ]
+            ))
         );
         assert_eq!(
             parameter_list.parse("kelley ,,"),
-            Some((",", vec![Pattern::Id(id("kelley"))]))
+            Some((",", vec![Pattern::Id(id("kelley"), None)]))
         );
         assert_eq!(
             parameter_list.parse("kelley , blue , )"),
             Some((
                 " )",
-                vec![Pattern::Id(id("kelley")), Pattern::Id(id("blue"))]
+                vec![
+                    Pattern::Id(id("kelley"), None),
+                    Pattern::Id(id("blue"), None)
+                ]
             ))
         );
         assert_eq!(expr.parse("kelley ?"), Some((" ?", var("kelley"))));
@@ -1019,7 +1069,7 @@ mod tests {
             Some((
                 " ?",
                 Expr::AnonymousFn {
-                    params: vec![Pattern::Id(id("a"))],
+                    params: vec![Pattern::Id(id("a"), None)],
                     body: Block {
                         items: vec![],
                         stmts: vec![]
@@ -1033,8 +1083,8 @@ mod tests {
                 " ?",
                 Expr::AnonymousFn {
                     params: vec![Pattern::Tuple(vec![
-                        Pattern::Id(id("a")),
-                        Pattern::Id(id("b"))
+                        Pattern::Id(id("a"), None),
+                        Pattern::Id(id("b"), None)
                     ])],
                     body: Block {
                         items: vec![],
@@ -1048,7 +1098,7 @@ mod tests {
             Some((
                 " ?",
                 Stmt::Declare {
-                    pattern: Pattern::Id(id("h")),
+                    pattern: Pattern::Id(id("h"), None),
                     expr: int(7).into()
                 }
             ))
@@ -1058,7 +1108,7 @@ mod tests {
             Some((
                 " ?",
                 Stmt::Declare {
-                    pattern: Pattern::Id(id("h")),
+                    pattern: Pattern::Id(id("h"), None),
                     expr: int(-7).into()
                 }
             ))
@@ -1068,7 +1118,7 @@ mod tests {
             Some((
                 " ?",
                 Stmt::Declare {
-                    pattern: Pattern::Id(id("h")),
+                    pattern: Pattern::Id(id("h"), None),
                     expr: unary("!", int(-7)).into()
                 }
             ))
@@ -1151,7 +1201,7 @@ mod tests {
             Some((
                 "",
                 Stmt::Declare {
-                    pattern: Pattern::Id(id("v")),
+                    pattern: Pattern::Id(id("v"), None),
                     expr: str("world").into()
                 }
             ))
@@ -1161,7 +1211,7 @@ mod tests {
             Some((
                 "",
                 Stmt::Declare {
-                    pattern: Pattern::Id(id("v")),
+                    pattern: Pattern::Id(id("v"), None),
                     expr: simple_invocation("index", vec![str("world").into(), int(0).into(),])
                         .into()
                 }
@@ -1172,7 +1222,7 @@ mod tests {
             Some((
                 "",
                 Stmt::Declare {
-                    pattern: Pattern::Id(id("v")),
+                    pattern: Pattern::Id(id("v"), None),
                     expr: Expr::StrLiteral {
                         pieces: vec![
                             StrLiteralPiece::Fragment("wor".into()),
@@ -1236,17 +1286,17 @@ mod tests {
                 "",
                 Item::NamedFn {
                     name: id("make_counter"),
-                    params: vec![Pattern::Id(id("start"))],
+                    params: vec![Pattern::Id(id("start"), None)],
                     body: Block {
                         items: vec![],
                         stmts: vec![
                             Stmt::Declare {
-                                pattern: Pattern::Id(id("n")),
+                                pattern: Pattern::Id(id("n"), None),
                                 expr: Expr::Variable(id("start")).into()
                             },
                             Stmt::Expr {
                                 expr: Expr::AnonymousFn {
-                                    params: vec![Pattern::Id(id("d"))],
+                                    params: vec![Pattern::Id(id("d"), None)],
                                     body: Block {
                                         items: vec![],
                                         stmts: vec![Stmt::Expr {
@@ -1298,7 +1348,7 @@ mod tests {
                 Block {
                     items: vec![],
                     stmts: vec![Stmt::Declare {
-                        pattern: Pattern::Id(id("h")),
+                        pattern: Pattern::Id(id("h"), None),
                         expr: Expr::Numeric(Numeric::Int(7)).into()
                     }]
                 }
@@ -1328,7 +1378,7 @@ mod tests {
         );
         assert_eq!(
             block_contents.parse(
-                "let h= 7 ; kelley= 712 ;; 
+                "let h:int = 7 ; kelley= 712 ;; 
 
 5 ?"
             ),
@@ -1338,7 +1388,7 @@ mod tests {
                     items: vec![],
                     stmts: vec![
                         Stmt::Declare {
-                            pattern: Pattern::Id(id("h")),
+                            pattern: Pattern::Id(id("h"), Some(Type::Numeric)),
                             expr: Expr::Numeric(Numeric::Int(7)).into()
                         },
                         Stmt::Assign {
@@ -1366,7 +1416,7 @@ mod tests {
                         }
                     }],
                     stmts: vec![Stmt::Declare {
-                        pattern: Pattern::Id(id("h")),
+                        pattern: Pattern::Id(id("h"), None),
                         expr: Expr::Numeric(Numeric::Int(7)).into()
                     }]
                 }
@@ -1377,7 +1427,7 @@ mod tests {
             Some((
                 " ?",
                 Stmt::Declare {
-                    pattern: Pattern::Id(id("h")),
+                    pattern: Pattern::Id(id("h"), None),
                     expr: Expr::AnonymousFn {
                         params: vec![],
                         body: Block {
@@ -1415,11 +1465,11 @@ let h = 2
                         items: vec![],
                         stmts: vec![
                             Stmt::Declare {
-                                pattern: Pattern::Id(id("v")),
+                                pattern: Pattern::Id(id("v"), None),
                                 expr: str("world").into()
                             },
                             Stmt::Declare {
-                                pattern: Pattern::Id(id("h")),
+                                pattern: Pattern::Id(id("h"), None),
                                 expr: Expr::Numeric(Numeric::Int(2)).into()
                             },
                             Stmt::Expr {

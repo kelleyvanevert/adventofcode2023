@@ -15,8 +15,8 @@ fn solve(input, red, green, blue) {
   input
     :trim
     :lines
-    :map |line| {
-      let [id, sets] = line :split ": "
+    :map |game| {
+      let [id, sets] = game :split ": "
       let id = id :replace ("Game ", "") :int
       let invalid = sets :split "; "
         :flat_map |set| { set :split ", " }
@@ -37,7 +37,41 @@ fn solve(input, red, green, blue) {
     :sum
 }
 
+fn bonus(input) {
+  input
+    :trim
+    :lines
+    :map |game| {
+      let red = 0;
+      let green = 0;
+      let blue = 0;
+
+      let sets = (game :split ": ")[1]
+      sets :split "; "
+        :flat_map |set| { set :split ", " }
+        :map |draw| {
+          let [num, color] = draw:split(" ")
+          (num:int, color)
+        }
+        :map |(num, color)| {
+          if (color == "red") {
+            red = red :max num
+          }
+          // else if (color == "green") {
+          //   green = green :max num
+          // } else if (color == "blue") {
+          //   blue = blue :max num
+          // }
+        }
+
+      red * green * blue
+    }
+    :sum
+}
+
 print("Example: {solve(example_input, 12, 13, 14)}")
 
 // ±9ms
 print("Solution: {solve(stdin, 12, 13, 14)}")
+
+print("Bonus example: {bonus(example_input)}")
