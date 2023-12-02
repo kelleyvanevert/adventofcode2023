@@ -4,6 +4,8 @@ use std::{
     fmt::Display,
 };
 
+use arcstr::Substr;
+
 use crate::ast::{Block, Document, Expr, Identifier, Item, Stmt, StrLiteralPiece};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -91,7 +93,7 @@ pub enum FnBody {
 pub enum Value {
     Nil,
     Bool(bool),
-    Str(Str),
+    Str(Substr),
     Numeric(Numeric),
     FnDef(FnDef),
     List(Type, Vec<Value>),
@@ -103,7 +105,7 @@ impl Display for Value {
         match self {
             Value::Nil => write!(f, "nil"),
             Value::Bool(b) => write!(f, "{b}"),
-            Value::Str(str) => write!(f, "{}", str.0),
+            Value::Str(str) => write!(f, "{}", str),
             Value::Numeric(num) => write!(f, "{num}"),
             Value::FnDef(_) => write!(f, "[fn]"),
             Value::List(_, list) => {
@@ -316,7 +318,10 @@ impl Value {
 
     fn add(&self, other: Value) -> Result<Value, RuntimeError> {
         match (self, other) {
-            (Value::Str(a), Value::Str(b)) => Ok(Value::Str(Str(a.0.to_string() + &b.0))),
+            (Value::Str(a), Value::Str(b)) => {
+                let new = Substr::from(a.to_string() + &b);
+                Ok(Value::Str(new))
+            }
             (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.add(b))),
             (a, b) => Err(RuntimeError(format!(
                 "can't perform {} + {}",
@@ -341,7 +346,7 @@ impl Value {
 
     fn lt(&self, other: Value) -> Result<Value, RuntimeError> {
         match (self, other) {
-            (Value::Str(a), Value::Str(b)) => Ok(Value::Bool(a.0.len() < b.0.len())),
+            (Value::Str(a), Value::Str(b)) => Ok(Value::Bool(a.len() < b.len())),
             (Value::Numeric(a), Value::Numeric(b)) => {
                 Ok(Value::Bool(a.get_double() < b.get_double()))
             }
@@ -355,7 +360,7 @@ impl Value {
 
     fn eq(&self, other: Value) -> Result<Value, RuntimeError> {
         match (self, other) {
-            (Value::Str(a), Value::Str(b)) => Ok(Value::Bool(a.0 == b.0)),
+            (Value::Str(a), Value::Str(b)) => Ok(Value::Bool(a == &b)),
             (Value::Numeric(a), Value::Numeric(b)) => {
                 Ok(Value::Bool(a.get_double() == b.get_double()))
             }
@@ -378,7 +383,7 @@ impl Value {
                     "false".into()
                 }
             }
-            Value::Str(str) => str.0.clone(),
+            Value::Str(str) => str.to_string(),
             Value::Numeric(n) => format!("{n}"),
             Value::FnDef(_) => "<fn>".into(),
             Value::List(_, _) => "<list>".into(),
@@ -399,9 +404,8 @@ impl Value {
             }
             Value::Str(str) => {
                 return str
-                    .0
                     .parse::<i64>()
-                    .map_err(|_| RuntimeError(format!("cannot coerce '{}' to int", str.0)));
+                    .map_err(|_| RuntimeError(format!("cannot coerce '{}' to int", str)));
             }
             Value::Numeric(n) => n.get_int(),
             _ => Err(RuntimeError(format!("cannot coerce {} to int", self.ty()))),
@@ -448,10 +452,10 @@ impl Runtime {
         }
     }
 
-    fn lookup(&self, scope_id: usize, id: &Identifier) -> Option<(usize, Value)> {
+    fn lookup(&self, scope_id: usize, id: &Identifier) -> Option<(usize, &Value)> {
         let scope = self.scopes.get(scope_id)?;
         if let Some(value) = scope.values.get(id) {
-            return Some((scope_id, value.clone()));
+            return Some((scope_id, value));
         }
 
         if let Some(parent_scope_id) = scope.parent_scope {
@@ -624,7 +628,7 @@ impl Runtime {
                     }
                 }
 
-                Ok((Value::Str(Str(build)), None))
+                Ok((Value::Str(Substr::from(build)), None))
             }
             Expr::Numeric(num) => Ok((Value::Numeric(num.clone()), None)),
             Expr::Variable(id) => {
@@ -632,7 +636,7 @@ impl Runtime {
                     return Err(RuntimeError(format!("Could not find id: {id}")));
                 };
 
-                Ok((value, None))
+                Ok((value.clone(), None))
             }
             Expr::UnaryExpr { expr, op } => {
                 let (value, ret) = self.evaluate(scope, expr)?;
@@ -814,7 +818,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
 
     runtime.scopes[0]
         .values
-        .insert(id("stdin"), Value::Str(Str(stdin)));
+        .insert(id("stdin"), Value::Str(Substr::from(stdin)));
 
     runtime.scopes[0].values.insert(
         id("print"),
@@ -1154,9 +1158,8 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                 };
 
                 let result = text
-                    .0
-                    .split(&sep.0)
-                    .map(|piece| Value::Str(Str(piece.to_string())))
+                    .split(sep.as_str())
+                    .map(|piece| Value::Str(text.substr_from(piece)))
                     .collect::<Vec<_>>();
 
                 Ok(Value::List(Type::Str, result))
@@ -1188,7 +1191,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                     )));
                 };
 
-                Ok(Value::Bool(text.0.starts_with(&substr.0)))
+                Ok(Value::Bool(text.starts_with(substr.as_str())))
             }),
         }),
     );
@@ -1225,7 +1228,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                     )));
                 }
 
-                Ok(Value::Str(Str(text.0[(i as usize)..].to_string())))
+                Ok(Value::Str(text.substr((i as usize)..)))
             }),
         }),
     );
@@ -1285,7 +1288,8 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                     )));
                 };
 
-                Ok(Value::Str(Str(text.0.trim().to_string())))
+                // TODO // substr_from
+                Ok(Value::Str(text.trim().to_string().into()))
             }),
         }),
     );
@@ -1299,7 +1303,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                 let data = runtime.scopes[scope].values.get(&id("data")).unwrap();
 
                 let len = match data {
-                    Value::Str(text) => text.0.len(),
+                    Value::Str(text) => text.len(),
                     Value::List(_, list) => list.len(),
                     Value::Tuple(tuple) => tuple.len(),
                     _ => {
@@ -1329,9 +1333,8 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
 
                 Ok(Value::List(
                     Type::Str,
-                    text.0
-                        .chars()
-                        .map(|c| Value::Str(Str(c.to_string())))
+                    text.chars()
+                        .map(|c| Value::Str(c.to_string().into()))
                         .collect(),
                 ))
             }),

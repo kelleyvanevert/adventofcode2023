@@ -5,9 +5,13 @@ edition = "2021"
 authors = ["Kelley van Evert <hello@klve.nl>"]
 
 [dependencies]
+arcstr = "1.1.5"
 atty = "0.2.14"
 clap = { version = "4.4.10", features = ["derive"] }
 compact_str = "0.7.1"
 nom = "7.1.3"
 nom_locate = "4.2.0"
 regex = "1.10.2"
+
+[profile.release]
+debug = 1
