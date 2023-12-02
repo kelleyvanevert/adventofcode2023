@@ -39,4 +39,5 @@ fn solve(input, red, green, blue) {
 
 print("Example: {solve(example_input, 12, 13, 14)}")
 
+// ±9ms
 print("Solution: {solve(stdin, 12, 13, 14)}")
