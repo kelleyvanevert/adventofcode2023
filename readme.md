@@ -40,3 +40,14 @@ Notable missing features, or things I'll probably change soon:
   - I'd like so have some kind of "incremental" or "optional" typing in the language design, where you can optionally type variables and parameters, and overload functions on the basis of these types. These signatures would be resolved at runtime, like in Julia
 - **solve allocation-related performance issues**
   - I knew I was going to have to be smart about allocations if I wanted the toy language to be fast, but I didn't think I'd run into it on the first day already :P Solving the bonus part already takes 2.3s on average, which is incredibly high. For comparison: Rust took ±3ms, and JS took ±11ms. It's probably because of all the string slice reallocations. I know that V8 does smart copy-on-write things here, and my Rust solution .. well it explicitly doesn't copy of course :P
+
+**UPDATE** I actually think it's not so much the string reallocations, but mostly just all the cloning of values and fn bodies etc in the runtime. I haven't had much experience with profiling (Rust) code yet, but using [samply](https://github.com/mstange/samply/), I _think_ I can see this:
+
+- 16% + 3.5% +2.7% —— Runtime::loopup
+  - of which 6% —— Value::clone
+- 7.7% + 2.3% + 3.5% —— scope values' HashMap::insert
+- 10% —— FnDef::clone
+- 8.5% —— scope values' HashMap::get
+- 4% —— parsing
+
+... to fix this, while satisfying Rust's borrow checker, I need to think a bit harder :P (The borrow checker will start complaining about mutably borrowing `runtime` while I'm also still referencing it, as soon as I start reworking values to be references or cows or whatever. And it's true, I probably should find a way to not have to borrow the _entire_ scope tree just to change a piece of it, or whatever. Hmm...)

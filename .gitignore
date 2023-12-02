@@ -4,3 +4,5 @@ build
 *.kexe
 .DS_Store
 target
+
+profile.json
