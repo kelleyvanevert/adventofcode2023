@@ -6,7 +6,7 @@ use std::{
 
 use arcstr::Substr;
 
-use crate::ast::{Block, Document, Expr, Identifier, Item, Stmt, StrLiteralPiece};
+use crate::ast::{Block, Document, Expr, Identifier, Item, Pattern, Stmt, StrLiteralPiece};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeError(pub String);
@@ -229,7 +229,6 @@ impl PartialOrd for Type {
             (_, Type::FnDef) => None,
 
             (_, _) => {
-                println!("REL");
                 let a_types = a.flatten_unions();
                 let b_types = b.flatten_unions();
 
@@ -344,7 +343,7 @@ impl Value {
         }
     }
 
-    fn lt(&self, other: Value) -> Result<Value, RuntimeError> {
+    fn lt(&self, other: &Value) -> Result<Value, RuntimeError> {
         match (self, other) {
             (Value::Str(a), Value::Str(b)) => Ok(Value::Bool(a.len() < b.len())),
             (Value::Numeric(a), Value::Numeric(b)) => {
@@ -356,6 +355,10 @@ impl Value {
                 b.ty()
             ))),
         }
+    }
+
+    fn gt(&self, other: &Value) -> Result<Value, RuntimeError> {
+        other.lt(self)
     }
 
     fn eq(&self, other: Value) -> Result<Value, RuntimeError> {
@@ -428,6 +431,19 @@ impl Value {
         match self {
             Value::Bool(b) => Ok(*b),
             _ => Err(RuntimeError(format!("cannot coerce {}", self.ty()))),
+        }
+    }
+
+    fn truthy(&self) -> Result<bool, RuntimeError> {
+        match self {
+            Value::Nil => Ok(false),
+            Value::Bool(b) => Ok(*b),
+            Value::List(_, _) => Ok(true),
+            Value::Tuple(_) => Ok(true),
+            _ => Err(RuntimeError(format!(
+                "cannot check truthiness of {}",
+                self.ty()
+            ))),
         }
     }
 }
@@ -504,6 +520,36 @@ impl Runtime {
         Ok(())
     }
 
+    fn assign(
+        &mut self,
+        scope: usize,
+        pattern: &Pattern,
+        value: Value,
+    ) -> Result<(), RuntimeError> {
+        match pattern {
+            Pattern::Id(id) => {
+                self.scopes[scope].values.insert(id.clone(), value);
+            }
+            Pattern::List(ps) => {
+                let Value::List(_, items) = value else {
+                    return Err(RuntimeError(format!(
+                        "cannot assign to list pattern: {}",
+                        value.ty()
+                    )));
+                };
+
+                for (pattern, value) in ps
+                    .into_iter()
+                    .zip(items.into_iter().chain(std::iter::repeat(Value::Nil)))
+                {
+                    self.assign(scope, pattern, value)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     fn execute(
         &mut self,
         scope: usize,
@@ -519,13 +565,13 @@ impl Runtime {
                 Ok((Value::Nil, Some(value)))
             }
             Stmt::Expr { expr } => self.evaluate(scope, expr),
-            Stmt::Declare { id, expr } => {
+            Stmt::Declare { pattern, expr } => {
                 let (value, ret) = self.evaluate(scope, expr)?;
                 if let Some(return_value) = ret {
                     return Ok((Value::Nil, Some(return_value)));
                 }
 
-                self.scopes[scope].values.insert(id.clone(), value);
+                self.assign(scope, pattern, value)?;
 
                 Ok((Value::Nil, None))
             }
@@ -666,7 +712,14 @@ impl Runtime {
                         if let Some(return_value) = ret {
                             return Ok((Value::Nil, Some(return_value)));
                         }
-                        Ok((left_value.lt(right_value)?, None))
+                        Ok((left_value.lt(&right_value)?, None))
+                    }
+                    ">" => {
+                        let (right_value, ret) = self.evaluate(scope, right)?;
+                        if let Some(return_value) = ret {
+                            return Ok((Value::Nil, Some(return_value)));
+                        }
+                        Ok((left_value.gt(&right_value)?, None))
                     }
                     "==" => {
                         let (right_value, ret) = self.evaluate(scope, right)?;
@@ -674,6 +727,28 @@ impl Runtime {
                             return Ok((Value::Nil, Some(return_value)));
                         }
                         Ok((left_value.eq(right_value)?, None))
+                    }
+                    "&&" => {
+                        if !left_value.truthy()? {
+                            // short-curcuit
+                            return Ok((Value::Bool(false), None));
+                        }
+                        let (right_value, ret) = self.evaluate(scope, right)?;
+                        if let Some(return_value) = ret {
+                            return Ok((Value::Nil, Some(return_value)));
+                        }
+                        Ok((right_value, None))
+                    }
+                    "||" => {
+                        if left_value.truthy()? {
+                            // short-curcuit
+                            return Ok((left_value, None));
+                        }
+                        let (right_value, ret) = self.evaluate(scope, right)?;
+                        if let Some(return_value) = ret {
+                            return Ok((Value::Nil, Some(return_value)));
+                        }
+                        Ok((right_value, None))
                     }
                     _ => Err(RuntimeError(format!("Unknown binary operation: {op}"))),
                 }
@@ -746,7 +821,7 @@ impl Runtime {
 
                 let mut result = Value::Nil;
                 let mut ret = None;
-                if cond_value.auto_coerce_bool()? {
+                if cond_value.truthy()? {
                     (result, ret) = self.execute_block(scope, then)?;
                     if ret.is_some() {
                         return Ok((Value::Nil, ret));
@@ -916,6 +991,52 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
     );
 
     runtime.scopes[0].values.insert(
+        id("flat_map"),
+        Value::FnDef(FnDef {
+            parent_scope: 0,
+            params: vec![id("items"), id("cb")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
+
+                let Value::List(_, list) = items else {
+                    return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                };
+
+                let list = list.clone();
+
+                let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
+
+                let Value::FnDef(def) = cb else {
+                    return Err(RuntimeError(format!(
+                        "cannot use map w/ cb of type: {}",
+                        cb.ty()
+                    )));
+                };
+
+                let def = def.clone();
+
+                let mut result = vec![];
+                for item in list.iter() {
+                    let value = runtime.invoke(def.clone(), vec![(None, item.clone())])?;
+                    let Value::List(_, items) = value else {
+                        return Err(RuntimeError(format!(
+                            "flat_map cb should return lists, returned: {}",
+                            value.ty()
+                        )));
+                    };
+
+                    // TODO type-check
+
+                    result.extend(items);
+                }
+
+                // TODO type
+                Ok(Value::List(Type::Any, result))
+            }),
+        }),
+    );
+
+    runtime.scopes[0].values.insert(
         id("in"),
         Value::FnDef(FnDef {
             parent_scope: 0,
@@ -1047,8 +1168,8 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
 
                 let def = def.clone();
 
-                for item in list.iter() {
-                    let item = runtime.invoke(def.clone(), vec![(None, item.clone())])?;
+                for item in list {
+                    let item = runtime.invoke(def.clone(), vec![(None, item)])?;
 
                     match item {
                         // TODO fix the "nil as well as unit" problem
@@ -1056,6 +1177,43 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                         _ => {
                             return Ok(item);
                         }
+                    }
+                }
+
+                Ok(Value::Nil)
+            }),
+        }),
+    );
+
+    runtime.scopes[0].values.insert(
+        id("find"),
+        Value::FnDef(FnDef {
+            parent_scope: 0,
+            params: vec![id("items"), id("cb")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
+
+                let Value::List(_, list) = items else {
+                    return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                };
+
+                let list = list.clone();
+
+                let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
+
+                let Value::FnDef(def) = cb else {
+                    return Err(RuntimeError(format!(
+                        "cannot use filter w/ cb of type: {}",
+                        cb.ty()
+                    )));
+                };
+
+                let def = def.clone();
+
+                for item in list {
+                    let check = runtime.invoke(def.clone(), vec![(None, item.clone())])?;
+                    if check.truthy()? {
+                        return Ok(item);
                     }
                 }
 
@@ -1192,6 +1350,45 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                 };
 
                 Ok(Value::Bool(text.starts_with(substr.as_str())))
+            }),
+        }),
+    );
+
+    runtime.scopes[0].values.insert(
+        id("replace"),
+        Value::FnDef(FnDef {
+            parent_scope: 0,
+            params: vec![id("text"), id("def")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
+
+                let Value::Str(text) = text else {
+                    return Err(RuntimeError(format!(
+                        "replace() text must be a string, is a: {}",
+                        text.ty()
+                    )));
+                };
+
+                let def = runtime.scopes[scope].values.get(&id("def")).unwrap();
+
+                let Value::Tuple(def) = def else {
+                    return Err(RuntimeError(format!(
+                        "replace() def must be a string, is a: {}",
+                        def.ty()
+                    )));
+                };
+
+                let Some(Value::Str(find)) = def.get(0) else {
+                    return Err(RuntimeError(format!("replace() def[0] must be a string")));
+                };
+
+                let Some(Value::Str(replace)) = def.get(1) else {
+                    return Err(RuntimeError(format!("replace() def[1] must be a string")));
+                };
+
+                let result = text.replace(find.as_str(), replace).into();
+
+                Ok(Value::Str(result))
             }),
         }),
     );
@@ -1438,6 +1635,38 @@ mod tests {
         assert_eq!(
             execute(&parse_document("range(6, 2)").unwrap(), "".into()),
             Ok(list(Type::Numeric, vec![int(6), int(5), int(4), int(3)]))
+        );
+    }
+
+    #[test]
+    fn patterns() {
+        assert_eq!(
+            execute(
+                &parse_document("let [a, b] = [2, 3]; (a, b)").unwrap(),
+                "".into()
+            ),
+            Ok(tuple(vec![int(2), int(3)]))
+        );
+
+        assert_eq!(
+            execute(
+                &parse_document("let [a, b] = [2]; (a, b)").unwrap(),
+                "".into()
+            ),
+            Ok(tuple(vec![int(2), Value::Nil]))
+        );
+
+        assert_eq!(
+            execute(
+                &parse_document("let [a, b] = [2, 3, 4]; (a, b)").unwrap(),
+                "".into()
+            ),
+            Ok(tuple(vec![int(2), int(3)]))
+        );
+
+        assert_eq!(
+            execute(&parse_document("let [] = [2, 3, 4]").unwrap(), "".into()),
+            Ok(Value::Nil)
         );
     }
 

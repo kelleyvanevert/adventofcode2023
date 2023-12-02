@@ -7,6 +7,13 @@ use crate::runtime::Numeric;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Identifier(pub CompactString);
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Pattern {
+    Id(Identifier),
+    List(Vec<Pattern>),
+    // more..
+}
+
 impl Display for Identifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
@@ -90,7 +97,7 @@ pub enum Item {
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum Stmt {
     Return { expr: Box<Expr> },
-    Declare { id: Identifier, expr: Box<Expr> },
+    Declare { pattern: Pattern, expr: Box<Expr> },
     Assign { id: Identifier, expr: Box<Expr> },
     Expr { expr: Box<Expr> }, // ...
 }

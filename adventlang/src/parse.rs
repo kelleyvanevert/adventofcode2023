@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Argument, Block, Document, Expr, Identifier, Item, Stmt, StrLiteralPiece},
+    ast::{Argument, Block, Document, Expr, Identifier, Item, Pattern, Stmt, StrLiteralPiece},
     parser_combinators::{
         alt, delimited, many0, map, optional, preceded, regex, seq, tag, terminated, ParseResult,
         Parser,
@@ -496,8 +496,64 @@ pub fn equ_expr_stack(input: &str) -> ParseResult<&str, Expr> {
     .parse(input)
 }
 
+pub fn and_expr_stack(input: &str) -> ParseResult<&str, Expr> {
+    map(
+        seq((
+            equ_expr_stack,
+            many0(seq((
+                ws0,
+                alt((
+                    tag("&&"),
+                    //
+                )),
+                ws0,
+                equ_expr_stack,
+            ))),
+        )),
+        |(mut expr, ops)| {
+            for (_, op, _, right) in ops {
+                expr = Expr::BinaryExpr {
+                    left: expr.into(),
+                    op: op.into(),
+                    right: right.into(),
+                }
+            }
+            expr
+        },
+    )
+    .parse(input)
+}
+
+pub fn or_expr_stack(input: &str) -> ParseResult<&str, Expr> {
+    map(
+        seq((
+            and_expr_stack,
+            many0(seq((
+                ws0,
+                alt((
+                    tag("||"),
+                    //
+                )),
+                ws0,
+                and_expr_stack,
+            ))),
+        )),
+        |(mut expr, ops)| {
+            for (_, op, _, right) in ops {
+                expr = Expr::BinaryExpr {
+                    left: expr.into(),
+                    op: op.into(),
+                    right: right.into(),
+                }
+            }
+            expr
+        },
+    )
+    .parse(input)
+}
+
 pub fn expr(input: &str) -> ParseResult<&str, Expr> {
-    alt((if_expr, equ_expr_stack)).parse(input)
+    alt((if_expr, or_expr_stack)).parse(input)
 }
 
 pub fn parameter_list(mut input: &str) -> ParseResult<&str, Vec<Identifier>> {
@@ -532,11 +588,39 @@ pub fn return_stmt(input: &str) -> ParseResult<&str, Stmt> {
     .parse(input)
 }
 
+pub fn pattern(input: &str) -> ParseResult<&str, Pattern> {
+    alt((
+        map(identifier, Pattern::Id),
+        delimited(
+            seq((tag("["), ws0)),
+            map(
+                optional(seq((
+                    pattern,
+                    many0(preceded(seq((ws0, tag(","), ws0)), pattern)),
+                    ws0,
+                    optional(tag(",")),
+                ))),
+                |opt| {
+                    Pattern::List(match opt {
+                        None => vec![],
+                        Some((first, mut ps, _, _)) => {
+                            ps.insert(0, first);
+                            ps
+                        }
+                    })
+                },
+            ),
+            seq((ws0, tag("]"))),
+        ),
+    ))
+    .parse(input)
+}
+
 pub fn declare_stmt(input: &str) -> ParseResult<&str, Stmt> {
     map(
-        seq((tag("let"), ws1, identifier, ws0, tag("="), ws0, expr)),
-        |(_, _, id, _, _, _, expr)| Stmt::Declare {
-            id,
+        seq((tag("let"), ws1, pattern, ws0, tag("="), ws0, expr)),
+        |(_, _, pattern, _, _, _, expr)| Stmt::Declare {
+            pattern,
             expr: expr.into(),
         },
     )
@@ -895,7 +979,7 @@ mod tests {
             Some((
                 " ?",
                 Stmt::Declare {
-                    id: id("h"),
+                    pattern: Pattern::Id(id("h")),
                     expr: int(7).into()
                 }
             ))
@@ -905,7 +989,7 @@ mod tests {
             Some((
                 " ?",
                 Stmt::Declare {
-                    id: id("h"),
+                    pattern: Pattern::Id(id("h")),
                     expr: int(-7).into()
                 }
             ))
@@ -915,7 +999,7 @@ mod tests {
             Some((
                 " ?",
                 Stmt::Declare {
-                    id: id("h"),
+                    pattern: Pattern::Id(id("h")),
                     expr: unary("!", int(-7)).into()
                 }
             ))
@@ -998,7 +1082,7 @@ mod tests {
             Some((
                 "",
                 Stmt::Declare {
-                    id: id("v"),
+                    pattern: Pattern::Id(id("v")),
                     expr: str("world").into()
                 }
             ))
@@ -1008,7 +1092,7 @@ mod tests {
             Some((
                 "",
                 Stmt::Declare {
-                    id: id("v"),
+                    pattern: Pattern::Id(id("v")),
                     expr: simple_invocation("index", vec![str("world").into(), int(0).into(),])
                         .into()
                 }
@@ -1019,7 +1103,7 @@ mod tests {
             Some((
                 "",
                 Stmt::Declare {
-                    id: id("v"),
+                    pattern: Pattern::Id(id("v")),
                     expr: Expr::StrLiteral {
                         pieces: vec![
                             StrLiteralPiece::Fragment("wor".into()),
@@ -1088,7 +1172,7 @@ mod tests {
                         items: vec![],
                         stmts: vec![
                             Stmt::Declare {
-                                id: id("n"),
+                                pattern: Pattern::Id(id("n")),
                                 expr: Expr::Variable(id("start")).into()
                             },
                             Stmt::Expr {
@@ -1145,7 +1229,7 @@ mod tests {
                 Block {
                     items: vec![],
                     stmts: vec![Stmt::Declare {
-                        id: id("h"),
+                        pattern: Pattern::Id(id("h")),
                         expr: Expr::Numeric(Numeric::Int(7)).into()
                     }]
                 }
@@ -1185,7 +1269,7 @@ mod tests {
                     items: vec![],
                     stmts: vec![
                         Stmt::Declare {
-                            id: id("h"),
+                            pattern: Pattern::Id(id("h")),
                             expr: Expr::Numeric(Numeric::Int(7)).into()
                         },
                         Stmt::Assign {
@@ -1213,7 +1297,7 @@ mod tests {
                         }
                     }],
                     stmts: vec![Stmt::Declare {
-                        id: id("h"),
+                        pattern: Pattern::Id(id("h")),
                         expr: Expr::Numeric(Numeric::Int(7)).into()
                     }]
                 }
@@ -1224,7 +1308,7 @@ mod tests {
             Some((
                 " ?",
                 Stmt::Declare {
-                    id: id("h"),
+                    pattern: Pattern::Id(id("h")),
                     expr: Expr::AnonymousFn {
                         params: vec![],
                         body: Block {
@@ -1262,11 +1346,11 @@ let h = 2
                         items: vec![],
                         stmts: vec![
                             Stmt::Declare {
-                                id: id("v"),
+                                pattern: Pattern::Id(id("v")),
                                 expr: str("world").into()
                             },
                             Stmt::Declare {
-                                id: id("h"),
+                                pattern: Pattern::Id(id("h")),
                                 expr: Expr::Numeric(Numeric::Int(2)).into()
                             },
                             Stmt::Expr {
