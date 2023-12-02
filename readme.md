@@ -41,7 +41,25 @@ Notable missing features, or things I'll probably change soon:
 - **solve allocation-related performance issues**
   - I knew I was going to have to be smart about allocations if I wanted the toy language to be fast, but I didn't think I'd run into it on the first day already :P Solving the bonus part already takes 2.3s on average, which is incredibly high. For comparison: Rust took ±3ms, and JS took ±11ms. It's probably because of all the string slice reallocations. I know that V8 does smart copy-on-write things here, and my Rust solution .. well it explicitly doesn't copy of course :P
 
-**UPDATE** I actually think it's not so much the string reallocations, but mostly just all the cloning of values and fn bodies etc in the runtime. I haven't had much experience with profiling (Rust) code yet, but using [samply](https://github.com/mstange/samply/), I _think_ I can see this:
+## Day 2
+
+I extended AL with:
+
+- tuple and list declaration patterns (for variable declarations and fn parameter lists)
+- some operators, `&&`, `||`, `*`, `>`
+- built-ins `flat_map`, `find`, `replace`
+- truthiness checking in `if` and the boolean operators
+- optional type annotations in declarations (and parameters)
+- function signature overloading
+
+...and all of this super minimally of course, just enough to solve today's challenges :P Which means that I left out:
+
+- generics in type annotations (e.g. `[int]`), and pretty much any usage of these type annotations, haha
+- the function signature overloading currently just checks for the number of parameters vs. arguments, but should ideally check on how well the types match. Especially when/if I add optional parameters, btw..
+
+_Also, about the performance problems I saw yesterday:_
+
+I actually think it's not so much the string reallocations, but mostly just all the cloning of values and fn bodies etc in the runtime. I haven't had much experience with profiling (Rust) code yet, but using [samply](https://github.com/mstange/samply/), I _think_ I can see this:
 
 - 16% + 3.5% +2.7% —— Runtime::loopup
   - of which 6% —— Value::clone
@@ -51,3 +69,5 @@ Notable missing features, or things I'll probably change soon:
 - 4% —— parsing
 
 ... to fix this, while satisfying Rust's borrow checker, I need to think a bit harder :P (The borrow checker will start complaining about mutably borrowing `runtime` while I'm also still referencing it, as soon as I start reworking values to be references or cows or whatever. And it's true, I probably should find a way to not have to borrow the _entire_ scope tree just to change a piece of it, or whatever. Hmm...)
+
+Today I didn't run into any problems though, the challenge didn't involve many iterations or data ;)
