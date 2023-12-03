@@ -74,7 +74,19 @@ Today I didn't run into any problems though, the challenge didn't involve many i
 
 ## Day 3
 
-Soon:
+Wow, ok, for a little fun challenge, so much functionality required :P
+
+Here's what I added:
+
+- `dict[key] = value` assignment —— in the most hacky way though 😅 I need to think about adding an actual _heap_ and properly treating _locations_, etc. to do it more generally
+- super basic first `Dict` implementation
+  - only possible literal: `@{}`, probably I'll extend this to `@{k => v, k => v}` .. kinda ugly through...
+  - keys and values are both `Value`s, no generic typing so far
+  - I'll have to start thinkin about equality of things now ...
+- regexes and `match`
+  - the literals are hacky, using an incomplete "unescaping" implementation, just like with strings btw..
+
+And here's features that'll have to be added soon:
 
 - some expressions should not require parentheses, I messed up orderator precedences:
 
