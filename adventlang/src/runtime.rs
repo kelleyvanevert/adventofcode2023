@@ -524,10 +524,30 @@ impl Runtime {
                     .values
                     .insert(id.clone(), value.clone());
             }
-            AssignLocation::Index(location, index) => {
-                //
-                todo!("HMMM")
-            }
+            AssignLocation::Index(location, index_expr) => match location.as_ref() {
+                AssignLocation::Id(id) => {
+                    let (index_value, ret) = self.evaluate(scope, index_expr)?;
+                    if ret.is_some() {
+                        todo!("support return here?!")
+                    }
+
+                    let Some((def_scope, _)) = self.lookup(scope, id) else {
+                        return Err(RuntimeError(format!(
+                            "cannot assign to undefined var: {id}"
+                        )));
+                    };
+
+                    let dict = self.scopes[def_scope].values.get_mut(id);
+
+                    if let Some(Value::Dict(dict)) = dict {
+                        dict.0.insert(index_value, value);
+                    } else {
+                    }
+                }
+                AssignLocation::Index(location, index) => {
+                    todo!("HMMM")
+                }
+            },
         }
 
         Ok(())

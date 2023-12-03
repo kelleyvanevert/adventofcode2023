@@ -776,11 +776,20 @@ pub fn declare_stmt(input: &str) -> ParseResult<&str, Stmt> {
     .parse(input)
 }
 
+// TODO complete
 fn assign_location(input: &str) -> ParseResult<&str, AssignLocation> {
-    alt((
-        map(identifier, AssignLocation::Id),
-        // TODO
-    ))
+    map(
+        seq((
+            identifier,
+            optional(seq((ws0, tag("["), ws0, expr, ws0, tag("]")))),
+        )),
+        |(id, opt)| match opt {
+            None => AssignLocation::Id(id),
+            Some((_, _, _, index, _, _)) => {
+                AssignLocation::Index(AssignLocation::Id(id).into(), index.into())
+            }
+        },
+    )
     .parse(input)
 }
 

@@ -39,7 +39,7 @@ fn solve(input) {
     false
   }
 
-  for let y, line) in schematic:enumerate {
+  for let (y, line) in schematic:enumerate {
     let x = 0
     while x < line:len {
       if let m = line :slice x :match /^[0-9]+/ {
@@ -62,22 +62,18 @@ fn bonus(input) {
   let possible_gears = @{}
 
   fn found_adj(pos, s) {
-    print("found adjacent {pos[0]},{pos[1]} -- {s}")
-    print("poss {possible_gears}")
-    if let other = possible_gears[pos] {
-      print("found")
+    if (let other = possible_gears[pos]) {
       total = total + (s * other)
     } else {
-      print("add")
       possible_gears[pos] = s
     }
   }
 
   fn possible_gear_part(y, x, s) {
     // check previous row
-    if (y > 0) {
+    if y > 0 {
       let start = (x-1) :max 0
-      if (let m = schematic[y - 1] :slice (start, x + (s:len) + 1) :match /[*]/) {
+      if let m = schematic[y - 1] :slice (start, x + (s:len) + 1) :match /[*]/ {
         let pos = (y-1, start+m[1])
         found_adj(pos, s:int)
       }
@@ -85,15 +81,15 @@ fn bonus(input) {
 
     // check current row
     let start = (x-1) :max 0
-    if (let m = schematic[y] :slice (start, x + (s:len) + 1) :match /[*]/) {
+    if let m = schematic[y] :slice (start, x + (s:len) + 1) :match /[*]/ {
       let pos = (y, start+m[1])
       found_adj(pos, s:int)
     }
 
     // check next row
-    if (y < (schematic:len) - 1) {
+    if y < (schematic:len) - 1 {
       let start = (x-1) :max 0
-      if (let m = schematic[y + 1] :slice (start, x + (s:len) + 1) :match /[*]/) {
+      if let m = schematic[y + 1] :slice (start, x + (s:len) + 1) :match /[*]/ {
         let pos = (y+1, start+m[1])
         found_adj(pos, s:int)
       }
@@ -115,9 +111,12 @@ fn bonus(input) {
   total
 }
 
-// print("Example: {solve(example_input)}")
+print("Example: {solve(example_input)}")
 
 // ±140ms
-// print("Solution: {solve(stdin)}")
+print("Solution: {solve(stdin)}")
 
 print("Example bonus: {bonus(example_input)}")
+
+// ±160ms
+print("Bonux: {bonus(stdin)}")
