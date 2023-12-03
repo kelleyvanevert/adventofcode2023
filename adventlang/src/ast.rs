@@ -184,6 +184,12 @@ impl Display for Type {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Identifier(pub CompactString);
 
+impl Display for Identifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub enum Pattern {
     Id(Identifier, Option<Type>),
@@ -191,10 +197,10 @@ pub enum Pattern {
     Tuple(Vec<Pattern>),
 }
 
-impl Display for Identifier {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
+#[derive(Debug, Clone, PartialEq)]
+pub enum AssignLocation {
+    Id(Identifier),
+    Index(Box<AssignLocation>, Box<Expr>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -282,10 +288,20 @@ pub enum Item {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
-    Return { expr: Box<Expr> },
-    Declare { pattern: Pattern, expr: Box<Expr> },
-    Assign { id: Identifier, expr: Box<Expr> },
-    Expr { expr: Box<Expr> }, // ...
+    Return {
+        expr: Box<Expr>,
+    },
+    Declare {
+        pattern: Pattern,
+        expr: Box<Expr>,
+    },
+    Assign {
+        location: AssignLocation,
+        expr: Box<Expr>,
+    },
+    Expr {
+        expr: Box<Expr>,
+    }, // ...
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -1,9 +1,11 @@
-use std::{collections::HashMap, fmt::Display};
+use std::{collections::HashMap, fmt::Display, panic::Location};
 
 use arcstr::Substr;
 use regex::Regex;
 
-use crate::ast::{Block, Document, Expr, Identifier, Item, Pattern, Stmt, StrLiteralPiece, Type};
+use crate::ast::{
+    AssignLocation, Block, Document, Expr, Identifier, Item, Pattern, Stmt, StrLiteralPiece, Type,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeError(pub String);
@@ -507,6 +509,33 @@ impl Runtime {
     fn assign(
         &mut self,
         scope: usize,
+        location: &AssignLocation,
+        value: Value,
+    ) -> Result<(), RuntimeError> {
+        match location {
+            AssignLocation::Id(id) => {
+                let Some((def_scope, _)) = self.lookup(scope, id) else {
+                    return Err(RuntimeError(format!(
+                        "cannot assign to undefined var: {id}"
+                    )));
+                };
+
+                self.scopes[def_scope]
+                    .values
+                    .insert(id.clone(), value.clone());
+            }
+            AssignLocation::Index(location, index) => {
+                //
+                todo!("HMMM")
+            }
+        }
+
+        todo!()
+    }
+
+    fn declare(
+        &mut self,
+        scope: usize,
         pattern: &Pattern,
         value: Value,
     ) -> Result<(), RuntimeError> {
@@ -526,7 +555,7 @@ impl Runtime {
                     .into_iter()
                     .zip(items.into_iter().chain(std::iter::repeat(Value::Nil)))
                 {
-                    self.assign(scope, pattern, value)?;
+                    self.declare(scope, pattern, value)?;
                 }
             }
             Pattern::Tuple(ps) => {
@@ -541,7 +570,7 @@ impl Runtime {
                     .into_iter()
                     .zip(items.into_iter().chain(std::iter::repeat(Value::Nil)))
                 {
-                    self.assign(scope, pattern, value)?;
+                    self.declare(scope, pattern, value)?;
                 }
             }
         }
@@ -570,27 +599,19 @@ impl Runtime {
                     return Ok((Value::Nil, Some(return_value)));
                 }
 
-                self.assign(scope, pattern, value)?;
+                self.declare(scope, pattern, value)?;
 
                 Ok((Value::Nil, None))
             }
-            Stmt::Assign { id, expr } => {
-                let Some((def_scope, _)) = self.lookup(scope, id) else {
-                    return Err(RuntimeError(format!(
-                        "cannot assign to undefined var: {id}"
-                    )));
-                };
-
+            Stmt::Assign { location, expr } => {
                 let (value, ret) = self.evaluate(scope, expr)?;
                 if let Some(return_value) = ret {
                     return Ok((Value::Nil, Some(return_value)));
                 }
 
-                self.scopes[def_scope]
-                    .values
-                    .insert(id.clone(), value.clone());
+                self.assign(scope, location, value)?;
 
-                Ok((value, None))
+                Ok((Value::Nil, None))
             }
         }
     }
@@ -690,7 +711,7 @@ impl Runtime {
             } else if let Some(pattern) = params_remaining.get(0).cloned() {
                 // assign next available param
                 params_remaining.remove(0);
-                self.assign(execution_scope, &pattern, arg_value)?;
+                self.declare(execution_scope, &pattern, arg_value)?;
             } else {
                 // no params left
                 return Err(RuntimeError(format!("no param to pass arg to")));
@@ -920,7 +941,7 @@ impl Runtime {
                     });
 
                     if let Some(pattern) = pattern {
-                        self.assign(execution_scope, pattern, cond_value)?;
+                        self.declare(execution_scope, pattern, cond_value)?;
                     }
 
                     (result, ret) = self.execute_block(execution_scope, then)?;
@@ -1019,7 +1040,7 @@ impl Runtime {
                         values: HashMap::new(),
                     });
 
-                    self.assign(execution_scope, pattern, item)?;
+                    self.declare(execution_scope, pattern, item)?;
 
                     let (_, ret) = self.execute_block(execution_scope, body)?;
                     if ret.is_some() {

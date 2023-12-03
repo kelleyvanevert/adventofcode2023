@@ -4,7 +4,8 @@ use regex::Regex;
 
 use crate::{
     ast::{
-        Argument, Block, Document, Expr, Identifier, Item, Pattern, Stmt, StrLiteralPiece, Type,
+        Argument, AssignLocation, Block, Document, Expr, Identifier, Item, Pattern, Stmt,
+        StrLiteralPiece, Type,
     },
     parser_combinators::{
         alt, delimited, many0, map, optional, preceded, regex, seq, tag, terminated, ParseResult,
@@ -775,11 +776,19 @@ pub fn declare_stmt(input: &str) -> ParseResult<&str, Stmt> {
     .parse(input)
 }
 
+fn assign_location(input: &str) -> ParseResult<&str, AssignLocation> {
+    alt((
+        map(identifier, AssignLocation::Id),
+        //
+    ))
+    .parse(input)
+}
+
 pub fn assign_stmt(input: &str) -> ParseResult<&str, Stmt> {
     map(
-        seq((identifier, ws0, tag("="), ws0, expr)),
-        |(id, _, _, _, expr)| Stmt::Assign {
-            id,
+        seq((assign_location, ws0, tag("="), ws0, expr)),
+        |(location, _, _, _, expr)| Stmt::Assign {
+            location,
             expr: expr.into(),
         },
     )
@@ -1444,7 +1453,7 @@ mod tests {
                     body: Block {
                         items: vec![],
                         stmts: vec![Stmt::Assign {
-                            id: id("h"),
+                            location: AssignLocation::Id(id("h")),
                             expr: Expr::Numeric(Numeric::Int(1)).into()
                         }]
                     }
@@ -1493,14 +1502,14 @@ mod tests {
                                                 then: Block {
                                                     items: vec![],
                                                     stmts: vec![Stmt::Assign {
-                                                        id: id("n"),
+                                                        location: AssignLocation::Id(id("n")),
                                                         expr: Expr::Numeric(Numeric::Int(0)).into()
                                                     }]
                                                 },
                                                 els: Some(Block {
                                                     items: vec![],
                                                     stmts: vec![Stmt::Assign {
-                                                        id: id("n"),
+                                                        location: AssignLocation::Id(id("n")),
                                                         expr: Expr::BinaryExpr {
                                                             left: Expr::Variable(id("n")).into(),
                                                             op: "+".into(),
@@ -1549,7 +1558,7 @@ mod tests {
                     items: vec![],
                     stmts: vec![
                         Stmt::Assign {
-                            id: id("h"),
+                            location: AssignLocation::Id(id("h")),
                             expr: Expr::Numeric(Numeric::Int(7)).into()
                         },
                         Stmt::Expr {
@@ -1575,7 +1584,7 @@ mod tests {
                             expr: Expr::Numeric(Numeric::Int(7)).into()
                         },
                         Stmt::Assign {
-                            id: id("kelley"),
+                            location: AssignLocation::Id(id("kelley")),
                             expr: Expr::Numeric(Numeric::Int(712)).into()
                         },
                         Stmt::Expr {
