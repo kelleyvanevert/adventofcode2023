@@ -1682,7 +1682,9 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                             )));
                         }
 
-                        Ok(Value::Str(text.substr((start as usize)..(end as usize))))
+                        let s = &text[(start as usize)..(end as usize).min(text.len())];
+
+                        Ok(Value::Str(s.into()))
                     }),
                 },
             ],

@@ -22,19 +22,19 @@ fn solve(input) {
 
   fn should_include(y, x, l) {
     // check previous row
-    if (y > 0 && schematic[y - 1] :slice (max(x-1,0), x+l+1) :match /[!@^&*#+%$=\/]/) {
+    if y > 0 && schematic[y - 1] :slice (max(x-1,0), x+l+1) :match /[-!@^&*#+%$=\/]/ {
       print("found")
       return true
     }
 
     // check current row
-    if (schematic[y] :slice (max(x-1,0), x+l+1) :match /[!@^&*#+%$=\/]/) {
+    if schematic[y] :slice (max(x-1,0), x+l+1) :match /[-!@^&*#+%$=\/]/ {
       print("found")
       return true
     }
 
     // check next row
-    if (y < (schematic:len) - 1 && schematic[y + 1] :slice (max(x-1,0), x+l+1) :match /[!@^&*#+%$=\/]/) {
+    if y < (schematic:len) - 1 && schematic[y + 1] :slice (max(x-1,0), x+l+1) :match /[-!@^&*#+%$=\/]/ {
       print("found")
       return true
     }
@@ -42,12 +42,12 @@ fn solve(input) {
     false
   }
 
-  for (let (y, line) in schematic:enumerate) {
+  for let (y, line) in schematic:enumerate {
     let x = 0
-    while (x < line:len) {
-      if (let m = line :slice x :match /^[0-9]+/) {
+    while x < line:len {
+      if let m = line :slice x :match /^[0-9]+/ {
         print("match at ({x}, {y}): {m[0]}")
-        if (should_include(y, x, m[0]:len)) {
+        if should_include(y, x, m[0]:len) {
           total = total + (m[0]:int)
         }
         x = x + (m[0]:len)
