@@ -80,6 +80,7 @@ Soon:
 
   - `x + (m[0].len)`
   - `y < (schematic.len) - 1`
+  - `x + (s.len) + 1`
 
 - make the `()` in `if`, `for`, `while` loops unnecessary (or at least optional)
 
@@ -95,5 +96,7 @@ Soon:
   - `let len = str.len` should be fine, because usage of `.len` afterwards should select the function, not the variable, based on the fact that it better matches the desired type. But ... this "signatures" technique currently was only planned to be used for funtions, not functions AND variables. So that's a TODO, otherwise it'll get quite annoying to always have to come up with new variable names...
 
   - declaring a new signature for a function that already exists in a parent scope ...
+
+- I added `if (let m = ...) { ... }`, but this should be implemented a bit more generally so that you can also do `if (y > 0 && let m = ...) { ... }`
 
 - GC :P

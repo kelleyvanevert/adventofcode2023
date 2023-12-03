@@ -11,6 +11,14 @@ pub struct RuntimeError(pub String);
 #[derive(Debug, Clone)]
 pub struct AlRegex(pub Regex);
 
+impl std::hash::Hash for AlRegex {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.as_str().hash(state)
+    }
+}
+
+impl Eq for AlRegex {}
+
 impl PartialEq for AlRegex {
     fn eq(&self, other: &Self) -> bool {
         self.0.as_str() == other.0.as_str()
@@ -20,6 +28,30 @@ impl PartialEq for AlRegex {
 impl AsRef<Regex> for AlRegex {
     fn as_ref(&self) -> &Regex {
         &self.0
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Dict(HashMap<Value, Value>);
+
+impl std::hash::Hash for Dict {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        todo!("todo Dict::hash")
+    }
+}
+
+impl PartialEq for Dict {
+    fn eq(&self, other: &Self) -> bool {
+        // TODO structural equality comparison ??
+        false
+    }
+}
+
+impl Eq for Dict {}
+
+impl Dict {
+    pub fn new() -> Dict {
+        Self(HashMap::new())
     }
 }
 
@@ -35,6 +67,17 @@ pub enum Numeric {
     Int(i64),
     Double(f64),
 }
+
+impl std::hash::Hash for Numeric {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Numeric::Int(n) => n.hash(state),
+            Numeric::Double(n) => format!("{}", n).hash(state),
+        }
+    }
+}
+
+impl Eq for Numeric {}
 
 impl Numeric {
     fn negate(&self) -> Result<Numeric, RuntimeError> {
@@ -113,10 +156,27 @@ pub struct FnDef {
     signatures: Vec<FnSig>,
 }
 
+impl Eq for FnDef {}
+
+impl std::hash::Hash for FnDef {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.parent_scope.hash(state);
+        self.signatures.hash(state);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct FnSig {
     params: Vec<Pattern>,
     body: FnBody,
+}
+
+impl std::hash::Hash for FnSig {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.params.hash(state);
+        self.body.hash(state);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -125,7 +185,13 @@ pub enum FnBody {
     Builtin(fn(&mut Runtime, usize) -> Result<Value, RuntimeError>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+impl std::hash::Hash for FnBody {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        todo!("todo FnBody::hash")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Value {
     Nil,
     Bool(bool),
@@ -135,6 +201,7 @@ pub enum Value {
     FnDef(FnDef),
     List(Type, Vec<Value>),
     Tuple(Vec<Value>),
+    Dict(Dict),
 }
 
 impl Display for Value {
@@ -170,6 +237,21 @@ impl Display for Value {
                     write!(f, ",")?;
                 }
                 write!(f, ")")
+            }
+            Value::Dict(dict) => {
+                write!(f, "@{{")?;
+                let pairs = dict.0.iter().collect::<Vec<_>>();
+                let len = pairs.len();
+                for (i, (key, value)) in pairs.iter().enumerate() {
+                    write!(f, "{key} => {value}")?;
+                    if i < len - 1 {
+                        write!(f, ", ")?;
+                    }
+                }
+                if len == 1 {
+                    write!(f, ",")?;
+                }
+                write!(f, "}}")
             }
         }
     }
@@ -285,6 +367,7 @@ impl Value {
             Value::FnDef(_) => "<fn>".into(),
             Value::List(_, _) => "<list>".into(),
             Value::Tuple(_) => "<tuple>".into(),
+            Value::Dict(_) => "<dict>".into(),
         }
     }
 
@@ -319,6 +402,7 @@ impl Value {
             Value::FnDef(_) => Type::FnDef,
             Value::List(t, _) => Type::List(t.clone().into()),
             Value::Tuple(_) => Type::Tuple,
+            Value::Dict(_) => Type::Dict,
         }
     }
 
@@ -638,6 +722,7 @@ impl Runtime {
         match expr {
             Expr::Bool(b) => Ok((Value::Bool(*b), None)),
             Expr::NilLiteral => Ok((Value::Nil, None)),
+            Expr::DictLiteral {} => Ok((Value::Dict(Dict::new()), None)),
             Expr::StrLiteral { pieces } => {
                 let mut build = "".to_string();
 
@@ -651,7 +736,8 @@ impl Runtime {
                             if let Some(return_value) = ret {
                                 return Ok((Value::Nil, Some(return_value)));
                             }
-                            build += &value.auto_coerce_str();
+                            build += &format!("{}", value);
+                            // build += &value.auto_coerce_str();
                         }
                     }
                 }
@@ -1702,6 +1788,13 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                     let list = runtime.scopes[scope].values.get(&id("list")).unwrap();
 
                     let list = match list {
+                        Value::Dict(dict) => {
+                            let key = runtime.scopes[scope].values.get(&id("i")).unwrap();
+                            return match dict.0.get(key) {
+                                Some(value) => Ok(value.clone()),
+                                None => Ok(Value::Nil),
+                            };
+                        }
                         Value::List(_, list) => list,
                         Value::Tuple(list) => list,
                         _ => {
@@ -1729,6 +1822,45 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                     };
 
                     Ok(el.cloned().unwrap_or(Value::Nil))
+                }),
+            }],
+        }),
+    );
+
+    runtime.scopes[0].values.insert(
+        id("insert"),
+        Value::FnDef(FnDef {
+            name: Some(id("insert")),
+            parent_scope: 0,
+            signatures: vec![FnSig {
+                params: vec![idpat("dict"), idpat("key"), idpat("value")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let key = runtime.scopes[scope]
+                        .values
+                        .get(&id("key"))
+                        .unwrap()
+                        .clone();
+
+                    let value = runtime.scopes[scope]
+                        .values
+                        .get(&id("value"))
+                        .unwrap()
+                        .clone();
+
+                    let dict = runtime.scopes[scope].values.get_mut(&id("dict")).unwrap();
+
+                    let Value::Dict(dict) = dict else {
+                        return Err(RuntimeError(format!(
+                            "assign() dict must be a dict, is a: {}",
+                            dict.ty()
+                        )));
+                    };
+
+                    println!("found dict, inserting now");
+
+                    dict.0.insert(key, value);
+
+                    Ok(Value::Nil)
                 }),
             }],
         }),

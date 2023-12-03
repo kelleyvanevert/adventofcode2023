@@ -301,8 +301,14 @@ pub fn tuple_literal_or_parenthesized_expr(input: &str) -> ParseResult<&str, Exp
     .parse(input)
 }
 
+// TODO
+pub fn dict_literal(input: &str) -> ParseResult<&str, Expr> {
+    map(tag("@{}"), |_| Expr::DictLiteral {}).parse(input)
+}
+
 pub fn expr_leaf(input: &str) -> ParseResult<&str, Expr> {
     alt((
+        dict_literal,
         map(tag("true"), |_| Expr::Bool(true)),
         map(tag("false"), |_| Expr::Bool(false)),
         map(tag("nil"), |_| Expr::NilLiteral),

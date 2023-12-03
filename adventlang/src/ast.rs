@@ -15,6 +15,7 @@ pub enum Type {
     FnDef,
     List(Box<Type>),
     Tuple,
+    Dict,
     Union(Vec<Type>),
 }
 
@@ -80,6 +81,7 @@ impl PartialOrd for Type {
             Type::Str,
             Type::Tuple,
             Type::Regex,
+            Type::Dict,
         ];
 
         match (&a, &b) {
@@ -159,6 +161,7 @@ impl Display for Type {
             Type::FnDef => write!(f, "FnDef"),
             Type::List(t) => write!(f, "List[{t}]"),
             Type::Tuple => write!(f, "Tuple"),
+            Type::Dict => write!(f, "Dict"),
             Type::Union(types) => {
                 if types.len() == 0 {
                     write!(f, "!")
@@ -233,10 +236,9 @@ pub enum Expr {
     TupleLiteral {
         elements: Vec<Expr>,
     },
-    // Index {
-    //     expr: Box<Expr>,
-    //     index: Box<Expr>,
-    // },
+    DictLiteral {
+        // TODO elements
+    },
     Invocation {
         expr: Box<Expr>,
         args: Vec<Argument>,
