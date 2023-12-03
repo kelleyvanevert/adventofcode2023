@@ -39,7 +39,7 @@ fn solve(input) {
     false
   }
 
-  for let y, line) in schematic:enumerat {
+  for let y, line) in schematic:enumerate {
     let x = 0
     while x < line:len {
       if let m = line :slice x :match /^[0-9]+/ {
@@ -69,9 +69,7 @@ fn bonus(input) {
       total = total + (s * other)
     } else {
       print("add")
-      // TODO implement:
-      // possible_gears[pos] = s
-      possible_gears:insert pos, s
+      possible_gears[pos] = s
     }
   }
 
@@ -102,10 +100,10 @@ fn bonus(input) {
     }
   }
 
-  for (let (y, line) in schematic:enumerate) {
+  for let (y, line) in schematic:enumerate {
     let x = 0
-    while (x < line:len) {
-      if (let m = line :slice x :match /^[0-9]+/) {
+    while x < line:len {
+      if let m = line :slice x :match /^[0-9]+/ {
         possible_gear_part(y, x, m[0])
         x = x + (m[0]:len)
       } else {

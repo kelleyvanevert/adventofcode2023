@@ -779,7 +779,7 @@ pub fn declare_stmt(input: &str) -> ParseResult<&str, Stmt> {
 fn assign_location(input: &str) -> ParseResult<&str, AssignLocation> {
     alt((
         map(identifier, AssignLocation::Id),
-        //
+        // TODO
     ))
     .parse(input)
 }
