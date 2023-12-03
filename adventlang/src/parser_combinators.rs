@@ -217,6 +217,10 @@ alt_impl!(P0, P1, P2, P3, P4, P5, P6);
 alt_impl!(P0, P1, P2, P3, P4, P5, P6, P7);
 alt_impl!(P0, P1, P2, P3, P4, P5, P6, P7, P8);
 alt_impl!(P0, P1, P2, P3, P4, P5, P6, P7, P8, P9);
+alt_impl!(P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10);
+alt_impl!(P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11);
+alt_impl!(P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12);
+alt_impl!(P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13);
 
 pub fn alt<I, O, List: Alt<I, Output = O>>(mut list: List) -> impl Parser<I, Output = O> {
     move |input: I| list.choice(input)

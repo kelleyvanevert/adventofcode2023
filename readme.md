@@ -71,3 +71,29 @@ I actually think it's not so much the string reallocations, but mostly just all 
 ... to fix this, while satisfying Rust's borrow checker, I need to think a bit harder :P (The borrow checker will start complaining about mutably borrowing `runtime` while I'm also still referencing it, as soon as I start reworking values to be references or cows or whatever. And it's true, I probably should find a way to not have to borrow the _entire_ scope tree just to change a piece of it, or whatever. Hmm...)
 
 Today I didn't run into any problems though, the challenge didn't involve many iterations or data ;)
+
+## Day 3
+
+Soon:
+
+- some expressions should not require parentheses, I messed up orderator precedences:
+
+  - `x + (m[0].len)`
+  - `y < (schematic.len) - 1`
+
+- make the `()` in `if`, `for`, `while` loops unnecessary (or at least optional)
+
+  - it's currently a syntactic problem because of the trailing function literal args, but .. I'm sure we can work around that, e.g. just prioritize `if` parsing over trailing function literal args
+
+- lazy iteration if possible?
+
+  - `enumerate` makes an iterator
+  - automatic coercions, so that if it needs to be an array directly, that's OK too
+
+- I can foresee some problems with shadowing and variable namings, for example:
+
+  - `let len = str.len` should be fine, because usage of `.len` afterwards should select the function, not the variable, based on the fact that it better matches the desired type. But ... this "signatures" technique currently was only planned to be used for funtions, not functions AND variables. So that's a TODO, otherwise it'll get quite annoying to always have to come up with new variable names...
+
+  - declaring a new signature for a function that already exists in a parent scope ...
+
+- GC :P

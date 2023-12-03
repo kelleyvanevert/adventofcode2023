@@ -2,7 +2,7 @@ use std::{cmp::Ordering, collections::HashSet, fmt::Display};
 
 use compact_str::CompactString;
 
-use crate::runtime::Numeric;
+use crate::runtime::{AlRegex, Numeric};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
@@ -11,6 +11,7 @@ pub enum Type {
     Bool,
     Str,
     Numeric,
+    Regex,
     FnDef,
     List(Box<Type>),
     Tuple,
@@ -72,7 +73,14 @@ impl PartialOrd for Type {
         let a = self.canonicalize();
         let b = other.canonicalize();
 
-        let simple = [Type::Nil, Type::Bool, Type::Numeric, Type::Str, Type::Tuple];
+        let simple = [
+            Type::Nil,
+            Type::Bool,
+            Type::Numeric,
+            Type::Str,
+            Type::Tuple,
+            Type::Regex,
+        ];
 
         match (&a, &b) {
             (Type::Any, Type::Any) => Some(Ordering::Equal),
@@ -147,6 +155,7 @@ impl Display for Type {
             Type::Bool => write!(f, "Bool"),
             Type::Str => write!(f, "Str"),
             Type::Numeric => write!(f, "Numeric"),
+            Type::Regex => write!(f, "Regex"),
             Type::FnDef => write!(f, "FnDef"),
             Type::List(t) => write!(f, "List[{t}]"),
             Type::Tuple => write!(f, "Tuple"),
@@ -185,24 +194,28 @@ impl Display for Identifier {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum StrLiteralPiece {
     Fragment(String),
     Interpolation(Expr),
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Argument {
     pub name: Option<Identifier>,
     pub expr: Expr,
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     StrLiteral {
         pieces: Vec<StrLiteralPiece>,
     },
     NilLiteral,
+    RegexLiteral {
+        regex: AlRegex,
+    },
+    Bool(bool),
     Numeric(Numeric),
     Variable(Identifier),
     UnaryExpr {
@@ -233,6 +246,7 @@ pub enum Expr {
         body: Block,
     },
     If {
+        pattern: Option<Pattern>,
         cond: Box<Expr>,
         then: Block,
         els: Option<Block>,
@@ -248,9 +262,14 @@ pub enum Expr {
     Loop {
         body: Block,
     },
+    For {
+        pattern: Pattern,
+        range: Box<Expr>,
+        body: Block,
+    },
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     NamedFn {
         name: Identifier,
@@ -259,7 +278,7 @@ pub enum Item {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     Return { expr: Box<Expr> },
     Declare { pattern: Pattern, expr: Box<Expr> },
@@ -267,13 +286,13 @@ pub enum Stmt {
     Expr { expr: Box<Expr> }, // ...
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Block {
     pub items: Vec<Item>,
     pub stmts: Vec<Stmt>,
 }
 
-#[derive(Debug, PartialEq, PartialOrd)]
+#[derive(Debug, PartialEq)]
 pub struct Document {
     pub body: Block,
 }

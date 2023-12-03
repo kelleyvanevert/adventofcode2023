@@ -1,3 +1,7 @@
+use std::str::FromStr;
+
+use regex::Regex;
+
 use crate::{
     ast::{
         Argument, Block, Document, Expr, Identifier, Item, Pattern, Stmt, StrLiteralPiece, Type,
@@ -6,7 +10,7 @@ use crate::{
         alt, delimited, many0, map, optional, preceded, regex, seq, tag, terminated, ParseResult,
         Parser,
     },
-    runtime::Numeric,
+    runtime::{AlRegex, Numeric},
 };
 
 pub fn identifier(input: &str) -> ParseResult<&str, Identifier> {
@@ -14,7 +18,7 @@ pub fn identifier(input: &str) -> ParseResult<&str, Identifier> {
         map(regex(r"^[_a-zA-Z][_a-zA-Z0-9]*"), |s| Identifier(s.into())).parse(input)?;
 
     if [
-        "fn", "if", "else", "then", "while", "do", "for", "let", "loop",
+        "fn", "if", "else", "then", "while", "do", "for", "let", "loop", "true", "false",
     ]
     .contains(&id.0.as_str())
     {
@@ -44,8 +48,9 @@ pub fn eof(input: &str) -> ParseResult<&str, ()> {
     }
 }
 
+// TODO
 fn unescape(input: &str) -> String {
-    input.replace("\\n", "\n")
+    input.replace("\\n", "\n").replace("\\/", "/")
 }
 
 pub fn str_literal(input: &str) -> ParseResult<&str, Expr> {
@@ -64,6 +69,43 @@ pub fn str_literal(input: &str) -> ParseResult<&str, Expr> {
         |pieces| Expr::StrLiteral { pieces },
     )
     .parse(input)
+}
+
+// ugly, I know
+fn regex_contents(input: &str) -> ParseResult<&str, String> {
+    let mut contents = "".to_string();
+    let mut escaped = false;
+
+    for (i, c) in input.char_indices() {
+        if escaped {
+            if c == 'n' {
+                contents.push('\n');
+                // etc..
+            } else {
+                contents.push(c);
+            }
+            escaped = false;
+        } else if c == '/' {
+            return Some((&input[i..], contents));
+        } else if c == '\\' {
+            escaped = true;
+        } else {
+            contents.push(c);
+        }
+    }
+
+    Some(("", contents))
+}
+
+pub fn regex_literal(input: &str) -> ParseResult<&str, Expr> {
+    let (rem, str) = delimited(tag("/"), regex_contents, tag("/")).parse(input)?;
+
+    Some((
+        rem,
+        Expr::RegexLiteral {
+            regex: AlRegex(Regex::from_str(&str).ok()?),
+        },
+    ))
 }
 
 // TODO
@@ -99,6 +141,11 @@ pub fn if_expr(input: &str) -> ParseResult<&str, Expr> {
             ws1,
             tag("("),
             ws0,
+            optional(delimited(
+                seq((tag("let"), ws1)),
+                pattern,
+                seq((ws0, tag("="), ws0)),
+            )),
             expr,
             ws0,
             tag(")"),
@@ -110,7 +157,8 @@ pub fn if_expr(input: &str) -> ParseResult<&str, Expr> {
                 seq((ws0, tag("}"))),
             )),
         )),
-        |(_, _, _, _, cond, _, _, _, then, els)| Expr::If {
+        |(_, _, _, _, pattern, cond, _, _, _, then, els)| Expr::If {
+            pattern,
             cond: cond.into(),
             then,
             els,
@@ -172,6 +220,34 @@ pub fn while_expr(input: &str) -> ParseResult<&str, Expr> {
     .parse(input)
 }
 
+pub fn for_expr(input: &str) -> ParseResult<&str, Expr> {
+    map(
+        seq((
+            tag("for"),
+            ws1,
+            tag("("),
+            ws0,
+            tag("let"),
+            ws0,
+            pattern,
+            ws0,
+            tag("in"),
+            ws0,
+            expr,
+            ws0,
+            tag(")"),
+            ws0,
+            delimited(seq((tag("{"), ws0)), block_contents, seq((ws0, tag("}")))),
+        )),
+        |(_, _, _, _, _, _, pattern, _, _, _, range, _, _, _, body)| Expr::For {
+            pattern,
+            range: range.into(),
+            body,
+        },
+    )
+    .parse(input)
+}
+
 pub fn list_literal(input: &str) -> ParseResult<&str, Expr> {
     delimited(
         seq((tag("["), ws0)),
@@ -227,13 +303,17 @@ pub fn tuple_literal_or_parenthesized_expr(input: &str) -> ParseResult<&str, Exp
 
 pub fn expr_leaf(input: &str) -> ParseResult<&str, Expr> {
     alt((
+        map(tag("true"), |_| Expr::Bool(true)),
+        map(tag("false"), |_| Expr::Bool(false)),
+        map(tag("nil"), |_| Expr::NilLiteral),
         do_while_expr,
         while_expr,
         loop_expr,
-        map(tag("nil"), |_| Expr::NilLiteral),
+        for_expr,
         map(identifier, Expr::Variable),
         map(numeric, Expr::Numeric),
         str_literal,
+        regex_literal,
         anonymous_fn,
         tuple_literal_or_parenthesized_expr,
         list_literal,
@@ -974,6 +1054,24 @@ mod tests {
             Some((
                 " ?",
                 Expr::If {
+                    pattern: None,
+                    cond: Expr::Variable(id("kelley")).into(),
+                    then: Block {
+                        items: vec![],
+                        stmts: vec![Stmt::Expr {
+                            expr: Expr::Numeric(Numeric::Int(21)).into()
+                        }]
+                    },
+                    els: None,
+                }
+            ))
+        );
+        assert_eq!(
+            if_expr.parse("if (let h = kelley ) { 21 } ?"),
+            Some((
+                " ?",
+                Expr::If {
+                    pattern: Some(Pattern::Id(id("h"), None)),
                     cond: Expr::Variable(id("kelley")).into(),
                     then: Block {
                         items: vec![],
@@ -1197,6 +1295,84 @@ mod tests {
             ))
         );
         assert_eq!(
+            stmt.parse(r#"let v = /[0-9]+/"#),
+            Some((
+                "",
+                Stmt::Declare {
+                    pattern: Pattern::Id(id("v"), None),
+                    expr: Expr::RegexLiteral {
+                        regex: AlRegex(Regex::from_str("[0-9]+").unwrap())
+                    }
+                    .into()
+                }
+            ))
+        );
+        assert_eq!(
+            stmt.parse(r#"let v = /[0-9\/]+/"#),
+            Some((
+                "",
+                Stmt::Declare {
+                    pattern: Pattern::Id(id("v"), None),
+                    expr: Expr::RegexLiteral {
+                        regex: AlRegex(Regex::from_str("[0-9/]+").unwrap())
+                    }
+                    .into()
+                }
+            ))
+        );
+        assert_eq!(
+            stmt.parse(r#"let v = /[!@^&*#+%$=\/]/"#),
+            Some((
+                "",
+                Stmt::Declare {
+                    pattern: Pattern::Id(id("v"), None),
+                    expr: Expr::RegexLiteral {
+                        regex: AlRegex(Regex::from_str("[!@^&*#+%$=/]").unwrap())
+                    }
+                    .into()
+                }
+            ))
+        );
+        assert_eq!(
+            stmt.parse(
+                r#"let v = y > 0 && schematic[y - 1] :slice (x, x+len) :match /[!@^&*#+%$=\/]/"#
+            ),
+            Some((
+                "",
+                Stmt::Declare {
+                    pattern: Pattern::Id(id("v"), None),
+                    expr: binary(
+                        "&&",
+                        binary(">", var("y"), int(0)),
+                        simple_invocation(
+                            "match",
+                            vec![
+                                simple_invocation(
+                                    "slice",
+                                    vec![
+                                        simple_invocation(
+                                            "index",
+                                            vec![var("schematic"), binary("-", var("y"), int(1))]
+                                        ),
+                                        Expr::TupleLiteral {
+                                            elements: vec![
+                                                var("x"),
+                                                binary("+", var("x"), var("len"))
+                                            ]
+                                        }
+                                    ]
+                                ),
+                                Expr::RegexLiteral {
+                                    regex: AlRegex(Regex::from_str("[!@^&*#+%$=/]").unwrap())
+                                }
+                            ]
+                        )
+                    )
+                    .into()
+                }
+            ))
+        );
+        assert_eq!(
             stmt.parse(r#"let v = "world""#),
             Some((
                 "",
@@ -1301,6 +1477,7 @@ mod tests {
                                         items: vec![],
                                         stmts: vec![Stmt::Expr {
                                             expr: Expr::If {
+                                                pattern: None,
                                                 cond: Expr::BinaryExpr {
                                                     left: Expr::Variable(id("d")).into(),
                                                     op: "==".into(),
@@ -1440,6 +1617,23 @@ mod tests {
                                     expr: Expr::Numeric(Numeric::Int(1)).into()
                                 }
                             ]
+                        }
+                    }
+                    .into()
+                }
+            ))
+        );
+        assert_eq!(
+            stmt.parse("for (let i in range(1, 2)) {} ?"),
+            Some((
+                " ?",
+                Stmt::Expr {
+                    expr: Expr::For {
+                        pattern: Pattern::Id(id("i"), None),
+                        range: simple_invocation("range", vec![int(1), int(2)]).into(),
+                        body: Block {
+                            items: vec![],
+                            stmts: vec![]
                         }
                     }
                     .into()
