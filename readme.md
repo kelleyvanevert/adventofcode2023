@@ -121,3 +121,13 @@ Today was easy :) Algorithmically, as well as in that I didn't have too change t
 - `match_all(str, regex)` to complement `match(str, regex)`
 - `^` exponentiation
 - oh and I finally just added a built-in `lines(str)` as well (previous days I'd just write a helper function in the AL code to demonstrate that it can also just be implemented with `split(str, str)`)
+
+_Afterwards, I spend some time improving AL:_
+
+- Parentheses are no longer required (but allowed) in `if`, `while`, `for` statements. This makes it look way prettier IMO. The expressions that are accepted in these places are "constrained" in the sense that they don't allow trailing anonymous functions in function calls, at the top level. If you want to use this, just add back the parentheses.
+- Fixed the indexed assignments to work more generally. Didn't actually implement it along with a heap, because that actually wasn't really necessary (yet), so, I kept it simple for now.
+- Fixed the operator precedence problems of yesterday, so now you can write:
+
+  - `x + m[0].len`
+  - `y < schematic.len - 1`
+  - `x + s.len + 1`
