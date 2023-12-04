@@ -2305,10 +2305,6 @@ fn is_digit(s) {
   s :in digits
 }
 
-fn lines(text) {
-  text :split "\n"
-}
-
 let nums = [
   ("0", "0"),
   ("1", "1"),
@@ -2357,7 +2353,7 @@ fn bonus(input) {
     let digits = range(0, line.len)
       :filter_map |i| {
         nums :find_map |t| {
-          if (line.slice(i).starts_with(t[0])) {
+          if line.slice(i).starts_with(t[0]) {
             t[1]
           }
         }
@@ -2396,10 +2392,6 @@ zoneight234
     fn aoc_day02() {
         let document = r#"
 
-fn lines(text) {
-  text :split "\n"
-}
-
 let example_input = "
 Game 1: 3 blue, 4 red; 1 red, 2 green, 6 blue; 2 green
 Game 2: 1 blue, 2 green; 3 green, 4 blue, 1 red; 1 green, 1 blue
@@ -2422,7 +2414,9 @@ fn solve(input, red, green, blue) {
           (num.int, color)
         }
         :find |(num, color)| {
-          color == "red" && num > red || color == "green" && num > green || color == "blue" && num > blue
+          color == "red" && num > red
+          || color == "green" && num > green
+          || color == "blue" && num > blue
         }
 
       if (invalid) {
@@ -2485,10 +2479,6 @@ let bonus_solution = bonus(example_input)
     fn aoc_day03() {
         let document = r#"
 
-fn lines(text) {
-  text :split "\n"
-}
-
 let example_input = "
 467..114..
 ...*......
@@ -2508,28 +2498,28 @@ fn solve(input) {
 
   fn should_include(y, x, l) {
     // check previous row
-    if (y > 0 && schematic[y - 1] :slice ((x-1) :max 0, x+l+1) :match /[-!@^&*#+%$=\/]/) {
+    if y > 0 && schematic[y - 1] :slice ((x-1) :max 0, x+l+1) :match /[-!@^&*#+%$=\/]/ {
       return true
     }
 
     // check current row
-    if (schematic[y] :slice ((x-1) :max 0, x+l+1) :match /[-!@^&*#+%$=\/]/) {
+    if schematic[y] :slice ((x-1) :max 0, x+l+1) :match /[-!@^&*#+%$=\/]/ {
       return true
     }
 
     // check next row
-    if (y < schematic.len - 1 && schematic[y + 1] :slice ((x-1) :max 0, x+l+1) :match /[-!@^&*#+%$=\/]/) {
+    if y < schematic.len - 1 && schematic[y + 1] :slice ((x-1) :max 0, x+l+1) :match /[-!@^&*#+%$=\/]/ {
       return true
     }
 
     false
   }
 
-  for (let (y, line) in schematic.enumerate) {
+  for let (y, line) in schematic.enumerate {
     let x = 0
-    while (x < line.len) {
-      if (let m = line :slice x :match /^[0-9]+/) {
-        if (should_include(y, x, m[0].len)) {
+    while x < line.len {
+      if let m = line :slice x :match /^[0-9]+/ {
+        if should_include(y, x, m[0].len) {
           total = total + (m[0].int)
         }
         x = x + m[0].len
@@ -2548,7 +2538,7 @@ fn bonus(input) {
   let possible_gears = @{}
 
   fn found_adj(pos, s) {
-    if (let other = possible_gears[pos]) {
+    if let other = possible_gears[pos] {
       total = total + (s * other)
     } else {
       possible_gears[pos] = s
@@ -2557,9 +2547,9 @@ fn bonus(input) {
 
   fn possible_gear_part(y, x, s) {
     // check previous row
-    if (y > 0) {
+    if y > 0 {
       let start = (x-1) :max 0
-      if (let m = schematic[y - 1] :slice (start, x + s.len + 1) :match /[*]/) {
+      if let m = schematic[y - 1] :slice (start, x + s.len + 1) :match /[*]/ {
         let pos = (y-1, start+m[1])
         found_adj(pos, s.int)
       }
@@ -2567,25 +2557,25 @@ fn bonus(input) {
 
     // check current row
     let start = (x-1) :max 0
-    if (let m = schematic[y] :slice (start, x + s.len + 1) :match /[*]/) {
+    if let m = schematic[y] :slice (start, x + s.len + 1) :match /[*]/ {
       let pos = (y, start+m[1])
       found_adj(pos, s.int)
     }
 
     // check next row
-    if (y < schematic.len - 1) {
+    if y < schematic.len - 1 {
       let start = (x-1) :max 0
-      if (let m = schematic[y + 1] :slice (start, x + s.len + 1) :match /[*]/) {
+      if let m = schematic[y + 1] :slice (start, x + s.len + 1) :match /[*]/ {
         let pos = (y+1, start+m[1])
         found_adj(pos, s.int)
       }
     }
   }
 
-  for (let (y, line) in schematic.enumerate) {
+  for let (y, line) in schematic.enumerate {
     let x = 0
-    while (x < line.len) {
-      if (let m = line :slice x :match /^[0-9]+/) {
+    while x < line.len {
+      if let m = line :slice x :match /^[0-9]+/ {
         possible_gear_part(y, x, m[0])
         x = x + m[0].len
       } else {
@@ -2655,8 +2645,8 @@ fn bonus(input: str) {
 
   let copies = card_wins :map |_| { 1 }
 
-  for (let i in range(0, card_wins.len)) {
-    for (let w in range(1, card_wins[i] + 1)) {
+  for let i in range(0, card_wins.len) {
+    for let w in range(1, card_wins[i] + 1) {
       copies[i + w] = copies[i + w] + copies[i]
     }
   }

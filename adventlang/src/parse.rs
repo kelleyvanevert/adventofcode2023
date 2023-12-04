@@ -41,6 +41,10 @@ pub fn ws1(input: &str) -> ParseResult<&str, &str> {
     regex(r"^\s+").parse(input)
 }
 
+pub fn slws1(input: &str) -> ParseResult<&str, &str> {
+    regex(r"^[ \t]+").parse(input)
+}
+
 pub fn eof(input: &str) -> ParseResult<&str, ()> {
     if input.len() == 0 {
         Some((input, ()))
@@ -135,21 +139,37 @@ pub fn anonymous_fn(input: &str) -> ParseResult<&str, Expr> {
     .parse(input)
 }
 
+fn maybe_parenthesized<'a, P, T>(mut parser: P) -> impl Parser<&'a str, Output = T>
+where
+    P: Parser<&'a str, Output = T>,
+{
+    move |input| {
+        let (input, opt) = optional(seq((tag("("), ws0))).parse(input)?;
+
+        let (input, res) = parser.parse(input)?;
+
+        let input = match opt {
+            None => input,
+            Some(_) => seq((ws0, tag(")"))).parse(input)?.0,
+        };
+
+        Some((input, res))
+    }
+}
+
 pub fn if_expr(input: &str) -> ParseResult<&str, Expr> {
     map(
         seq((
             tag("if"),
             ws1,
-            tag("("),
-            ws0,
-            optional(delimited(
-                seq((tag("let"), ws1)),
-                pattern,
-                seq((ws0, tag("="), ws0)),
-            )),
-            expr(true),
-            ws0,
-            tag(")"),
+            maybe_parenthesized(seq((
+                optional(delimited(
+                    seq((tag("let"), ws1)),
+                    pattern,
+                    seq((ws0, tag("="), ws0)),
+                )),
+                expr(true),
+            ))),
             ws0,
             delimited(seq((tag("{"), ws0)), block_contents, seq((ws0, tag("}")))),
             optional(delimited(
@@ -158,7 +178,7 @@ pub fn if_expr(input: &str) -> ParseResult<&str, Expr> {
                 seq((ws0, tag("}"))),
             )),
         )),
-        |(_, _, _, _, pattern, cond, _, _, _, then, els)| Expr::If {
+        |(_, _, (pattern, cond), _, then, els)| Expr::If {
             pattern,
             cond: cond.into(),
             then,
@@ -174,10 +194,9 @@ pub fn do_while_expr(input: &str) -> ParseResult<&str, Expr> {
             tag("do"),
             ws0,
             delimited(seq((tag("{"), ws0)), block_contents, seq((ws0, tag("}")))),
-            optional(delimited(
-                seq((ws0, tag("while"), ws1, tag("("), ws0)),
-                expr(true),
-                seq((ws0, tag(")"))),
+            optional(preceded(
+                seq((ws0, tag("while"), slws1)),
+                maybe_parenthesized(expr(true)),
             )),
         )),
         |(_, _, body, cond)| Expr::DoWhile {
@@ -205,15 +224,11 @@ pub fn while_expr(input: &str) -> ParseResult<&str, Expr> {
         seq((
             tag("while"),
             ws1,
-            tag("("),
-            ws0,
-            expr(true),
-            ws0,
-            tag(")"),
+            maybe_parenthesized(expr(true)),
             ws0,
             delimited(seq((tag("{"), ws0)), block_contents, seq((ws0, tag("}")))),
         )),
-        |(_, _, _, _, cond, _, _, _, body)| Expr::While {
+        |(_, _, cond, _, body)| Expr::While {
             cond: cond.into(),
             body,
         },
@@ -226,21 +241,19 @@ pub fn for_expr(input: &str) -> ParseResult<&str, Expr> {
         seq((
             tag("for"),
             ws1,
-            tag("("),
-            ws0,
-            tag("let"),
-            ws0,
-            pattern,
-            ws0,
-            tag("in"),
-            ws0,
-            expr(true),
-            ws0,
-            tag(")"),
+            maybe_parenthesized(seq((
+                tag("let"),
+                ws0,
+                pattern,
+                ws0,
+                tag("in"),
+                ws0,
+                expr(true),
+            ))),
             ws0,
             delimited(seq((tag("{"), ws0)), block_contents, seq((ws0, tag("}")))),
         )),
-        |(_, _, _, _, _, _, pattern, _, _, _, range, _, _, _, body)| Expr::For {
+        |(_, _, (_, _, pattern, _, _, _, range), _, body)| Expr::For {
             pattern,
             range: range.into(),
             body,
