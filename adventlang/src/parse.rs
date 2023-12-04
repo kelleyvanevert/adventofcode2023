@@ -61,7 +61,7 @@ pub fn str_literal(input: &str) -> ParseResult<&str, Expr> {
             many0(alt((
                 map(map(regex("^[^\"{]+"), unescape), StrLiteralPiece::Fragment),
                 map(
-                    seq((tag("{"), ws0, expr, ws0, tag("}"))),
+                    seq((tag("{"), ws0, expr(false), ws0, tag("}"))),
                     |(_, _, expr, _, _)| StrLiteralPiece::Interpolation(expr),
                 ),
             ))),
@@ -147,7 +147,7 @@ pub fn if_expr(input: &str) -> ParseResult<&str, Expr> {
                 pattern,
                 seq((ws0, tag("="), ws0)),
             )),
-            expr,
+            expr(true),
             ws0,
             tag(")"),
             ws0,
@@ -176,7 +176,7 @@ pub fn do_while_expr(input: &str) -> ParseResult<&str, Expr> {
             delimited(seq((tag("{"), ws0)), block_contents, seq((ws0, tag("}")))),
             optional(delimited(
                 seq((ws0, tag("while"), ws1, tag("("), ws0)),
-                expr,
+                expr(true),
                 seq((ws0, tag(")"))),
             )),
         )),
@@ -207,7 +207,7 @@ pub fn while_expr(input: &str) -> ParseResult<&str, Expr> {
             ws1,
             tag("("),
             ws0,
-            expr,
+            expr(true),
             ws0,
             tag(")"),
             ws0,
@@ -234,7 +234,7 @@ pub fn for_expr(input: &str) -> ParseResult<&str, Expr> {
             ws0,
             tag("in"),
             ws0,
-            expr,
+            expr(true),
             ws0,
             tag(")"),
             ws0,
@@ -254,8 +254,8 @@ pub fn list_literal(input: &str) -> ParseResult<&str, Expr> {
         seq((tag("["), ws0)),
         map(
             optional(seq((
-                expr,
-                many0(preceded(seq((ws0, tag(","), ws0)), expr)),
+                expr(false),
+                many0(preceded(seq((ws0, tag(","), ws0)), expr(false))),
                 ws0,
                 optional(tag(",")),
             ))),
@@ -279,8 +279,8 @@ pub fn tuple_literal_or_parenthesized_expr(input: &str) -> ParseResult<&str, Exp
         seq((tag("("), ws0)),
         map(
             seq((
-                expr,
-                many0(preceded(seq((ws0, tag(","), ws0)), expr)),
+                expr(false),
+                many0(preceded(seq((ws0, tag(","), ws0)), expr(false))),
                 ws0,
                 optional(tag(",")),
             )),
@@ -332,7 +332,7 @@ pub fn argument(input: &str) -> ParseResult<&str, Argument> {
     map(
         seq((
             optional(terminated(identifier, seq((ws0, tag("="), ws0)))),
-            expr,
+            expr(false),
         )),
         |(name, expr)| Argument {
             name,
@@ -367,32 +367,38 @@ pub fn parenthesized_args(input: &str) -> ParseResult<&str, Vec<Argument>> {
     .parse(input)
 }
 
-pub fn invocation_args(input: &str) -> ParseResult<&str, Vec<Argument>> {
-    let trailing_anon_fn = map(anonymous_fn, |anon| Argument {
-        name: None,
-        expr: anon.into(),
-    });
+fn invocation_args<'a>(constrained: bool) -> impl Parser<&'a str, Output = Vec<Argument>> {
+    move |input: &'a str| {
+        let trailing_anon_fn = map(anonymous_fn, |anon| Argument {
+            name: None,
+            expr: anon.into(),
+        });
 
-    if let Some((input, args)) = parenthesized_args.parse(input) {
-        let mut seen_named_arg = false;
-        for arg in &args {
-            if seen_named_arg && arg.name.is_none() {
-                // unnamed args cannot follow named args
-                return None;
-            } else if arg.name.is_some() {
-                seen_named_arg = true;
+        if let Some((input, args)) = parenthesized_args.parse(input) {
+            let mut seen_named_arg = false;
+            for arg in &args {
+                if seen_named_arg && arg.name.is_none() {
+                    // unnamed args cannot follow named args
+                    return None;
+                } else if arg.name.is_some() {
+                    seen_named_arg = true;
+                }
+            }
+
+            if !constrained && let Some((input, arg)) = preceded(slws0, trailing_anon_fn).parse(input) {
+                let mut args = args;
+                args.push(arg);
+                Some((input, args))
+            } else {
+                Some((input, args))
+            }
+        } else {
+            if constrained {
+                None
+            } else {
+                map(trailing_anon_fn, |arg| vec![arg]).parse(input)
             }
         }
-
-        if let Some((input, arg)) = preceded(slws0, trailing_anon_fn).parse(input) {
-            let mut args = args;
-            args.push(arg);
-            Some((input, args))
-        } else {
-            Some((input, args))
-        }
-    } else {
-        map(trailing_anon_fn, |arg| vec![arg]).parse(input)
     }
 }
 
@@ -402,7 +408,7 @@ pub fn expr_index_stack(input: &str) -> ParseResult<&str, Expr> {
             expr_leaf,
             many0(delimited(
                 seq((ws0, tag("["), ws0)),
-                expr,
+                expr(false),
                 seq((ws0, tag("]"))),
             )),
         )),
@@ -425,9 +431,12 @@ pub fn expr_index_stack(input: &str) -> ParseResult<&str, Expr> {
     .parse(input)
 }
 
-pub fn expr_call_stack(input: &str) -> ParseResult<&str, Expr> {
+fn expr_call_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> {
     map(
-        seq((expr_index_stack, many0(preceded(slws0, invocation_args)))),
+        seq((
+            expr_index_stack,
+            many0(preceded(slws0, invocation_args(constrained))),
+        )),
         |(mut expr, invocations)| {
             for args in invocations {
                 expr = Expr::Invocation {
@@ -438,12 +447,14 @@ pub fn expr_call_stack(input: &str) -> ParseResult<&str, Expr> {
             expr
         },
     )
-    .parse(input)
 }
 
-pub fn unary_expr_stack(input: &str) -> ParseResult<&str, Expr> {
+fn unary_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> {
     map(
-        seq((many0(terminated(tag("!"), ws0)), expr_call_stack)),
+        seq((
+            many0(terminated(tag("!"), ws0)),
+            expr_call_stack(constrained),
+        )),
         |(ops, mut expr)| {
             for op in ops.into_iter().rev() {
                 expr = Expr::UnaryExpr {
@@ -454,10 +465,9 @@ pub fn unary_expr_stack(input: &str) -> ParseResult<&str, Expr> {
             expr
         },
     )
-    .parse(input)
 }
 
-pub fn infix_or_postfix_fn_call_stack(input: &str) -> ParseResult<&str, Expr> {
+fn infix_or_postfix_fn_call_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> {
     enum Op {
         Unary(Identifier),
         Binary((Identifier, Expr)),
@@ -465,19 +475,19 @@ pub fn infix_or_postfix_fn_call_stack(input: &str) -> ParseResult<&str, Expr> {
 
     map(
         seq((
-            unary_expr_stack,
+            unary_expr_stack(constrained),
             many0(seq((
                 alt((
                     map(preceded(seq((ws0, tag("."))), identifier), Op::Unary),
                     map(
                         seq((
                             preceded(seq((ws0, tag(":"))), identifier),
-                            preceded(ws0, unary_expr_stack),
+                            preceded(ws0, unary_expr_stack(constrained)),
                         )),
                         Op::Binary,
                     ),
                 )),
-                optional(preceded(ws0, invocation_args)),
+                optional(preceded(ws0, invocation_args(constrained))),
             ))),
         )),
         |(mut expr, ops)| {
@@ -510,18 +520,17 @@ pub fn infix_or_postfix_fn_call_stack(input: &str) -> ParseResult<&str, Expr> {
             expr
         },
     )
-    .parse(input)
 }
 
-pub fn mul_expr_stack(input: &str) -> ParseResult<&str, Expr> {
+fn mul_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> {
     map(
         seq((
-            infix_or_postfix_fn_call_stack,
+            infix_or_postfix_fn_call_stack(constrained),
             many0(seq((
                 ws0,
                 alt((tag("*"), tag("/"))),
                 ws0,
-                infix_or_postfix_fn_call_stack,
+                infix_or_postfix_fn_call_stack(constrained),
             ))),
         )),
         |(mut expr, ops)| {
@@ -535,14 +544,18 @@ pub fn mul_expr_stack(input: &str) -> ParseResult<&str, Expr> {
             expr
         },
     )
-    .parse(input)
 }
 
-pub fn add_expr_stack(input: &str) -> ParseResult<&str, Expr> {
+fn add_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> {
     map(
         seq((
-            mul_expr_stack,
-            many0(seq((ws0, alt((tag("+"), tag("-"))), ws0, mul_expr_stack))),
+            mul_expr_stack(constrained),
+            many0(seq((
+                ws0,
+                alt((tag("+"), tag("-"))),
+                ws0,
+                mul_expr_stack(constrained),
+            ))),
         )),
         |(mut expr, ops)| {
             for (_, op, _, right) in ops {
@@ -555,13 +568,12 @@ pub fn add_expr_stack(input: &str) -> ParseResult<&str, Expr> {
             expr
         },
     )
-    .parse(input)
 }
 
-pub fn equ_expr_stack(input: &str) -> ParseResult<&str, Expr> {
+fn equ_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> {
     map(
         seq((
-            add_expr_stack,
+            add_expr_stack(constrained),
             many0(seq((
                 ws0,
                 alt((
@@ -574,7 +586,7 @@ pub fn equ_expr_stack(input: &str) -> ParseResult<&str, Expr> {
                     tag("^"),
                 )),
                 ws0,
-                add_expr_stack,
+                add_expr_stack(constrained),
             ))),
         )),
         |(mut expr, ops)| {
@@ -588,13 +600,12 @@ pub fn equ_expr_stack(input: &str) -> ParseResult<&str, Expr> {
             expr
         },
     )
-    .parse(input)
 }
 
-pub fn and_expr_stack(input: &str) -> ParseResult<&str, Expr> {
+fn and_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> {
     map(
         seq((
-            equ_expr_stack,
+            equ_expr_stack(constrained),
             many0(seq((
                 ws0,
                 alt((
@@ -602,7 +613,7 @@ pub fn and_expr_stack(input: &str) -> ParseResult<&str, Expr> {
                     //
                 )),
                 ws0,
-                equ_expr_stack,
+                equ_expr_stack(constrained),
             ))),
         )),
         |(mut expr, ops)| {
@@ -616,13 +627,12 @@ pub fn and_expr_stack(input: &str) -> ParseResult<&str, Expr> {
             expr
         },
     )
-    .parse(input)
 }
 
-pub fn or_expr_stack(input: &str) -> ParseResult<&str, Expr> {
+fn or_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> {
     map(
         seq((
-            and_expr_stack,
+            and_expr_stack(constrained),
             many0(seq((
                 ws0,
                 alt((
@@ -630,7 +640,7 @@ pub fn or_expr_stack(input: &str) -> ParseResult<&str, Expr> {
                     //
                 )),
                 ws0,
-                and_expr_stack,
+                and_expr_stack(constrained),
             ))),
         )),
         |(mut expr, ops)| {
@@ -644,11 +654,10 @@ pub fn or_expr_stack(input: &str) -> ParseResult<&str, Expr> {
             expr
         },
     )
-    .parse(input)
 }
 
-pub fn expr(input: &str) -> ParseResult<&str, Expr> {
-    alt((if_expr, or_expr_stack)).parse(input)
+fn expr<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> {
+    alt((if_expr, or_expr_stack(constrained)))
 }
 
 pub fn parameter_list(mut input: &str) -> ParseResult<&str, Vec<Pattern>> {
@@ -677,7 +686,7 @@ pub fn parameter_list(mut input: &str) -> ParseResult<&str, Vec<Pattern>> {
 }
 
 pub fn return_stmt(input: &str) -> ParseResult<&str, Stmt> {
-    map(seq((tag("return"), ws1, expr)), |(_, _, expr)| {
+    map(seq((tag("return"), ws1, expr(false))), |(_, _, expr)| {
         Stmt::Return { expr: expr.into() }
     })
     .parse(input)
@@ -773,7 +782,7 @@ pub fn pattern(input: &str) -> ParseResult<&str, Pattern> {
 
 pub fn declare_stmt(input: &str) -> ParseResult<&str, Stmt> {
     map(
-        seq((tag("let"), ws1, pattern, ws0, tag("="), ws0, expr)),
+        seq((tag("let"), ws1, pattern, ws0, tag("="), ws0, expr(false))),
         |(_, _, pattern, _, _, _, expr)| Stmt::Declare {
             pattern,
             expr: expr.into(),
@@ -787,7 +796,7 @@ fn assign_location(input: &str) -> ParseResult<&str, AssignLocation> {
     map(
         seq((
             identifier,
-            optional(seq((ws0, tag("["), ws0, expr, ws0, tag("]")))),
+            optional(seq((ws0, tag("["), ws0, expr(false), ws0, tag("]")))),
         )),
         |(id, opt)| match opt {
             None => AssignLocation::Id(id),
@@ -801,7 +810,7 @@ fn assign_location(input: &str) -> ParseResult<&str, AssignLocation> {
 
 pub fn assign_stmt(input: &str) -> ParseResult<&str, Stmt> {
     map(
-        seq((assign_location, ws0, tag("="), ws0, expr)),
+        seq((assign_location, ws0, tag("="), ws0, expr(false))),
         |(location, _, _, _, expr)| Stmt::Assign {
             location,
             expr: expr.into(),
@@ -815,7 +824,7 @@ pub fn stmt(input: &str) -> ParseResult<&str, Stmt> {
         return_stmt,
         declare_stmt,
         assign_stmt,
-        map(expr, |expr| Stmt::Expr { expr: expr.into() }),
+        map(expr(false), |expr| Stmt::Expr { expr: expr.into() }),
     ))
     .parse(input)
 }
@@ -1058,18 +1067,18 @@ mod tests {
                 ]
             ))
         );
-        assert_eq!(expr.parse("kelley ?"), Some((" ?", var("kelley"))));
-        assert_eq!(expr.parse("(kelley) ?"), Some((" ?", var("kelley"))));
+        assert_eq!(expr(false).parse("kelley ?"), Some((" ?", var("kelley"))));
+        assert_eq!(expr(false).parse("(kelley) ?"), Some((" ?", var("kelley"))));
         assert_eq!(
-            expr.parse("(kelley,) ?"),
+            expr(false).parse("(kelley,) ?"),
             Some((" ?", tuple(vec![var("kelley")])))
         );
         assert_eq!(
-            expr.parse("(kelley, 21,) ?"),
+            expr(false).parse("(kelley, 21,) ?"),
             Some((" ?", tuple(vec![var("kelley"), int(21)])))
         );
         assert_eq!(
-            expr.parse("kelley + 21 ?"),
+            expr(false).parse("kelley + 21 ?"),
             Some((
                 " ?",
                 Expr::BinaryExpr {
@@ -1114,7 +1123,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            expr.parse("kelley(12) + 21 ?"),
+            expr(false).parse("kelley(12) + 21 ?"),
             Some((
                 " ?",
                 Expr::BinaryExpr {
@@ -1132,7 +1141,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            expr.parse("kelley ( bla = 12, ) + 21 ?"),
+            expr(false).parse("kelley ( bla = 12, ) + 21 ?"),
             Some((
                 " ?",
                 Expr::BinaryExpr {
@@ -1150,7 +1159,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            expr.parse("kelley ( bla = 12, ) || { } + 21 ?"),
+            expr(false).parse("kelley ( bla = 12, ) || { } + 21 ?"),
             Some((
                 " ?",
                 binary(
@@ -1180,7 +1189,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            expr.parse("|| { } ?"),
+            expr(false).parse("|| { } ?"),
             Some((
                 " ?",
                 Expr::AnonymousFn {
@@ -1193,7 +1202,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            expr.parse("|a| { } ?"),
+            expr(false).parse("|a| { } ?"),
             Some((
                 " ?",
                 Expr::AnonymousFn {
@@ -1206,7 +1215,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            expr.parse("|(a, b)| { } ?"),
+            expr(false).parse("|(a, b)| { } ?"),
             Some((
                 " ?",
                 Expr::AnonymousFn {
@@ -1251,17 +1260,17 @@ mod tests {
                 }
             ))
         );
-        assert_eq!(expr.parse(r#""world""#), Some(("", str("world"))));
-        assert_eq!(expr.parse(r#"stdin"#), Some(("", var("stdin"))));
+        assert_eq!(expr(false).parse(r#""world""#), Some(("", str("world"))));
+        assert_eq!(expr(false).parse(r#"stdin"#), Some(("", var("stdin"))));
         assert_eq!(
-            expr.parse(r#"stdin :split "\n\n""#),
+            expr(false).parse(r#"stdin :split "\n\n""#),
             Some((
                 "",
                 simple_invocation("split", vec![var("stdin"), str("\n\n")])
             ))
         );
         assert_eq!(
-            expr.parse(r#"stdin :split "\n\n" :map {}"#),
+            expr(false).parse(r#"stdin :split "\n\n" :map {}"#),
             Some((
                 "",
                 simple_invocation(
@@ -1274,7 +1283,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            expr.parse(r#"stdin :split "\n\n" :map |group| { group }"#),
+            expr(false).parse(r#"stdin :split "\n\n" :map |group| { group }"#),
             Some((
                 "",
                 simple_invocation(
@@ -1287,7 +1296,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            expr.parse(r#"stdin :split "\n\n" :map |group| { group } .max"#),
+            expr(false).parse(r#"stdin :split "\n\n" :map |group| { group } .max"#),
             Some((
                 "",
                 simple_invocation(
@@ -1303,7 +1312,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            expr.parse(r#"stdin :split "\n\n" :map |group| { group } .max :bla bla"#),
+            expr(false).parse(r#"stdin :split "\n\n" :map |group| { group } .max :bla bla"#),
             Some((
                 "",
                 simple_invocation(
