@@ -1,6 +1,7 @@
 #![feature(let_chains)]
 #![feature(iterator_try_reduce)]
 #![feature(iterator_try_collect)]
+#![feature(box_patterns)]
 use std::{
     fs,
     io::{self, Read},

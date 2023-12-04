@@ -2522,9 +2522,9 @@ fn solve(input) {
         if should_include(y, x, m[0].len) {
           total = total + (m[0].int)
         }
-        x = x + m[0].len
+        x += m[0].len
       } else {
-        x = x + 1
+        x += 1
       }
     }
   }
@@ -2577,9 +2577,9 @@ fn bonus(input) {
     while x < line.len {
       if let m = line :slice x :match /^[0-9]+/ {
         possible_gear_part(y, x, m[0])
-        x = x + m[0].len
+        x += m[0].len
       } else {
-        x = x + 1
+        x += 1
       }
     }
   }
@@ -2647,7 +2647,7 @@ fn bonus(input: str) {
 
   for let i in range(0, card_wins.len) {
     for let w in range(1, card_wins[i] + 1) {
-      copies[i + w] = copies[i + w] + copies[i]
+      copies[i + w] += copies[i]
     }
   }
 

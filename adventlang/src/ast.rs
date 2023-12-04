@@ -277,6 +277,27 @@ pub enum Expr {
     },
 }
 
+impl From<AssignLocation> for Expr {
+    fn from(location: AssignLocation) -> Self {
+        match location {
+            AssignLocation::Id(id) => Expr::Variable(id),
+            AssignLocation::Index(box location, box index_expr) => Expr::Invocation {
+                expr: Expr::Variable(Identifier("index".into())).into(),
+                args: vec![
+                    Argument {
+                        name: None,
+                        expr: Expr::from(location),
+                    },
+                    Argument {
+                        name: None,
+                        expr: index_expr,
+                    },
+                ],
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     NamedFn {

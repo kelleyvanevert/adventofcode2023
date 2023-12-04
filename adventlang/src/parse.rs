@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use compact_str::CompactString;
 use regex::Regex;
 
 use crate::{
@@ -823,10 +824,25 @@ fn assign_location(input: &str) -> ParseResult<&str, AssignLocation> {
 
 pub fn assign_stmt(input: &str) -> ParseResult<&str, Stmt> {
     map(
-        seq((assign_location, ws0, tag("="), ws0, expr(false))),
-        |(location, _, _, _, expr)| Stmt::Assign {
-            location,
-            expr: expr.into(),
+        seq((
+            assign_location,
+            ws0,
+            optional(alt((tag("+"), tag("*"), tag("^"), tag("-"), tag("/")))),
+            tag("="),
+            ws0,
+            expr(false),
+        )),
+        |(location, _, op, _, _, expr)| Stmt::Assign {
+            location: location.clone(),
+            expr: match op {
+                None => expr.into(),
+                Some(op) => Expr::BinaryExpr {
+                    left: Expr::from(location).into(),
+                    op: op.into(),
+                    right: expr.into(),
+                }
+                .into(),
+            },
         },
     )
     .parse(input)
@@ -1585,7 +1601,7 @@ mod tests {
         );
         assert_eq!(
             block_contents.parse(
-                "h= 7 
+                "h+= 7 
 
 5 ?"
             ),
@@ -1596,7 +1612,7 @@ mod tests {
                     stmts: vec![
                         Stmt::Assign {
                             location: AssignLocation::Id(id("h")),
-                            expr: Expr::Numeric(Numeric::Int(7)).into()
+                            expr: binary("+", var("h"), Expr::Numeric(Numeric::Int(7))).into()
                         },
                         Stmt::Expr {
                             expr: Expr::Numeric(Numeric::Int(5)).into()

@@ -131,3 +131,5 @@ _Afterwards, I spend some time improving AL:_
   - `x + m[0].len`
   - `y < schematic.len - 1`
   - `x + s.len + 1`
+
+- Added `+=` etc. assignments (just as syntactic sugar)
