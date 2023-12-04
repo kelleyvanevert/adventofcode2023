@@ -2518,7 +2518,7 @@ fn solve(input) {
     }
 
     // check next row
-    if (y < (schematic.len) - 1 && schematic[y + 1] :slice ((x-1) :max 0, x+l+1) :match /[-!@^&*#+%$=\/]/) {
+    if (y < schematic.len - 1 && schematic[y + 1] :slice ((x-1) :max 0, x+l+1) :match /[-!@^&*#+%$=\/]/) {
       return true
     }
 
@@ -2532,7 +2532,7 @@ fn solve(input) {
         if (should_include(y, x, m[0].len)) {
           total = total + (m[0].int)
         }
-        x = x + (m[0].len)
+        x = x + m[0].len
       } else {
         x = x + 1
       }
@@ -2559,7 +2559,7 @@ fn bonus(input) {
     // check previous row
     if (y > 0) {
       let start = (x-1) :max 0
-      if (let m = schematic[y - 1] :slice (start, x + (s.len) + 1) :match /[*]/) {
+      if (let m = schematic[y - 1] :slice (start, x + s.len + 1) :match /[*]/) {
         let pos = (y-1, start+m[1])
         found_adj(pos, s.int)
       }
@@ -2567,15 +2567,15 @@ fn bonus(input) {
 
     // check current row
     let start = (x-1) :max 0
-    if (let m = schematic[y] :slice (start, x + (s.len) + 1) :match /[*]/) {
+    if (let m = schematic[y] :slice (start, x + s.len + 1) :match /[*]/) {
       let pos = (y, start+m[1])
       found_adj(pos, s.int)
     }
 
     // check next row
-    if (y < (schematic.len) - 1) {
+    if (y < schematic.len - 1) {
       let start = (x-1) :max 0
-      if (let m = schematic[y + 1] :slice (start, x + (s.len) + 1) :match /[*]/) {
+      if (let m = schematic[y + 1] :slice (start, x + s.len + 1) :match /[*]/) {
         let pos = (y+1, start+m[1])
         found_adj(pos, s.int)
       }
@@ -2587,7 +2587,7 @@ fn bonus(input) {
     while (x < line.len) {
       if (let m = line :slice x :match /^[0-9]+/) {
         possible_gear_part(y, x, m[0])
-        x = x + (m[0].len)
+        x = x + m[0].len
       } else {
         x = x + 1
       }

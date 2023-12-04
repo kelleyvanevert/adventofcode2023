@@ -457,46 +457,6 @@ pub fn unary_expr_stack(input: &str) -> ParseResult<&str, Expr> {
     .parse(input)
 }
 
-pub fn mul_expr_stack(input: &str) -> ParseResult<&str, Expr> {
-    map(
-        seq((
-            unary_expr_stack,
-            many0(seq((ws0, alt((tag("*"), tag("/"))), ws0, unary_expr_stack))),
-        )),
-        |(mut expr, ops)| {
-            for (_, op, _, right) in ops {
-                expr = Expr::BinaryExpr {
-                    left: expr.into(),
-                    op: op.into(),
-                    right: right.into(),
-                }
-            }
-            expr
-        },
-    )
-    .parse(input)
-}
-
-pub fn add_expr_stack(input: &str) -> ParseResult<&str, Expr> {
-    map(
-        seq((
-            mul_expr_stack,
-            many0(seq((ws0, alt((tag("+"), tag("-"))), ws0, mul_expr_stack))),
-        )),
-        |(mut expr, ops)| {
-            for (_, op, _, right) in ops {
-                expr = Expr::BinaryExpr {
-                    left: expr.into(),
-                    op: op.into(),
-                    right: right.into(),
-                }
-            }
-            expr
-        },
-    )
-    .parse(input)
-}
-
 pub fn infix_or_postfix_fn_call_stack(input: &str) -> ParseResult<&str, Expr> {
     enum Op {
         Unary(Identifier),
@@ -505,14 +465,14 @@ pub fn infix_or_postfix_fn_call_stack(input: &str) -> ParseResult<&str, Expr> {
 
     map(
         seq((
-            add_expr_stack,
+            unary_expr_stack,
             many0(seq((
                 alt((
                     map(preceded(seq((ws0, tag("."))), identifier), Op::Unary),
                     map(
                         seq((
                             preceded(seq((ws0, tag(":"))), identifier),
-                            preceded(ws0, add_expr_stack),
+                            preceded(ws0, unary_expr_stack),
                         )),
                         Op::Binary,
                     ),
@@ -553,10 +513,55 @@ pub fn infix_or_postfix_fn_call_stack(input: &str) -> ParseResult<&str, Expr> {
     .parse(input)
 }
 
-pub fn equ_expr_stack(input: &str) -> ParseResult<&str, Expr> {
+pub fn mul_expr_stack(input: &str) -> ParseResult<&str, Expr> {
     map(
         seq((
             infix_or_postfix_fn_call_stack,
+            many0(seq((
+                ws0,
+                alt((tag("*"), tag("/"))),
+                ws0,
+                infix_or_postfix_fn_call_stack,
+            ))),
+        )),
+        |(mut expr, ops)| {
+            for (_, op, _, right) in ops {
+                expr = Expr::BinaryExpr {
+                    left: expr.into(),
+                    op: op.into(),
+                    right: right.into(),
+                }
+            }
+            expr
+        },
+    )
+    .parse(input)
+}
+
+pub fn add_expr_stack(input: &str) -> ParseResult<&str, Expr> {
+    map(
+        seq((
+            mul_expr_stack,
+            many0(seq((ws0, alt((tag("+"), tag("-"))), ws0, mul_expr_stack))),
+        )),
+        |(mut expr, ops)| {
+            for (_, op, _, right) in ops {
+                expr = Expr::BinaryExpr {
+                    left: expr.into(),
+                    op: op.into(),
+                    right: right.into(),
+                }
+            }
+            expr
+        },
+    )
+    .parse(input)
+}
+
+pub fn equ_expr_stack(input: &str) -> ParseResult<&str, Expr> {
+    map(
+        seq((
+            add_expr_stack,
             many0(seq((
                 ws0,
                 alt((
@@ -569,7 +574,7 @@ pub fn equ_expr_stack(input: &str) -> ParseResult<&str, Expr> {
                     tag("^"),
                 )),
                 ws0,
-                infix_or_postfix_fn_call_stack,
+                add_expr_stack,
             ))),
         )),
         |(mut expr, ops)| {
