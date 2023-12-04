@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Display, panic::Location};
+use std::{collections::HashMap, fmt::Display};
 
 use arcstr::Substr;
 use regex::Regex;
@@ -574,7 +574,37 @@ impl Runtime {
 
                     if let Some(Value::Dict(dict)) = dict {
                         dict.0.insert(index_value, value);
+                    } else if let Some(Value::List(t, list)) = dict {
+                        let Ok(i) = index_value.auto_coerce_int() else {
+                            return Err(RuntimeError(format!(
+                                "array index must be int, is: {}",
+                                index_value.ty(),
+                            )));
+                        };
+
+                        if i < 0 {
+                            return Err(RuntimeError(format!(
+                                "array index must be positive int, is: {}",
+                                i,
+                            )));
+                        }
+
+                        let i = i as usize;
+
+                        if !(*t >= value.ty()) {
+                            return Err(RuntimeError(format!(
+                                "cannot insert value of type {} into list of type {}",
+                                value.ty(),
+                                Type::List(t.clone().into())
+                            )));
+                        }
+
+                        if list.len() < i + 1 {
+                            list.resize(i + 1, Value::Nil);
+                        }
+                        list[i] = value;
                     } else {
+                        todo!("HMHM")
                     }
                 }
                 AssignLocation::Index(location, index) => {

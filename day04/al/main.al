@@ -28,7 +28,32 @@ fn solve(input: str) {
     :sum
 }
 
+fn bonus(input: str) {
+  let card_wins = input :trim :lines :map |line: str| {
+    let [_, rest] = line :split ":"
+    let [winning, yours] = rest :split "|" :map |seg| {
+      seg :match_all /[0-9]+/ :map |t| { t[0]:int }
+    }
+    yours :filter |n| { n :in winning } :len
+  }
+
+  let copies = card_wins :map |_| { 1 }
+
+  for (let i in range(0, card_wins:len)) {
+    for (let w in range(1, card_wins[i] + 1)) {
+      copies[i + w] = copies[i + w] + copies[i]
+    }
+  }
+
+  copies:sum
+}
+
 print("Example solution: {solve(example_input)}")
 
 // ±30ms
 print("Solution: {solve(stdin)}")
+
+print("Example bonus: {bonus(example_input)}")
+
+// ±40ms
+print("Bonus: {bonus(stdin)}")

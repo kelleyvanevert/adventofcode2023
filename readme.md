@@ -112,3 +112,12 @@ And here's features that'll have to be added soon:
 - I added `if (let m = ...) { ... }`, but this should be implemented a bit more generally so that you can also do `if (y > 0 && let m = ...) { ... }`
 
 - GC :P
+
+## Day 4
+
+Today was easy :) Algorithmically, as well as in that I didn't have too change too much to AL to solve it. The only things I added were:
+
+- `arr[i] = value` assignments inside lists (which is still just implemented in a hacky ad-hoc fashion as per yesterday, but, now also for lists)
+- `match_all(str, regex)` to complement `match(str, regex)`
+- `^` exponentiation
+- oh and I finally just added a built-in `lines(str)` as well (previous days I'd just write a helper function in the AL code to demonstrate that it can also just be implemented with `split(str, str)`)
