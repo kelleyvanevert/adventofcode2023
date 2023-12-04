@@ -2539,7 +2539,7 @@ fn bonus(input) {
 
   fn found_adj(pos, s) {
     if let other = possible_gears[pos] {
-      total = total + (s * other)
+      total += s * other
     } else {
       possible_gears[pos] = s
     }
