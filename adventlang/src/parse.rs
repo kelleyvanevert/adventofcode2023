@@ -566,6 +566,7 @@ pub fn equ_expr_stack(input: &str) -> ParseResult<&str, Expr> {
                     tag("=="),
                     tag("<"),
                     tag(">"),
+                    tag("^"),
                 )),
                 ws0,
                 infix_or_postfix_fn_call_stack,

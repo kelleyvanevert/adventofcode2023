@@ -89,6 +89,15 @@ impl Numeric {
         }
     }
 
+    fn pow(&self, other: Numeric) -> Numeric {
+        match (self, other) {
+            (Numeric::Double(a), b) => Numeric::Double(a.powf(b.get_double())),
+            (a, Numeric::Double(b)) => Numeric::Double(a.get_double().powf(b)),
+
+            (Numeric::Int(a), Numeric::Int(b)) => Numeric::Int(a.pow(b as u32)),
+        }
+    }
+
     fn add(&self, other: Numeric) -> Numeric {
         match (self, other) {
             (Numeric::Double(a), b) => Numeric::Double(a + b.get_double()),
@@ -267,6 +276,17 @@ impl Value {
             Value::Str(_) => Err(RuntimeError(format!("Can't negate str"))),
             Value::Numeric(n) => Ok(Value::Numeric(n.negate()?)),
             _ => Err(RuntimeError(format!("Can't negate {}", self.ty()))),
+        }
+    }
+
+    fn pow(&self, other: Value) -> Result<Value, RuntimeError> {
+        match (self, other) {
+            (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.pow(b))),
+            (a, b) => Err(RuntimeError(format!(
+                "can't perform {} + {}",
+                a.ty(),
+                b.ty()
+            ))),
         }
     }
 
@@ -452,6 +472,19 @@ impl Runtime {
     }
 
     fn lookup(&self, scope_id: usize, id: &Identifier) -> Option<(usize, &Value)> {
+        // loop {
+        //     let scope = self.scopes.get_mut(scope_id)?;
+        //     if let Some(value) = scope.values.get_mut(id) {
+        //         return Some((scope_id, value));
+        //     }
+
+        //     if let Some(parent_scope_id) = scope.parent_scope {
+        //         scope_id = parent_scope_id;
+        //     } else {
+        //         return None;
+        //     }
+        // }
+
         let scope = self.scopes.get(scope_id)?;
         if let Some(value) = scope.values.get(id) {
             return Some((scope_id, value));
@@ -810,6 +843,13 @@ impl Runtime {
                     return Ok((Value::Nil, Some(return_value)));
                 }
                 match op.as_str() {
+                    "^" => {
+                        let (right_value, ret) = self.evaluate(scope, right)?;
+                        if let Some(return_value) = ret {
+                            return Ok((Value::Nil, Some(return_value)));
+                        }
+                        Ok((left_value.pow(right_value)?, None))
+                    }
                     "+" => {
                         let (right_value, ret) = self.evaluate(scope, right)?;
                         if let Some(return_value) = ret {
@@ -1610,6 +1650,34 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
     );
 
     runtime.scopes[0].values.insert(
+        id("lines"),
+        Value::FnDef(FnDef {
+            name: Some(id("lines")),
+            parent_scope: 0,
+            signatures: vec![FnSig {
+                params: vec![idpat("text")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
+
+                    let Value::Str(text) = text else {
+                        return Err(RuntimeError(format!(
+                            "lines() text must be a string, is a: {}",
+                            text.ty()
+                        )));
+                    };
+
+                    let result = text
+                        .lines()
+                        .map(|line| Value::Str(text.substr_from(line)))
+                        .collect::<Vec<_>>();
+
+                    Ok(Value::List(Type::Str, result))
+                }),
+            }],
+        }),
+    );
+
+    runtime.scopes[0].values.insert(
         id("match"),
         Value::FnDef(FnDef {
             name: Some(id("match")),
@@ -1645,6 +1713,51 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
                         }
                         None => Ok(Value::Nil),
                     }
+                }),
+            }],
+        }),
+    );
+
+    runtime.scopes[0].values.insert(
+        id("match_all"),
+        Value::FnDef(FnDef {
+            name: Some(id("match_all")),
+            parent_scope: 0,
+            signatures: vec![FnSig {
+                params: vec![idpat("text"), idpat("regex")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
+
+                    let Value::Str(text) = text else {
+                        return Err(RuntimeError(format!(
+                            "match() text must be a string, is a: {}",
+                            text.ty()
+                        )));
+                    };
+
+                    let regex = runtime.scopes[scope].values.get(&id("regex")).unwrap();
+
+                    let Value::Regex(regex) = regex else {
+                        return Err(RuntimeError(format!(
+                            "match() regex must be a regex, is a: {}",
+                            regex.ty()
+                        )));
+                    };
+
+                    Ok(Value::List(
+                        Type::Tuple,
+                        regex
+                            .0
+                            .captures_iter(text)
+                            .map(|cap| {
+                                let m = cap.get(0).unwrap();
+                                Value::Tuple(vec![
+                                    Value::Str(m.as_str().into()),
+                                    Value::Numeric(Numeric::Int(m.start() as i64)),
+                                ])
+                            })
+                            .collect(),
+                    ))
                 }),
             }],
         }),
