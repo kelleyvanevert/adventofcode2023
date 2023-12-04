@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fmt::Display};
 
 use arcstr::Substr;
+use either::Either;
 use regex::Regex;
 
 use crate::ast::{
@@ -451,6 +452,14 @@ impl Value {
     }
 }
 
+// Not the most beautiful situation, but .. oh well
+// This type is to `AssignLocation` what `Value` is to `Expr` -- the runtime-internal evaluated version, say
+struct Assignable {
+    scope: usize,
+    id: Identifier,
+    indexes: Vec<Value>,
+}
+
 #[derive(Debug, PartialEq)]
 struct Scope {
     parent_scope: Option<usize>,
@@ -471,29 +480,19 @@ impl Runtime {
         }
     }
 
-    fn lookup(&self, scope_id: usize, id: &Identifier) -> Option<(usize, &Value)> {
-        // loop {
-        //     let scope = self.scopes.get_mut(scope_id)?;
-        //     if let Some(value) = scope.values.get_mut(id) {
-        //         return Some((scope_id, value));
-        //     }
+    fn lookup(&self, scope_id: usize, id: &Identifier) -> Result<(usize, &Value), RuntimeError> {
+        let Some(scope) = self.scopes.get(scope_id) else {
+            return Err(RuntimeError("weird: scope does not exist".into()));
+        };
 
-        //     if let Some(parent_scope_id) = scope.parent_scope {
-        //         scope_id = parent_scope_id;
-        //     } else {
-        //         return None;
-        //     }
-        // }
-
-        let scope = self.scopes.get(scope_id)?;
         if let Some(value) = scope.values.get(id) {
-            return Some((scope_id, value));
+            return Ok((scope_id, value));
         }
 
         if let Some(parent_scope_id) = scope.parent_scope {
             self.lookup(parent_scope_id, id)
         } else {
-            None
+            Err(RuntimeError(format!("variable does not exist: {id}")))
         }
     }
 
@@ -544,76 +543,98 @@ impl Runtime {
         scope: usize,
         location: &AssignLocation,
         value: Value,
-    ) -> Result<(), RuntimeError> {
-        match location {
-            AssignLocation::Id(id) => {
-                let Some((def_scope, _)) = self.lookup(scope, id) else {
-                    return Err(RuntimeError(format!(
-                        "cannot assign to undefined var: {id}"
-                    )));
-                };
-
-                self.scopes[def_scope]
-                    .values
-                    .insert(id.clone(), value.clone());
+    ) -> Result<Option<Value>, RuntimeError> {
+        let mut assignable = match self.evaluate_assign_location(scope, &location)? {
+            Either::Left(a) => a,
+            Either::Right(return_value) => {
+                return Ok(Some(return_value));
             }
-            AssignLocation::Index(location, index_expr) => match location.as_ref() {
-                AssignLocation::Id(id) => {
-                    let (index_value, ret) = self.evaluate(scope, index_expr)?;
-                    if ret.is_some() {
-                        todo!("support return here?!")
-                    }
+        };
 
-                    let Some((def_scope, _)) = self.lookup(scope, id) else {
+        let Assignable { scope, id, indexes } = assignable;
+
+        if indexes.len() == 0 {
+            self.scopes[scope].values.insert(id.clone(), value.clone());
+            return Ok(None);
+        }
+
+        let mut location_value = self.scopes[scope]
+            .values
+            .get_mut(&id)
+            .expect("assignable location id get failed");
+
+        for index_value in indexes {
+            match location_value {
+                Value::List(t, list) => {
+                    let Ok(i) = index_value.auto_coerce_int() else {
                         return Err(RuntimeError(format!(
-                            "cannot assign to undefined var: {id}"
+                            "list index must be int, is: {}",
+                            index_value.ty(),
                         )));
                     };
 
-                    let dict = self.scopes[def_scope].values.get_mut(id);
-
-                    if let Some(Value::Dict(dict)) = dict {
-                        dict.0.insert(index_value, value);
-                    } else if let Some(Value::List(t, list)) = dict {
-                        let Ok(i) = index_value.auto_coerce_int() else {
-                            return Err(RuntimeError(format!(
-                                "array index must be int, is: {}",
-                                index_value.ty(),
-                            )));
-                        };
-
-                        if i < 0 {
-                            return Err(RuntimeError(format!(
-                                "array index must be positive int, is: {}",
-                                i,
-                            )));
-                        }
-
-                        let i = i as usize;
-
-                        if !(*t >= value.ty()) {
-                            return Err(RuntimeError(format!(
-                                "cannot insert value of type {} into list of type {}",
-                                value.ty(),
-                                Type::List(t.clone().into())
-                            )));
-                        }
-
-                        if list.len() < i + 1 {
-                            list.resize(i + 1, Value::Nil);
-                        }
-                        list[i] = value;
-                    } else {
-                        todo!("HMHM")
+                    if i < 0 {
+                        return Err(RuntimeError(format!(
+                            "list index must be positive int, is: {}",
+                            i,
+                        )));
                     }
+
+                    let i = i as usize;
+
+                    if !(*t >= value.ty()) {
+                        return Err(RuntimeError(format!(
+                            "cannot insert value of type {} into list of type {}",
+                            value.ty(),
+                            Type::List(t.clone().into())
+                        )));
+                    }
+
+                    if list.len() < i + 1 {
+                        list.resize(i + 1, Value::Nil);
+                    }
+
+                    location_value = &mut list[i]
                 }
-                AssignLocation::Index(location, index) => {
-                    todo!("HMMM")
+                Value::Tuple(list) => {
+                    let Ok(i) = index_value.auto_coerce_int() else {
+                        return Err(RuntimeError(format!(
+                            "tuple index must be int, is: {}",
+                            index_value.ty(),
+                        )));
+                    };
+
+                    if i < 0 {
+                        return Err(RuntimeError(format!(
+                            "tuple index must be positive int, is: {}",
+                            i,
+                        )));
+                    }
+
+                    let i = i as usize;
+
+                    if list.len() < i + 1 {
+                        list.resize(i + 1, Value::Nil);
+                    }
+
+                    location_value = &mut list[i]
                 }
-            },
+                Value::Dict(dict) => {
+                    location_value = dict.0.entry(index_value).or_insert(Value::Nil);
+                }
+                _ => {
+                    return Err(RuntimeError(format!(
+                        "cannot assign into value of type: {}",
+                        value.ty()
+                    )))
+                }
+            }
         }
 
-        Ok(())
+        // and then, finally:
+        *location_value = value;
+
+        Ok(None)
     }
 
     fn declare(
@@ -692,7 +713,10 @@ impl Runtime {
                     return Ok((Value::Nil, Some(return_value)));
                 }
 
-                self.assign(scope, location, value)?;
+                let ret = self.assign(scope, location, value)?;
+                if let Some(return_value) = ret {
+                    return Ok((Value::Nil, Some(return_value)));
+                }
 
                 Ok((Value::Nil, None))
             }
@@ -818,6 +842,40 @@ impl Runtime {
         })
     }
 
+    fn evaluate_assign_location(
+        &mut self,
+        scope: usize,
+        location: &AssignLocation,
+    ) -> Result<Either<Assignable, Value>, RuntimeError> {
+        match location {
+            AssignLocation::Id(id) => {
+                let (def_scope, _) = self.lookup(scope, id)?;
+                Ok(Either::Left(Assignable {
+                    scope: def_scope,
+                    id: id.clone(),
+                    indexes: vec![],
+                }))
+            }
+            AssignLocation::Index(location, index_expr) => {
+                let mut assignable = match self.evaluate_assign_location(scope, &location)? {
+                    Either::Left(a) => a,
+                    Either::Right(return_value) => {
+                        return Ok(Either::Right(return_value));
+                    }
+                };
+
+                let (result, ret) = self.evaluate(scope, index_expr)?;
+                if let Some(return_value) = ret {
+                    return Ok(Either::Right(return_value));
+                }
+
+                assignable.indexes.push(result);
+
+                Ok(Either::Left(assignable))
+            }
+        }
+    }
+
     fn evaluate(
         &mut self,
         scope: usize,
@@ -851,10 +909,7 @@ impl Runtime {
             Expr::Numeric(num) => Ok((Value::Numeric(num.clone()), None)),
             Expr::RegexLiteral { regex } => Ok((Value::Regex(regex.clone()), None)),
             Expr::Variable(id) => {
-                let Some((_, value)) = self.lookup(scope, id) else {
-                    return Err(RuntimeError(format!("Could not find id: {id}")));
-                };
-
+                let (_, value) = self.lookup(scope, id)?;
                 Ok((value.clone(), None))
             }
             Expr::UnaryExpr { expr, op } => {
