@@ -1,7 +1,3 @@
-#![feature(let_chains)]
-#![feature(iterator_try_reduce)]
-#![feature(iterator_try_collect)]
-#![feature(box_patterns)]
 use std::{
     fs,
     io::{self, Read},
@@ -10,15 +6,8 @@ use std::{
     time::Instant,
 };
 
-mod ast;
-mod parse;
-mod parser_combinators;
-mod runtime;
-mod stdlib;
-
+use adventlang::{parse::parse_document, runtime::execute};
 use clap::{Parser, Subcommand};
-use parse::parse_document;
-use runtime::execute;
 
 #[derive(Parser)]
 #[command()]

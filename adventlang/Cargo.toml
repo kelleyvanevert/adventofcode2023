@@ -1,5 +1,5 @@
 [package]
-name = "adventlang_2023"
+name = "adventlang"
 version = "0.1.0"
 edition = "2021"
 authors = ["Kelley van Evert <hello@klve.nl>"]
