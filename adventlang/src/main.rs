@@ -10,10 +10,11 @@ use std::{
     time::Instant,
 };
 
-pub mod ast;
-pub mod parse;
-pub mod parser_combinators;
-pub mod runtime;
+mod ast;
+mod parse;
+mod parser_combinators;
+mod runtime;
+mod stdlib;
 
 use clap::{Parser, Subcommand};
 use parse::parse_document;

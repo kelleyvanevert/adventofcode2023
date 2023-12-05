@@ -1,6 +1,5 @@
 use std::str::FromStr;
 
-use compact_str::CompactString;
 use regex::Regex;
 
 use crate::{
@@ -755,16 +754,30 @@ pub fn pattern(input: &str) -> ParseResult<&str, Pattern> {
                     pattern,
                     many0(preceded(seq((ws0, tag(","), ws0)), pattern)),
                     ws0,
-                    optional(tag(",")),
+                    optional(preceded(
+                        tag(","),
+                        optional(delimited(
+                            seq((ws0, tag(".."), ws0)),
+                            seq((
+                                identifier,
+                                optional(preceded(seq((ws0, tag(":"), ws0)), typespec)),
+                            )),
+                            optional(seq((ws0, tag(",")))),
+                        )),
+                    )),
                 ))),
-                |opt| {
-                    Pattern::List(match opt {
-                        None => vec![],
-                        Some((first, mut ps, _, _)) => {
-                            ps.insert(0, first);
-                            ps
+                |opt| match opt {
+                    None => Pattern::List {
+                        elements: vec![],
+                        rest: None,
+                    },
+                    Some((first, mut elements, _, rest)) => {
+                        elements.insert(0, first);
+                        Pattern::List {
+                            elements,
+                            rest: rest.flatten(),
                         }
-                    })
+                    }
                 },
             ),
             seq((ws0, tag("]"))),
@@ -776,16 +789,30 @@ pub fn pattern(input: &str) -> ParseResult<&str, Pattern> {
                     pattern,
                     many0(preceded(seq((ws0, tag(","), ws0)), pattern)),
                     ws0,
-                    optional(tag(",")),
+                    optional(preceded(
+                        tag(","),
+                        optional(delimited(
+                            seq((ws0, tag(".."), ws0)),
+                            seq((
+                                identifier,
+                                optional(preceded(seq((ws0, tag(":"), ws0)), typespec)),
+                            )),
+                            optional(seq((ws0, tag(",")))),
+                        )),
+                    )),
                 ))),
-                |opt| {
-                    Pattern::Tuple(match opt {
-                        None => vec![],
-                        Some((first, mut ps, _, _)) => {
-                            ps.insert(0, first);
-                            ps
+                |opt| match opt {
+                    None => Pattern::Tuple {
+                        elements: vec![],
+                        rest: None,
+                    },
+                    Some((first, mut elements, _, rest)) => {
+                        elements.insert(0, first);
+                        Pattern::Tuple {
+                            elements,
+                            rest: rest.flatten(),
                         }
-                    })
+                    }
                 },
             ),
             seq((ws0, tag(")"))),
@@ -1231,6 +1258,19 @@ mod tests {
             ))
         );
         assert_eq!(
+            expr(false).parse("||{} ?"),
+            Some((
+                " ?",
+                Expr::AnonymousFn {
+                    params: vec![],
+                    body: Block {
+                        items: vec![],
+                        stmts: vec![]
+                    }
+                }
+            ))
+        );
+        assert_eq!(
             expr(false).parse("|a| { } ?"),
             Some((
                 " ?",
@@ -1248,10 +1288,10 @@ mod tests {
             Some((
                 " ?",
                 Expr::AnonymousFn {
-                    params: vec![Pattern::Tuple(vec![
-                        Pattern::Id(id("a"), None),
-                        Pattern::Id(id("b"), None)
-                    ])],
+                    params: vec![Pattern::Tuple {
+                        elements: vec![Pattern::Id(id("a"), None), Pattern::Id(id("b"), None)],
+                        rest: None,
+                    }],
                     body: Block {
                         items: vec![],
                         stmts: vec![]

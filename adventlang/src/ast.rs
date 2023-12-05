@@ -184,6 +184,12 @@ impl Display for Type {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Identifier(pub CompactString);
 
+impl<'a> From<&'a str> for Identifier {
+    fn from(id: &'a str) -> Self {
+        Identifier(id.into())
+    }
+}
+
 impl Display for Identifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
@@ -193,8 +199,14 @@ impl Display for Identifier {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub enum Pattern {
     Id(Identifier, Option<Type>),
-    List(Vec<Pattern>),
-    Tuple(Vec<Pattern>),
+    List {
+        elements: Vec<Pattern>,
+        rest: Option<(Identifier, Option<Type>)>,
+    },
+    Tuple {
+        elements: Vec<Pattern>,
+        rest: Option<(Identifier, Option<Type>)>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

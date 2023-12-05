@@ -3,9 +3,14 @@ use std::{collections::HashMap, fmt::Display};
 use arcstr::Substr;
 use either::Either;
 use regex::Regex;
+use try_map::FallibleMapExt;
 
-use crate::ast::{
-    AssignLocation, Block, Document, Expr, Identifier, Item, Pattern, Stmt, StrLiteralPiece, Type,
+use crate::{
+    ast::{
+        AssignLocation, Block, Document, Expr, Identifier, Item, Pattern, Stmt, StrLiteralPiece,
+        Type,
+    },
+    stdlib::implement_stdlib,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -35,7 +40,7 @@ impl AsRef<Regex> for AlRegex {
 }
 
 #[derive(Debug, Clone)]
-pub struct Dict(HashMap<Value, Value>);
+pub struct Dict(pub HashMap<Value, Value>);
 
 impl std::hash::Hash for Dict {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -83,14 +88,14 @@ impl std::hash::Hash for Numeric {
 impl Eq for Numeric {}
 
 impl Numeric {
-    fn negate(&self) -> Result<Numeric, RuntimeError> {
+    pub fn negate(&self) -> Result<Numeric, RuntimeError> {
         match self {
             Numeric::Int(n) => Ok(Numeric::Int(-n)),
             Numeric::Double(n) => Ok(Numeric::Double(-n)),
         }
     }
 
-    fn pow(&self, other: Numeric) -> Numeric {
+    pub fn pow(&self, other: Numeric) -> Numeric {
         match (self, other) {
             (Numeric::Double(a), b) => Numeric::Double(a.powf(b.get_double())),
             (a, Numeric::Double(b)) => Numeric::Double(a.get_double().powf(b)),
@@ -99,7 +104,7 @@ impl Numeric {
         }
     }
 
-    fn add(&self, other: Numeric) -> Numeric {
+    pub fn add(&self, other: Numeric) -> Numeric {
         match (self, other) {
             (Numeric::Double(a), b) => Numeric::Double(a + b.get_double()),
             (a, Numeric::Double(b)) => Numeric::Double(a.get_double() + b),
@@ -108,7 +113,7 @@ impl Numeric {
         }
     }
 
-    fn min(&self, other: Numeric) -> Numeric {
+    pub fn sub(&self, other: &Numeric) -> Numeric {
         match (self, other) {
             (Numeric::Double(a), b) => Numeric::Double(a - b.get_double()),
             (a, Numeric::Double(b)) => Numeric::Double(a.get_double() - b),
@@ -117,7 +122,7 @@ impl Numeric {
         }
     }
 
-    fn mul(&self, other: Numeric) -> Numeric {
+    pub fn mul(&self, other: Numeric) -> Numeric {
         match (self, other) {
             (Numeric::Double(a), b) => Numeric::Double(a * b.get_double()),
             (a, Numeric::Double(b)) => Numeric::Double(a.get_double() * b),
@@ -126,7 +131,16 @@ impl Numeric {
         }
     }
 
-    fn max(&self, other: Numeric) -> Numeric {
+    pub fn min(&self, other: Numeric) -> Numeric {
+        match (self, other) {
+            (Numeric::Double(a), b) => Numeric::Double(a.min(b.get_double())),
+            (a, Numeric::Double(b)) => Numeric::Double(a.get_double().min(b)),
+
+            (Numeric::Int(a), Numeric::Int(b)) => Numeric::Int(*a.min(&b)),
+        }
+    }
+
+    pub fn max(&self, other: Numeric) -> Numeric {
         match (self, other) {
             (Numeric::Double(a), b) => Numeric::Double(a.max(b.get_double())),
             (a, Numeric::Double(b)) => Numeric::Double(a.get_double().max(b)),
@@ -135,14 +149,14 @@ impl Numeric {
         }
     }
 
-    fn get_double(&self) -> f64 {
+    pub fn get_double(&self) -> f64 {
         match self {
             Numeric::Int(a) => *a as f64,
             Numeric::Double(a) => *a as f64,
         }
     }
 
-    fn get_int(&self) -> Result<i64, RuntimeError> {
+    pub fn get_int(&self) -> Result<i64, RuntimeError> {
         match self {
             Numeric::Int(a) => Ok(*a as i64),
             Numeric::Double(_) => Err(RuntimeError(
@@ -180,8 +194,8 @@ impl std::hash::Hash for FnDef {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FnSig {
-    params: Vec<Pattern>,
-    body: FnBody,
+    pub params: Vec<Pattern>,
+    pub body: FnBody,
 }
 
 impl std::hash::Hash for FnSig {
@@ -270,7 +284,7 @@ impl Display for Value {
 }
 
 impl Value {
-    fn negate(&self) -> Result<Value, RuntimeError> {
+    pub fn negate(&self) -> Result<Value, RuntimeError> {
         match self {
             Value::Nil => Ok(Value::Nil),
             Value::Bool(b) => Ok(Value::Bool(!b)),
@@ -280,7 +294,7 @@ impl Value {
         }
     }
 
-    fn pow(&self, other: Value) -> Result<Value, RuntimeError> {
+    pub fn pow(&self, other: Value) -> Result<Value, RuntimeError> {
         match (self, other) {
             (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.pow(b))),
             (a, b) => Err(RuntimeError(format!(
@@ -291,7 +305,7 @@ impl Value {
         }
     }
 
-    fn add(&self, other: Value) -> Result<Value, RuntimeError> {
+    pub fn add(&self, other: Value) -> Result<Value, RuntimeError> {
         match (self, other) {
             (Value::Str(a), Value::Str(b)) => {
                 let new = Substr::from(a.to_string() + &b);
@@ -306,9 +320,9 @@ impl Value {
         }
     }
 
-    fn min(&self, other: Value) -> Result<Value, RuntimeError> {
+    pub fn sub(&self, other: &Value) -> Result<Value, RuntimeError> {
         match (self, other) {
-            (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.min(b))),
+            (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.sub(b))),
             (a, b) => Err(RuntimeError(format!(
                 "can't perform {} + {}",
                 a.ty(),
@@ -317,7 +331,7 @@ impl Value {
         }
     }
 
-    fn mul(&self, other: Value) -> Result<Value, RuntimeError> {
+    pub fn mul(&self, other: Value) -> Result<Value, RuntimeError> {
         match (self, other) {
             (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.mul(b))),
             (a, b) => Err(RuntimeError(format!(
@@ -328,7 +342,20 @@ impl Value {
         }
     }
 
-    fn max(&self, other: &Value) -> Result<Value, RuntimeError> {
+    pub fn min(&self, other: &Value) -> Result<Value, RuntimeError> {
+        match (self, other) {
+            (Value::Numeric(a), Value::Nil) => Ok(Value::Numeric(a.clone())),
+            (Value::Nil, Value::Numeric(b)) => Ok(Value::Numeric(b.clone())),
+            (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.min(b.clone()))),
+            (a, b) => Err(RuntimeError(format!(
+                "can't perform {} min {}",
+                a.ty(),
+                b.ty()
+            ))),
+        }
+    }
+
+    pub fn max(&self, other: &Value) -> Result<Value, RuntimeError> {
         match (self, other) {
             (Value::Numeric(a), Value::Nil) => Ok(Value::Numeric(a.clone())),
             (Value::Nil, Value::Numeric(b)) => Ok(Value::Numeric(b.clone())),
@@ -341,12 +368,10 @@ impl Value {
         }
     }
 
-    fn lt(&self, other: &Value) -> Result<Value, RuntimeError> {
+    pub fn lt(&self, other: &Value) -> Result<bool, RuntimeError> {
         match (self, other) {
-            (Value::Str(a), Value::Str(b)) => Ok(Value::Bool(a.len() < b.len())),
-            (Value::Numeric(a), Value::Numeric(b)) => {
-                Ok(Value::Bool(a.get_double() < b.get_double()))
-            }
+            (Value::Str(a), Value::Str(b)) => Ok(a.len() < b.len()),
+            (Value::Numeric(a), Value::Numeric(b)) => Ok(a.get_double() < b.get_double()),
             (a, b) => Err(RuntimeError(format!(
                 "can't perform {} + {}",
                 a.ty(),
@@ -355,16 +380,14 @@ impl Value {
         }
     }
 
-    fn gt(&self, other: &Value) -> Result<Value, RuntimeError> {
+    pub fn gt(&self, other: &Value) -> Result<bool, RuntimeError> {
         other.lt(self)
     }
 
-    fn eq(&self, other: Value) -> Result<Value, RuntimeError> {
+    pub fn eq(&self, other: &Value) -> Result<bool, RuntimeError> {
         match (self, other) {
-            (Value::Str(a), Value::Str(b)) => Ok(Value::Bool(a == &b)),
-            (Value::Numeric(a), Value::Numeric(b)) => {
-                Ok(Value::Bool(a.get_double() == b.get_double()))
-            }
+            (Value::Str(a), Value::Str(b)) => Ok(a == b),
+            (Value::Numeric(a), Value::Numeric(b)) => Ok(a.get_double() == b.get_double()),
             (a, b) => Err(RuntimeError(format!(
                 "can't perform {} + {}",
                 a.ty(),
@@ -373,8 +396,16 @@ impl Value {
         }
     }
 
+    pub fn gte(&self, other: &Value) -> Result<bool, RuntimeError> {
+        Ok(self.gt(&other)? || self.eq(other)?)
+    }
+
+    pub fn lte(&self, other: &Value) -> Result<bool, RuntimeError> {
+        Ok(self.lt(&other)? || self.eq(other)?)
+    }
+
     // TODO
-    fn auto_coerce_str(&self) -> String {
+    pub fn auto_coerce_str(&self) -> String {
         match self {
             Value::Nil => "".into(),
             Value::Bool(b) => {
@@ -395,7 +426,7 @@ impl Value {
     }
 
     // TODO
-    fn auto_coerce_int(&self) -> Result<i64, RuntimeError> {
+    pub fn auto_coerce_int(&self) -> Result<i64, RuntimeError> {
         match self {
             Value::Nil => Err(RuntimeError(format!("cannot coerce {} to int", self.ty()))),
             Value::Bool(b) => {
@@ -415,7 +446,7 @@ impl Value {
         }
     }
 
-    fn ty(&self) -> Type {
+    pub fn ty(&self) -> Type {
         match self {
             Value::Nil => Type::Nil,
             Value::Bool(_) => Type::Bool,
@@ -429,14 +460,14 @@ impl Value {
         }
     }
 
-    fn auto_coerce_bool(&self) -> Result<bool, RuntimeError> {
+    pub fn auto_coerce_bool(&self) -> Result<bool, RuntimeError> {
         match self {
             Value::Bool(b) => Ok(*b),
             _ => Err(RuntimeError(format!("cannot coerce {}", self.ty()))),
         }
     }
 
-    fn truthy(&self) -> Result<bool, RuntimeError> {
+    pub fn truthy(&self) -> Result<bool, RuntimeError> {
         match self {
             Value::Nil => Ok(false),
             Value::Bool(b) => Ok(*b),
@@ -454,24 +485,24 @@ impl Value {
 
 // Not the most beautiful situation, but .. oh well
 // This type is to `AssignLocation` what `Value` is to `Expr` -- the runtime-internal evaluated version, say
-struct Assignable {
-    scope: usize,
-    id: Identifier,
-    indexes: Vec<Value>,
+pub struct Assignable {
+    pub scope: usize,
+    pub id: Identifier,
+    pub indexes: Vec<Value>,
 }
 
 #[derive(Debug, PartialEq)]
-struct Scope {
-    parent_scope: Option<usize>,
-    values: HashMap<Identifier, Value>,
+pub struct Scope {
+    pub parent_scope: Option<usize>,
+    pub values: HashMap<Identifier, Value>,
 }
 
 pub struct Runtime {
-    scopes: Vec<Scope>,
+    pub scopes: Vec<Scope>,
 }
 
 impl Runtime {
-    fn new() -> Runtime {
+    pub fn new() -> Runtime {
         Runtime {
             scopes: vec![Scope {
                 parent_scope: None,
@@ -480,7 +511,22 @@ impl Runtime {
         }
     }
 
-    fn lookup(&self, scope_id: usize, id: &Identifier) -> Result<(usize, &Value), RuntimeError> {
+    pub fn builtin(&mut self, name: &str, signatures: impl IntoIterator<Item = FnSig>) {
+        self.scopes[0].values.insert(
+            name.into(),
+            Value::FnDef(FnDef {
+                name: Some(name.into()),
+                parent_scope: 0,
+                signatures: signatures.into_iter().collect(),
+            }),
+        );
+    }
+
+    pub fn lookup(
+        &self,
+        scope_id: usize,
+        id: &Identifier,
+    ) -> Result<(usize, &Value), RuntimeError> {
         let Some(scope) = self.scopes.get(scope_id) else {
             return Err(RuntimeError("weird: scope does not exist".into()));
         };
@@ -496,7 +542,7 @@ impl Runtime {
         }
     }
 
-    fn execute_block(
+    pub fn execute_block(
         &mut self,
         scope: usize,
         block: &Block,
@@ -518,7 +564,7 @@ impl Runtime {
         Ok((result, None))
     }
 
-    fn define(&mut self, scope: usize, item: &Item) -> Result<(), RuntimeError> {
+    pub fn define(&mut self, scope: usize, item: &Item) -> Result<(), RuntimeError> {
         match item {
             Item::NamedFn { name, params, body } => {
                 self.scopes[scope].values.insert(
@@ -538,7 +584,7 @@ impl Runtime {
         Ok(())
     }
 
-    fn assign(
+    pub fn assign(
         &mut self,
         scope: usize,
         location: &AssignLocation,
@@ -637,7 +683,7 @@ impl Runtime {
         Ok(None)
     }
 
-    fn declare(
+    pub fn declare(
         &mut self,
         scope: usize,
         pattern: &Pattern,
@@ -647,34 +693,52 @@ impl Runtime {
             Pattern::Id(id, _) => {
                 self.scopes[scope].values.insert(id.clone(), value);
             }
-            Pattern::List(ps) => {
-                let Value::List(_, items) = value else {
+            Pattern::List { elements, rest } => {
+                let Value::List(t, mut items) = value else {
                     return Err(RuntimeError(format!(
                         "cannot assign to list pattern: {}",
                         value.ty()
                     )));
                 };
 
-                for (pattern, value) in ps
+                let assign_rest_later = rest.clone().try_map(|(id, t)| {
+                    self.declare(scope, &Pattern::Id(id.clone(), t), Value::Nil)?;
+                    Ok((id.clone(), items.split_off(elements.len())))
+                })?;
+
+                for (pattern, value) in elements
                     .into_iter()
                     .zip(items.into_iter().chain(std::iter::repeat(Value::Nil)))
                 {
                     self.declare(scope, pattern, value)?;
                 }
+
+                if let Some((id, items)) = assign_rest_later {
+                    self.assign(scope, &AssignLocation::Id(id), Value::List(t, items))?;
+                }
             }
-            Pattern::Tuple(ps) => {
-                let Value::Tuple(items) = value else {
+            Pattern::Tuple { elements, rest } => {
+                let Value::Tuple(mut items) = value else {
                     return Err(RuntimeError(format!(
                         "cannot assign to tiple pattern: {}",
                         value.ty()
                     )));
                 };
 
-                for (pattern, value) in ps
+                let assign_rest_later = rest.clone().try_map(|(id, t)| {
+                    self.declare(scope, &Pattern::Id(id.clone(), t), Value::Nil)?;
+                    Ok((id.clone(), items.split_off(elements.len())))
+                })?;
+
+                for (pattern, value) in elements
                     .into_iter()
                     .zip(items.into_iter().chain(std::iter::repeat(Value::Nil)))
                 {
                     self.declare(scope, pattern, value)?;
+                }
+
+                if let Some((id, items)) = assign_rest_later {
+                    self.assign(scope, &AssignLocation::Id(id), Value::Tuple(items))?;
                 }
             }
         }
@@ -682,7 +746,7 @@ impl Runtime {
         Ok(())
     }
 
-    fn execute(
+    pub fn execute(
         &mut self,
         scope: usize,
         stmt: &Stmt,
@@ -724,8 +788,8 @@ impl Runtime {
     }
 
     // TODO
-    fn matches_signature(
-        name: &Option<Identifier>,
+    pub fn matches_signature(
+        _name: &Option<Identifier>,
         sig: &FnSig,
         args: &Vec<(Option<Identifier>, Value)>,
     ) -> bool {
@@ -738,13 +802,13 @@ impl Runtime {
                 //     println!("fits? pattern {:?} value {:?}", pat, value);
                 // }
                 match pat {
-                    Pattern::List(_) => {
+                    Pattern::List { .. } => {
                         if !(Type::List(Type::Any.into()) >= value.ty()) {
                             // println!("does not match sig: list");
                             return false;
                         }
                     }
-                    Pattern::Tuple(_) => {
+                    Pattern::Tuple { .. } => {
                         if !(Type::Tuple >= value.ty()) {
                             // println!("does not match sig: tuple");
                             return false;
@@ -764,7 +828,7 @@ impl Runtime {
         }
     }
 
-    fn invoke(
+    pub fn invoke(
         &mut self,
         def: FnDef,
         args: Vec<(Option<Identifier>, Value)>,
@@ -842,7 +906,7 @@ impl Runtime {
         })
     }
 
-    fn evaluate_assign_location(
+    pub fn evaluate_assign_location(
         &mut self,
         scope: usize,
         location: &AssignLocation,
@@ -876,7 +940,7 @@ impl Runtime {
         }
     }
 
-    fn evaluate(
+    pub fn evaluate(
         &mut self,
         scope: usize,
         expr: &Expr,
@@ -947,7 +1011,7 @@ impl Runtime {
                         if let Some(return_value) = ret {
                             return Ok((Value::Nil, Some(return_value)));
                         }
-                        Ok((left_value.min(right_value)?, None))
+                        Ok((left_value.sub(&right_value)?, None))
                     }
                     "*" => {
                         let (right_value, ret) = self.evaluate(scope, right)?;
@@ -961,21 +1025,35 @@ impl Runtime {
                         if let Some(return_value) = ret {
                             return Ok((Value::Nil, Some(return_value)));
                         }
-                        Ok((left_value.lt(&right_value)?, None))
+                        Ok((Value::Bool(left_value.lt(&right_value)?), None))
                     }
                     ">" => {
                         let (right_value, ret) = self.evaluate(scope, right)?;
                         if let Some(return_value) = ret {
                             return Ok((Value::Nil, Some(return_value)));
                         }
-                        Ok((left_value.gt(&right_value)?, None))
+                        Ok((Value::Bool(left_value.gt(&right_value)?), None))
                     }
                     "==" => {
                         let (right_value, ret) = self.evaluate(scope, right)?;
                         if let Some(return_value) = ret {
                             return Ok((Value::Nil, Some(return_value)));
                         }
-                        Ok((left_value.eq(right_value)?, None))
+                        Ok((Value::Bool(left_value.eq(&right_value)?), None))
+                    }
+                    ">=" => {
+                        let (right_value, ret) = self.evaluate(scope, right)?;
+                        if let Some(return_value) = ret {
+                            return Ok((Value::Nil, Some(return_value)));
+                        }
+                        Ok((Value::Bool(left_value.gte(&right_value)?), None))
+                    }
+                    "<=" => {
+                        let (right_value, ret) = self.evaluate(scope, right)?;
+                        if let Some(return_value) = ret {
+                            return Ok((Value::Nil, Some(return_value)));
+                        }
+                        Ok((Value::Bool(left_value.gte(&right_value)?), None))
                     }
                     "&&" => {
                         if !left_value.truthy()? {
@@ -1200,1005 +1278,13 @@ impl Runtime {
 }
 
 pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
-    fn idpat(id: &str) -> Pattern {
-        Pattern::Id(Identifier(id.into()), None)
-    }
-
-    fn idpat_ty(id: &str, ty: Type) -> Pattern {
-        Pattern::Id(Identifier(id.into()), Some(ty))
-    }
-
     let mut runtime = Runtime::new();
+
+    implement_stdlib(&mut runtime);
 
     runtime.scopes[0]
         .values
         .insert(id("stdin"), Value::Str(Substr::from(stdin)));
-
-    runtime.scopes[0].values.insert(
-        id("print"),
-        Value::FnDef(FnDef {
-            name: Some(id("print")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("text")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
-
-                    println!("{}", text);
-                    Ok(Value::Nil)
-                }),
-            }],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("run"),
-        Value::FnDef(FnDef {
-            name: Some(id("run")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("f")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let f = runtime.scopes[scope].values.get(&id("f")).unwrap();
-
-                    match f {
-                        Value::FnDef(def) => runtime.invoke(def.clone(), vec![]),
-                        _ => Err(RuntimeError(format!("cannot run: {}", f.ty()))),
-                    }
-                }),
-            }],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("max"),
-        Value::FnDef(FnDef {
-            name: Some(id("max")),
-            parent_scope: 0,
-            signatures: vec![
-                FnSig {
-                    params: vec![idpat_ty("items", Type::List(Type::Any.into()))],
-                    body: FnBody::Builtin(|runtime, scope| {
-                        let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
-
-                        match items {
-                            Value::List(_, list) => {
-                                let mut result = Value::Nil;
-                                for item in list.iter() {
-                                    result = result.max(item)?;
-                                }
-
-                                Ok(result)
-                            }
-                            _ => Err(RuntimeError(format!("cannot get max of: {}", items.ty()))),
-                        }
-                    }),
-                },
-                FnSig {
-                    params: vec![idpat_ty("a", Type::Numeric), idpat_ty("b", Type::Numeric)],
-                    body: FnBody::Builtin(|runtime, scope| {
-                        let a = runtime.scopes[scope].values.get(&id("a")).unwrap();
-                        let b = runtime.scopes[scope].values.get(&id("b")).unwrap();
-
-                        Ok(a.max(b)?)
-                    }),
-                },
-            ],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("map"),
-        Value::FnDef(FnDef {
-            name: Some(id("map")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("items"), idpat("cb")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
-
-                    let Value::List(_, list) = items else {
-                        return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
-                    };
-
-                    let list = list.clone();
-
-                    let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
-
-                    let Value::FnDef(def) = cb else {
-                        return Err(RuntimeError(format!(
-                            "cannot use map w/ cb of type: {}",
-                            cb.ty()
-                        )));
-                    };
-
-                    let def = def.clone();
-
-                    let mut result = vec![];
-                    for item in list.iter() {
-                        result.push(runtime.invoke(def.clone(), vec![(None, item.clone())])?);
-                    }
-
-                    // TODO
-                    Ok(Value::List(Type::Any, result))
-                }),
-            }],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("flat_map"),
-        Value::FnDef(FnDef {
-            name: Some(id("flat_map")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("items"), idpat("cb")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
-
-                    let Value::List(_, list) = items else {
-                        return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
-                    };
-
-                    let list = list.clone();
-
-                    let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
-
-                    let Value::FnDef(def) = cb else {
-                        return Err(RuntimeError(format!(
-                            "cannot use map w/ cb of type: {}",
-                            cb.ty()
-                        )));
-                    };
-
-                    let def = def.clone();
-
-                    let mut result = vec![];
-                    for item in list.iter() {
-                        let value = runtime.invoke(def.clone(), vec![(None, item.clone())])?;
-                        let Value::List(_, items) = value else {
-                            return Err(RuntimeError(format!(
-                                "flat_map cb should return lists, returned: {}",
-                                value.ty()
-                            )));
-                        };
-
-                        // TODO type-check
-
-                        result.extend(items);
-                    }
-
-                    // TODO type
-                    Ok(Value::List(Type::Any, result))
-                }),
-            }],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("in"),
-        Value::FnDef(FnDef {
-            name: Some(id("in")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("needle"), idpat("haystack")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let needle = runtime.scopes[scope].values.get(&id("needle")).unwrap();
-
-                    let haystack = runtime.scopes[scope].values.get(&id("haystack")).unwrap();
-
-                    let Value::List(_, haystack) = haystack else {
-                        return Err(RuntimeError(format!(
-                            "cannot get max of: {}",
-                            haystack.ty()
-                        )));
-                    };
-
-                    Ok(Value::Bool(haystack.contains(needle)))
-                }),
-            }],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("filter"),
-        Value::FnDef(FnDef {
-            name: Some(id("filter")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("items"), idpat("cb")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
-
-                    let Value::List(_, list) = items else {
-                        return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
-                    };
-
-                    let list = list.clone();
-
-                    let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
-
-                    let Value::FnDef(def) = cb else {
-                        return Err(RuntimeError(format!(
-                            "cannot use filter w/ cb of type: {}",
-                            cb.ty()
-                        )));
-                    };
-
-                    let def = def.clone();
-
-                    let mut result = vec![];
-                    for item in list.iter() {
-                        if runtime
-                            .invoke(def.clone(), vec![(None, item.clone())])?
-                            .auto_coerce_bool()?
-                        {
-                            result.push(item.clone());
-                        }
-                    }
-
-                    // TODO
-                    Ok(Value::List(Type::Any, result))
-                }),
-            }],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("filter_map"),
-        Value::FnDef(FnDef {
-            name: Some(id("filter_map")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("items"), idpat("cb")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
-
-                    let Value::List(_, list) = items else {
-                        return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
-                    };
-
-                    let list = list.clone();
-
-                    let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
-
-                    let Value::FnDef(def) = cb else {
-                        return Err(RuntimeError(format!(
-                            "cannot use filter w/ cb of type: {}",
-                            cb.ty()
-                        )));
-                    };
-
-                    let def = def.clone();
-
-                    let mut result = vec![];
-                    for item in list.iter() {
-                        let item = runtime.invoke(def.clone(), vec![(None, item.clone())])?;
-
-                        match item {
-                            // TODO fix the "nil as well as unit" problem
-                            Value::Nil => {}
-                            _ => {
-                                result.push(item);
-                            }
-                        }
-                    }
-
-                    // TODO
-                    Ok(Value::List(Type::Any, result))
-                }),
-            }],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("find_map"),
-        Value::FnDef(FnDef {
-            name: Some(id("find_map")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("items"), idpat("cb")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
-
-                    let Value::List(_, list) = items else {
-                        return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
-                    };
-
-                    let list = list.clone();
-
-                    let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
-
-                    let Value::FnDef(def) = cb else {
-                        return Err(RuntimeError(format!(
-                            "cannot use filter w/ cb of type: {}",
-                            cb.ty()
-                        )));
-                    };
-
-                    let def = def.clone();
-
-                    for item in list {
-                        let item = runtime.invoke(def.clone(), vec![(None, item)])?;
-
-                        match item {
-                            // TODO fix the "nil as well as unit" problem
-                            Value::Nil => {}
-                            _ => {
-                                return Ok(item);
-                            }
-                        }
-                    }
-
-                    Ok(Value::Nil)
-                }),
-            }],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("find"),
-        Value::FnDef(FnDef {
-            name: Some(id("find")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("items"), idpat("cb")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
-
-                    let Value::List(_, list) = items else {
-                        return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
-                    };
-
-                    let list = list.clone();
-
-                    let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
-
-                    let Value::FnDef(def) = cb else {
-                        return Err(RuntimeError(format!(
-                            "cannot use filter w/ cb of type: {}",
-                            cb.ty()
-                        )));
-                    };
-
-                    let def = def.clone();
-
-                    for item in list {
-                        let check = runtime.invoke(def.clone(), vec![(None, item.clone())])?;
-                        if check.truthy()? {
-                            return Ok(item);
-                        }
-                    }
-
-                    Ok(Value::Nil)
-                }),
-            }],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("range"),
-        Value::FnDef(FnDef {
-            name: Some(id("range")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("start"), idpat("end")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let start = runtime.scopes[scope].values.get(&id("start")).unwrap();
-
-                    let Value::Numeric(start) = start else {
-                        return Err(RuntimeError(format!(
-                            "range() start must be int, is: {}",
-                            start.ty()
-                        )));
-                    };
-
-                    let start = start.get_int()?;
-
-                    let end = runtime.scopes[scope].values.get(&id("end")).unwrap();
-
-                    let Value::Numeric(end) = end else {
-                        return Err(RuntimeError(format!(
-                            "range() end must be int, is: {}",
-                            end.ty()
-                        )));
-                    };
-
-                    let end = end.get_int()?;
-
-                    if end >= start {
-                        Ok(Value::List(
-                            Type::Numeric,
-                            (start..end)
-                                .map(|n| Value::Numeric(Numeric::Int(n)))
-                                .collect(),
-                        ))
-                    } else {
-                        // TODO allow this conditionally or something?
-                        // Ok(Value::List(
-                        //     Type::Numeric,
-                        //     (0..(start - end))
-                        //         .map(|n| Value::Numeric(Numeric::Int(start - n)))
-                        //         .collect(),
-                        // ))
-
-                        Ok(Value::List(Type::Numeric, vec![]))
-                    }
-                }),
-            }],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("enumerate"),
-        Value::FnDef(FnDef {
-            name: Some(id("enumerate")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("items")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
-
-                    Ok(match items {
-                        Value::List(_, list) => Value::List(
-                            Type::Tuple, // TODO generic tuple types
-                            list.iter()
-                                .cloned()
-                                .enumerate()
-                                .map(|(i, item)| {
-                                    Value::Tuple(vec![Value::Numeric(Numeric::Int(i as i64)), item])
-                                })
-                                .collect::<Vec<_>>(),
-                        ),
-                        Value::Tuple(list) => Value::Tuple(
-                            list.iter()
-                                .cloned()
-                                .enumerate()
-                                .map(|(i, item)| {
-                                    Value::Tuple(vec![Value::Numeric(Numeric::Int(i as i64)), item])
-                                })
-                                .collect::<Vec<_>>(),
-                        ),
-                        _ => {
-                            return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
-                        }
-                    })
-                }),
-            }],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("sum"),
-        Value::FnDef(FnDef {
-            name: Some(id("sum")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("items")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
-
-                    let list = match items {
-                        Value::List(_, list) => list,
-                        Value::Tuple(list) => list,
-                        _ => {
-                            return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
-                        }
-                    };
-
-                    let mut result = Value::Numeric(Numeric::Int(0));
-                    for item in list.iter() {
-                        result = result.add(item.clone())?;
-                    }
-
-                    Ok(result)
-                }),
-            }],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("split"),
-        Value::FnDef(FnDef {
-            name: Some(id("split")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("text"), idpat("sep")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
-
-                    let Value::Str(text) = text else {
-                        return Err(RuntimeError(format!(
-                            "split[#1] must be a string, is a: {}",
-                            text.ty()
-                        )));
-                    };
-
-                    let sep = runtime.scopes[scope].values.get(&id("sep")).unwrap();
-
-                    let Value::Str(sep) = sep else {
-                        return Err(RuntimeError(format!(
-                            "split[#2] must be a string, is a: {}",
-                            sep.ty()
-                        )));
-                    };
-
-                    let result = text
-                        .split(sep.as_str())
-                        .map(|piece| Value::Str(text.substr_from(piece)))
-                        .collect::<Vec<_>>();
-
-                    Ok(Value::List(Type::Str, result))
-                }),
-            }],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("lines"),
-        Value::FnDef(FnDef {
-            name: Some(id("lines")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("text")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
-
-                    let Value::Str(text) = text else {
-                        return Err(RuntimeError(format!(
-                            "lines() text must be a string, is a: {}",
-                            text.ty()
-                        )));
-                    };
-
-                    let result = text
-                        .lines()
-                        .map(|line| Value::Str(text.substr_from(line)))
-                        .collect::<Vec<_>>();
-
-                    Ok(Value::List(Type::Str, result))
-                }),
-            }],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("match"),
-        Value::FnDef(FnDef {
-            name: Some(id("match")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("text"), idpat("regex")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
-
-                    let Value::Str(text) = text else {
-                        return Err(RuntimeError(format!(
-                            "match() text must be a string, is a: {}",
-                            text.ty()
-                        )));
-                    };
-
-                    let regex = runtime.scopes[scope].values.get(&id("regex")).unwrap();
-
-                    let Value::Regex(regex) = regex else {
-                        return Err(RuntimeError(format!(
-                            "match() regex must be a regex, is a: {}",
-                            regex.ty()
-                        )));
-                    };
-
-                    match regex.0.captures(text) {
-                        Some(cap) => {
-                            let m = cap.get(0).unwrap();
-                            Ok(Value::Tuple(vec![
-                                Value::Str(m.as_str().into()),
-                                Value::Numeric(Numeric::Int(m.start() as i64)),
-                            ]))
-                        }
-                        None => Ok(Value::Nil),
-                    }
-                }),
-            }],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("match_all"),
-        Value::FnDef(FnDef {
-            name: Some(id("match_all")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("text"), idpat("regex")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
-
-                    let Value::Str(text) = text else {
-                        return Err(RuntimeError(format!(
-                            "match() text must be a string, is a: {}",
-                            text.ty()
-                        )));
-                    };
-
-                    let regex = runtime.scopes[scope].values.get(&id("regex")).unwrap();
-
-                    let Value::Regex(regex) = regex else {
-                        return Err(RuntimeError(format!(
-                            "match() regex must be a regex, is a: {}",
-                            regex.ty()
-                        )));
-                    };
-
-                    Ok(Value::List(
-                        Type::Tuple,
-                        regex
-                            .0
-                            .captures_iter(text)
-                            .map(|cap| {
-                                let m = cap.get(0).unwrap();
-                                Value::Tuple(vec![
-                                    Value::Str(m.as_str().into()),
-                                    Value::Numeric(Numeric::Int(m.start() as i64)),
-                                ])
-                            })
-                            .collect(),
-                    ))
-                }),
-            }],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("starts_with"),
-        Value::FnDef(FnDef {
-            name: Some(id("starts_with")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("text"), idpat("substr")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
-
-                    let Value::Str(text) = text else {
-                        return Err(RuntimeError(format!(
-                            "starts_with() text must be a string, is a: {}",
-                            text.ty()
-                        )));
-                    };
-
-                    let substr = runtime.scopes[scope].values.get(&id("substr")).unwrap();
-
-                    let Value::Str(substr) = substr else {
-                        return Err(RuntimeError(format!(
-                            "starts_with() substr must be a string, is a: {}",
-                            substr.ty()
-                        )));
-                    };
-
-                    Ok(Value::Bool(text.starts_with(substr.as_str())))
-                }),
-            }],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("replace"),
-        Value::FnDef(FnDef {
-            name: Some(id("replace")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("text"), idpat("def")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
-
-                    let Value::Str(text) = text else {
-                        return Err(RuntimeError(format!(
-                            "replace() text must be a string, is a: {}",
-                            text.ty()
-                        )));
-                    };
-
-                    let def = runtime.scopes[scope].values.get(&id("def")).unwrap();
-
-                    let Value::Tuple(def) = def else {
-                        return Err(RuntimeError(format!(
-                            "replace() def must be a string, is a: {}",
-                            def.ty()
-                        )));
-                    };
-
-                    let Some(Value::Str(find)) = def.get(0) else {
-                        return Err(RuntimeError(format!("replace() def[0] must be a string")));
-                    };
-
-                    let Some(Value::Str(replace)) = def.get(1) else {
-                        return Err(RuntimeError(format!("replace() def[1] must be a string")));
-                    };
-
-                    let result = text.replace(find.as_str(), replace).into();
-
-                    Ok(Value::Str(result))
-                }),
-            }],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("slice"),
-        Value::FnDef(FnDef {
-            name: Some(id("slice")),
-            parent_scope: 0,
-            signatures: vec![
-                FnSig {
-                    params: vec![idpat("text"), Pattern::Id(id("i"), Some(Type::Numeric))],
-                    body: FnBody::Builtin(|runtime, scope| {
-                        let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
-
-                        let Value::Str(text) = text else {
-                            return Err(RuntimeError(format!(
-                                "slice() text must be a string, is a: {}",
-                                text.ty()
-                            )));
-                        };
-
-                        let i = runtime.scopes[scope].values.get(&id("i")).unwrap();
-
-                        let Value::Numeric(i) = i else {
-                            return Err(RuntimeError(format!(
-                                "slice() i must be an int, is a: {}",
-                                i.ty()
-                            )));
-                        };
-
-                        let i = i.get_int()?;
-
-                        if i < 0 {
-                            return Err(RuntimeError(format!("slice() i must be a positive int")));
-                        }
-
-                        Ok(Value::Str(text.substr((i as usize)..)))
-                    }),
-                },
-                FnSig {
-                    params: vec![idpat("text"), Pattern::Id(id("range"), Some(Type::Tuple))],
-                    body: FnBody::Builtin(|runtime, scope| {
-                        let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
-
-                        let Value::Str(text) = text else {
-                            return Err(RuntimeError(format!(
-                                "slice() text must be a string, is a: {}",
-                                text.ty()
-                            )));
-                        };
-
-                        let range = runtime.scopes[scope].values.get(&id("range")).unwrap();
-
-                        let Value::Tuple(range) = range else {
-                            return Err(RuntimeError(format!(
-                                "slice() range must be an (int, int) range, is a: {}",
-                                range.ty()
-                            )));
-                        };
-
-                        let Some(Value::Numeric(start)) = range.get(0) else {
-                            return Err(RuntimeError(format!(
-                                "slice() range must be an (int, int) range"
-                            )));
-                        };
-
-                        let start = start.get_int()?;
-
-                        if start < 0 {
-                            return Err(RuntimeError(format!(
-                                "slice() range must be an (int, int) range"
-                            )));
-                        }
-
-                        let Some(Value::Numeric(end)) = range.get(1) else {
-                            return Err(RuntimeError(format!(
-                                "slice() range must be an (int, int) range"
-                            )));
-                        };
-
-                        let end = end.get_int()?;
-
-                        if end < 0 {
-                            return Err(RuntimeError(format!(
-                                "slice() range must be an (int, int) range"
-                            )));
-                        }
-
-                        Ok(Value::Str(
-                            text.substr((start as usize)..(end as usize).min(text.len())),
-                        ))
-                    }),
-                },
-            ],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("index"),
-        Value::FnDef(FnDef {
-            name: Some(id("index")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("list"), idpat("i")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let list = runtime.scopes[scope].values.get(&id("list")).unwrap();
-
-                    let list = match list {
-                        Value::Dict(dict) => {
-                            let key = runtime.scopes[scope].values.get(&id("i")).unwrap();
-                            return match dict.0.get(key) {
-                                Some(value) => Ok(value.clone()),
-                                None => Ok(Value::Nil),
-                            };
-                        }
-                        Value::List(_, list) => list,
-                        Value::Tuple(list) => list,
-                        _ => {
-                            return Err(RuntimeError(format!(
-                                "index() list must be a list or tuple, is a: {}",
-                                list.ty()
-                            )));
-                        }
-                    };
-
-                    let i = runtime.scopes[scope].values.get(&id("i")).unwrap();
-
-                    let Value::Numeric(i) = i else {
-                        return Err(RuntimeError(format!(
-                            "split[#2] must be an int, is a: {}",
-                            i.ty()
-                        )));
-                    };
-
-                    let i = i.get_int()?;
-
-                    let el = match i {
-                        i if i >= 0 => list.get(i as usize),
-                        _ => list.get((list.len() as i64 + i) as usize),
-                    };
-
-                    Ok(el.cloned().unwrap_or(Value::Nil))
-                }),
-            }],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("insert"),
-        Value::FnDef(FnDef {
-            name: Some(id("insert")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("dict"), idpat("key"), idpat("value")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let key = runtime.scopes[scope]
-                        .values
-                        .get(&id("key"))
-                        .unwrap()
-                        .clone();
-
-                    let value = runtime.scopes[scope]
-                        .values
-                        .get(&id("value"))
-                        .unwrap()
-                        .clone();
-
-                    let dict = runtime.scopes[scope].values.get_mut(&id("dict")).unwrap();
-
-                    let Value::Dict(dict) = dict else {
-                        return Err(RuntimeError(format!(
-                            "assign() dict must be a dict, is a: {}",
-                            dict.ty()
-                        )));
-                    };
-
-                    println!("found dict, inserting now");
-
-                    dict.0.insert(key, value);
-
-                    Ok(Value::Nil)
-                }),
-            }],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("trim"),
-        Value::FnDef(FnDef {
-            name: Some(id("trim")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("text")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
-
-                    let Value::Str(text) = text else {
-                        return Err(RuntimeError(format!(
-                            "trim[#1] must be a string, is a: {}",
-                            text.ty()
-                        )));
-                    };
-
-                    // TODO // substr_from
-                    Ok(Value::Str(text.trim().to_string().into()))
-                }),
-            }],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("len"),
-        Value::FnDef(FnDef {
-            name: Some(id("len")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("data")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let data = runtime.scopes[scope].values.get(&id("data")).unwrap();
-
-                    let len = match data {
-                        Value::Str(text) => text.len(),
-                        Value::List(_, list) => list.len(),
-                        Value::Tuple(tuple) => tuple.len(),
-                        _ => {
-                            return Err(RuntimeError(format!("cannot get len of: {}", data.ty())));
-                        }
-                    };
-
-                    Ok(Value::Numeric(Numeric::Int(len as i64)))
-                }),
-            }],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("chars"),
-        Value::FnDef(FnDef {
-            name: Some(id("chars")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("text")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
-
-                    let Value::Str(text) = text else {
-                        return Err(RuntimeError(format!(
-                            "trim[#1] must be a string, is a: {}",
-                            text.ty()
-                        )));
-                    };
-
-                    Ok(Value::List(
-                        Type::Str,
-                        text.chars()
-                            .map(|c| Value::Str(c.to_string().into()))
-                            .collect(),
-                    ))
-                }),
-            }],
-        }),
-    );
-
-    runtime.scopes[0].values.insert(
-        id("int"),
-        Value::FnDef(FnDef {
-            name: Some(id("int")),
-            parent_scope: 0,
-            signatures: vec![FnSig {
-                params: vec![idpat("data")],
-                body: FnBody::Builtin(|runtime, scope| {
-                    let data = runtime.scopes[scope].values.get(&id("data")).unwrap();
-
-                    let result = data.auto_coerce_int()?;
-
-                    Ok(Value::Numeric(Numeric::Int(result)))
-                }),
-            }],
-        }),
-    );
 
     let (body_eval_result, ret) = runtime.execute_block(0, &doc.body)?;
     let result = match ret {
