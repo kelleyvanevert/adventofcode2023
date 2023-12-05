@@ -133,3 +133,14 @@ _Afterwards, I spend some time improving AL:_
   - `x + s.len + 1`
 
 - Added `+=` etc. assignments (just as syntactic sugar)
+
+## Day 5
+
+Fun :)
+
+Added:
+
+- spread assignment patterns
+- `<=`, `>=`
+- `min` built-in
+- `slice(list, i)` built-in signature
