@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Display};
+use std::{cmp::Ordering, collections::HashMap, fmt::Display};
 
 use arcstr::Substr;
 use either::Either;
@@ -39,6 +39,18 @@ impl AsRef<Regex> for AlRegex {
     }
 }
 
+impl PartialOrd for AlRegex {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(&other))
+    }
+}
+
+impl Ord for AlRegex {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.as_str().cmp(other.0.as_str())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Dict(pub HashMap<Value, Value>);
 
@@ -70,7 +82,7 @@ fn id(id: &str) -> Identifier {
     Identifier(id.into())
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Numeric {
     Int(i64),
     Double(f64),
@@ -86,6 +98,23 @@ impl std::hash::Hash for Numeric {
 }
 
 impl Eq for Numeric {}
+
+impl Ord for Numeric {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Numeric::Double(a), b) => a.total_cmp(&b.get_double()),
+            (a, Numeric::Double(b)) => a.get_double().total_cmp(b),
+
+            (Numeric::Int(a), Numeric::Int(b)) => a.cmp(b),
+        }
+    }
+}
+
+impl PartialOrd for Numeric {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 impl Numeric {
     pub fn negate(&self) -> Result<Numeric, RuntimeError> {
@@ -128,24 +157,6 @@ impl Numeric {
             (a, Numeric::Double(b)) => Numeric::Double(a.get_double() * b),
 
             (Numeric::Int(a), Numeric::Int(b)) => Numeric::Int(a * b),
-        }
-    }
-
-    pub fn min(&self, other: Numeric) -> Numeric {
-        match (self, other) {
-            (Numeric::Double(a), b) => Numeric::Double(a.min(b.get_double())),
-            (a, Numeric::Double(b)) => Numeric::Double(a.get_double().min(b)),
-
-            (Numeric::Int(a), Numeric::Int(b)) => Numeric::Int(*a.min(&b)),
-        }
-    }
-
-    pub fn max(&self, other: Numeric) -> Numeric {
-        match (self, other) {
-            (Numeric::Double(a), b) => Numeric::Double(a.max(b.get_double())),
-            (a, Numeric::Double(b)) => Numeric::Double(a.get_double().max(b)),
-
-            (Numeric::Int(a), Numeric::Int(b)) => Numeric::Int(*a.max(&b)),
         }
     }
 
@@ -228,6 +239,29 @@ pub enum Value {
     List(Type, Vec<Value>),
     Tuple(Vec<Value>),
     Dict(Dict),
+}
+
+impl Ord for Value {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.partial_cmp(other) {
+            Some(ord) => ord,
+            None => panic!("cannot compare {} with {}", self.ty(), other.ty()),
+        }
+    }
+}
+
+impl PartialOrd for Value {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (self, other) {
+            (Value::Nil, Value::Nil) => Some(Ordering::Equal),
+            (Value::Bool(a), Value::Bool(b)) => Some(a.cmp(b)),
+            (Value::Str(a), Value::Str(b)) => Some(a.cmp(b)),
+            (Value::Numeric(a), Value::Numeric(b)) => Some(a.cmp(b)),
+            (Value::Regex(a), Value::Regex(b)) => Some(a.cmp(b)),
+
+            _ => None,
+        }
+    }
 }
 
 impl Display for Value {
@@ -340,68 +374,6 @@ impl Value {
                 b.ty()
             ))),
         }
-    }
-
-    pub fn min(&self, other: &Value) -> Result<Value, RuntimeError> {
-        match (self, other) {
-            (Value::Numeric(a), Value::Nil) => Ok(Value::Numeric(a.clone())),
-            (Value::Nil, Value::Numeric(b)) => Ok(Value::Numeric(b.clone())),
-            (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.min(b.clone()))),
-            (a, b) => Err(RuntimeError(format!(
-                "can't perform {} min {}",
-                a.ty(),
-                b.ty()
-            ))),
-        }
-    }
-
-    pub fn max(&self, other: &Value) -> Result<Value, RuntimeError> {
-        match (self, other) {
-            (Value::Numeric(a), Value::Nil) => Ok(Value::Numeric(a.clone())),
-            (Value::Nil, Value::Numeric(b)) => Ok(Value::Numeric(b.clone())),
-            (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.max(b.clone()))),
-            (a, b) => Err(RuntimeError(format!(
-                "can't perform {} max {}",
-                a.ty(),
-                b.ty()
-            ))),
-        }
-    }
-
-    pub fn lt(&self, other: &Value) -> Result<bool, RuntimeError> {
-        match (self, other) {
-            (Value::Str(a), Value::Str(b)) => Ok(a.len() < b.len()),
-            (Value::Numeric(a), Value::Numeric(b)) => Ok(a.get_double() < b.get_double()),
-            (a, b) => Err(RuntimeError(format!(
-                "can't perform {} + {}",
-                a.ty(),
-                b.ty()
-            ))),
-        }
-    }
-
-    pub fn gt(&self, other: &Value) -> Result<bool, RuntimeError> {
-        other.lt(self)
-    }
-
-    pub fn eq(&self, other: &Value) -> Result<bool, RuntimeError> {
-        match (self, other) {
-            (Value::Str(a), Value::Str(b)) => Ok(a == b),
-            (Value::Numeric(a), Value::Numeric(b)) => Ok(a.get_double() == b.get_double()),
-            (a, b) => Err(RuntimeError(format!(
-                "can't perform {} + {}",
-                a.ty(),
-                b.ty()
-            ))),
-        }
-    }
-
-    pub fn gte(&self, other: &Value) -> Result<bool, RuntimeError> {
-        Ok(self.gt(&other)? || self.eq(other)?)
-    }
-
-    pub fn lte(&self, other: &Value) -> Result<bool, RuntimeError> {
-        Ok(self.lt(&other)? || self.eq(other)?)
     }
 
     // TODO
@@ -845,7 +817,13 @@ impl Runtime {
             .collect::<Vec<_>>();
 
         let FnSig { params, body } = if matching_signatures.len() == 0 {
-            return Err(RuntimeError(format!("could not find matching signature")));
+            return Err(RuntimeError(format!(
+                "could not find matching signature for {}({:?})",
+                name.map(|n| n.0).unwrap_or("<anonymous>".into()),
+                args.iter()
+                    .map(|arg| format!("{}", arg.1.ty()))
+                    .collect::<Vec<_>>()
+            )));
         } else if matching_signatures.len() == 1 {
             matching_signatures.swap_remove(0)
         } else {
@@ -1025,35 +1003,56 @@ impl Runtime {
                         if let Some(return_value) = ret {
                             return Ok((Value::Nil, Some(return_value)));
                         }
-                        Ok((Value::Bool(left_value.lt(&right_value)?), None))
+                        match left_value.partial_cmp(&right_value) {
+                            None => Err(RuntimeError(format!("cannot compare"))),
+                            Some(ord) => Ok((Value::Bool(ord == Ordering::Less), None)),
+                        }
                     }
                     ">" => {
                         let (right_value, ret) = self.evaluate(scope, right)?;
                         if let Some(return_value) = ret {
                             return Ok((Value::Nil, Some(return_value)));
                         }
-                        Ok((Value::Bool(left_value.gt(&right_value)?), None))
+                        match left_value.partial_cmp(&right_value) {
+                            None => Err(RuntimeError(format!("cannot compare"))),
+                            Some(ord) => Ok((Value::Bool(ord == Ordering::Greater), None)),
+                        }
                     }
                     "==" => {
                         let (right_value, ret) = self.evaluate(scope, right)?;
                         if let Some(return_value) = ret {
                             return Ok((Value::Nil, Some(return_value)));
                         }
-                        Ok((Value::Bool(left_value.eq(&right_value)?), None))
+                        match left_value.partial_cmp(&right_value) {
+                            None => Err(RuntimeError(format!("cannot compare"))),
+                            Some(ord) => Ok((Value::Bool(ord == Ordering::Equal), None)),
+                        }
                     }
                     ">=" => {
                         let (right_value, ret) = self.evaluate(scope, right)?;
                         if let Some(return_value) = ret {
                             return Ok((Value::Nil, Some(return_value)));
                         }
-                        Ok((Value::Bool(left_value.gte(&right_value)?), None))
+                        match left_value.partial_cmp(&right_value) {
+                            None => Err(RuntimeError(format!("cannot compare"))),
+                            Some(ord) => Ok((
+                                Value::Bool(ord == Ordering::Equal || ord == Ordering::Greater),
+                                None,
+                            )),
+                        }
                     }
                     "<=" => {
                         let (right_value, ret) = self.evaluate(scope, right)?;
                         if let Some(return_value) = ret {
                             return Ok((Value::Nil, Some(return_value)));
                         }
-                        Ok((Value::Bool(left_value.gte(&right_value)?), None))
+                        match left_value.partial_cmp(&right_value) {
+                            None => Err(RuntimeError(format!("cannot compare"))),
+                            Some(ord) => Ok((
+                                Value::Bool(ord == Ordering::Equal || ord == Ordering::Less),
+                                None,
+                            )),
+                        }
                     }
                     "&&" => {
                         if !left_value.truthy()? {
@@ -1378,6 +1377,40 @@ mod tests {
                 "".into()
             ),
             Ok(int(42))
+        );
+    }
+
+    #[test]
+    fn test_sorting() {
+        assert_eq!(
+            execute(
+                &parse_document("[1, 9, 3, 2, 7] :sort_by_key |n| { n }").unwrap(),
+                "".into()
+            ),
+            Ok(list(
+                Type::Numeric,
+                vec![int(1), int(2), int(3), int(7), int(9)]
+            ))
+        );
+
+        assert_eq!(
+            execute(
+                &parse_document(
+                    "[(nil, 1), (nil, 9), (nil, 3), (nil, 2), (nil, 7)] :sort_by_key |n| { n[1] }"
+                )
+                .unwrap(),
+                "".into()
+            ),
+            Ok(list(
+                Type::Tuple,
+                vec![
+                    tuple(vec![Value::Nil, int(1)]),
+                    tuple(vec![Value::Nil, int(2)]),
+                    tuple(vec![Value::Nil, int(3)]),
+                    tuple(vec![Value::Nil, int(7)]),
+                    tuple(vec![Value::Nil, int(9)])
+                ]
+            ))
         );
     }
 

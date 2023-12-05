@@ -36,12 +36,12 @@ humidity-to-location map:
 ";
 
 fn construct_mapper(input: str) {
-  let ranges = input :trim :lines :slice(1) :map |line| {
+  let rules = input :trim :lines :slice(1) :map |line| {
     line :split " " :map int
   }
 
   |n: int| {
-    for let [dest, source, num] in ranges {
+    for let [dest, source, num] in rules {
       if n >= source && n < source + num {
         return dest + (n - source)
       }
@@ -65,23 +65,54 @@ fn solve(input: str) {
     :min
 }
 
+fn construct_smart_mapper(input: str) {
+  let rules = input :trim :lines :slice(1)
+    :map |line| {
+      line :split " " :map int
+    }
+    :sort_by_key |rule| {
+      rule[1]
+    }
+
+  // hmm
+  return |n: int| {
+    for let [dest, source, num] in rules {
+      if n < source {
+        return (n, source - n)
+      }
+      if n >= source && n < source + num {
+        return (dest + (n - source), source + num - n)
+      }
+    }
+
+    return (n, 999999999)
+  }
+}
+
 fn bonus(input: str) {
   let [seeds, ..rest] = input :trim :split "\n\n"
   let seeds = seeds :replace ("seeds: ", "") :split " " :map int
-  let mappers = rest :map construct_mapper
+  let mappers = rest :map construct_smart_mapper
 
-  seeds
-    :chunks 2
-    :flat_map |[start, num]| {
-      range(start, start + num)
-    }
-    :map |seed| {
+  let loc = nil
+
+  for let [seed, num] in seeds :chunks 2 {
+    let end = seed + num
+    while seed < end {
+      let n = seed
+      let skip = nil
       for let m in mappers {
-        seed = m(seed)
+        let t = m(n)
+        n = t[0]
+        skip = t[1] :min skip
       }
-      seed
+
+      loc = loc :min n
+      seed += skip
     }
-    :min
+  }
+
+  loc
 }
 
 print("Example solution: {solve(example_input)}")
@@ -91,4 +122,5 @@ print("Solution: {solve(stdin)}")
 
 print("Example bonus: {bonus(example_input)}")
 
+// ±30ms
 print("Bonus: {bonus(stdin)}")

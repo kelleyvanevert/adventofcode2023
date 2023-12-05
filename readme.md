@@ -138,9 +138,16 @@ _Afterwards, I spend some time improving AL:_
 
 Fun :)
 
+The bonus part in particular, was a very fun little algorithmic puzzle. Last year I already noticed how in particular, Advent of Code's bonus challenges are often these delightful generalizations or subtle enhancements, and today was one like those!
+
 Added:
 
 - spread assignment patterns
 - `<=`, `>=`
 - `min` built-in
 - `slice(list, i)` built-in signature
+
+..and for the bonus part, I also needed:
+
+- `sort_by_key`
+  - for which I needed to implement `PartialOrd` for `Value`, ...and also `Ord`, although it's actually not supported though. So.. that's a bit messy, let's see how this goes..

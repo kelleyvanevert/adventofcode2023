@@ -54,24 +54,32 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                     match items {
                         Value::List(_, list) => {
-                            let mut result = Value::Nil;
-                            for item in list.iter() {
-                                result = result.min(item)?;
+                            if list.len() == 0 {
+                                return Ok(Value::Nil);
                             }
 
-                            Ok(result)
+                            match list.iter().min().cloned() {
+                                Some(result) => Ok(result),
+                                None => Err(RuntimeError(
+                                    "error getting min: could not compare all elements".into(),
+                                )),
+                            }
                         }
                         _ => Err(RuntimeError(format!("cannot get min of: {}", items.ty()))),
                     }
                 }),
             },
             FnSig {
-                params: vec![idpat_ty("a", Type::Numeric), idpat_ty("b", Type::Numeric)],
+                params: vec![idpat_ty("a", Type::Any), idpat_ty("b", Type::Any)],
                 body: FnBody::Builtin(|runtime, scope| {
                     let a = runtime.scopes[scope].values.get(&id("a")).unwrap();
                     let b = runtime.scopes[scope].values.get(&id("b")).unwrap();
 
-                    Ok(a.min(b)?)
+                    match (a, b) {
+                        (&Value::Nil, b) => Ok(b.clone()),
+                        (a, &Value::Nil) => Ok(a.clone()),
+                        _ => Ok(a.min(b).clone()),
+                    }
                 }),
             },
         ],
@@ -87,24 +95,32 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                     match items {
                         Value::List(_, list) => {
-                            let mut result = Value::Nil;
-                            for item in list.iter() {
-                                result = result.max(item)?;
+                            if list.len() == 0 {
+                                return Ok(Value::Nil);
                             }
 
-                            Ok(result)
+                            match list.iter().max().cloned() {
+                                Some(result) => Ok(result),
+                                None => Err(RuntimeError(
+                                    "error getting max: could not compare all elements".into(),
+                                )),
+                            }
                         }
                         _ => Err(RuntimeError(format!("cannot get max of: {}", items.ty()))),
                     }
                 }),
             },
             FnSig {
-                params: vec![idpat_ty("a", Type::Numeric), idpat_ty("b", Type::Numeric)],
+                params: vec![idpat_ty("a", Type::Any), idpat_ty("b", Type::Any)],
                 body: FnBody::Builtin(|runtime, scope| {
                     let a = runtime.scopes[scope].values.get(&id("a")).unwrap();
                     let b = runtime.scopes[scope].values.get(&id("b")).unwrap();
 
-                    Ok(a.max(b)?)
+                    match (a, b) {
+                        (&Value::Nil, b) => Ok(b.clone()),
+                        (a, &Value::Nil) => Ok(a.clone()),
+                        _ => Ok(a.max(b).clone()),
+                    }
                 }),
             },
         ],
@@ -149,6 +165,51 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                         .map(|chunk| Value::List(t.clone(), chunk.to_vec()))
                         .collect::<Vec<_>>(),
                 ))
+            }),
+        }],
+    );
+
+    // holy fuck so many clones..
+    // :|
+    // I can do better!
+    runtime.builtin(
+        "sort_by_key",
+        [FnSig {
+            params: vec![idpat("items"), idpat("cb")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
+
+                let Value::List(t, list) = items.clone() else {
+                    return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                };
+
+                let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
+
+                let Value::FnDef(def) = cb else {
+                    return Err(RuntimeError(format!(
+                        "sort_by_key() cb must be a fn, is a: {}",
+                        cb.ty()
+                    )));
+                };
+
+                let def = def.clone();
+
+                let mut sorting_keys = Vec::with_capacity(list.len());
+
+                for (i, item) in list.clone().into_iter().enumerate() {
+                    let key = runtime.invoke(def.clone(), vec![(None, item)])?;
+                    sorting_keys.push((i, key));
+                }
+
+                sorting_keys.sort_by_cached_key(|t| t.1.clone());
+
+                let mut result = vec![Value::Nil; list.len()];
+
+                for (dest, (source, _)) in sorting_keys.iter().enumerate() {
+                    result[dest] = list[*source].clone();
+                }
+
+                Ok(Value::List(t.clone(), result))
             }),
         }],
     );
