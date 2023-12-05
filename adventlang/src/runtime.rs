@@ -1986,8 +1986,7 @@ fn construct_smart_mapper(input: str) {
       rule[1]
     }
 
-  // hmm
-  return |n: int| {
+  |n: int| {
     for let [dest, source, num] in rules {
       if n < source {
         return (n, source - n)

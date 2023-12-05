@@ -487,7 +487,7 @@ fn infix_or_postfix_fn_call_stack<'a>(constrained: bool) -> impl Parser<&'a str,
                         Op::Binary,
                     ),
                 )),
-                optional(preceded(ws0, invocation_args(constrained))),
+                optional(preceded(slws0, invocation_args(constrained))),
             ))),
         )),
         |(mut expr, ops)| {
@@ -1000,6 +1000,7 @@ pub fn parse_document(input: &str) -> Option<Document> {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use crate::{
         ast::Identifier,
@@ -1859,6 +1860,109 @@ View() {
             );
 
             assert!(a.is_some());
+        }
+    }
+
+    #[test]
+    fn trailing_anon_vs_separate_stmt_ambiguity() {
+        let doc_1 = parse_document(
+            r#"
+fn make_closure() {
+  let rules = input
+    :map |n| {
+      "hi im closure"
+    }
+
+  |n| {
+    "hi im closure"
+  }
+}
+        "#,
+        )
+        .expect("should parse");
+
+        match doc_1 {
+            Document {
+                body: Block { mut items, .. },
+            } => match items.pop().unwrap() {
+                Item::NamedFn {
+                    body: Block { stmts, .. },
+                    ..
+                } => {
+                    assert_eq!(stmts.len(), 2);
+                    assert!(matches!(&stmts[0], &Stmt::Declare { .. }));
+                    assert!(matches!(
+                        &stmts[1],
+                        &Stmt::Expr {
+                            expr: box Expr::AnonymousFn { .. }
+                        }
+                    ));
+                }
+            },
+        }
+
+        let doc_2 = parse_document(
+            r#"
+fn make_closure() {
+  let rules = input
+    :map |n| {
+      "hi im closure"
+    } |n| {
+      "hi im closure"
+    }
+}
+        "#,
+        )
+        .expect("should parse");
+
+        match doc_2 {
+            Document {
+                body: Block { mut items, .. },
+            } => match items.pop().unwrap() {
+                Item::NamedFn {
+                    body: Block { stmts, .. },
+                    ..
+                } => {
+                    assert_eq!(stmts.len(), 1);
+                    assert_eq!(
+                        stmts,
+                        vec![Stmt::Declare {
+                            pattern: DeclarePattern::Id(id("rules"), None),
+                            expr: simple_invocation(
+                                "map",
+                                vec![
+                                    var("input"),
+                                    Expr::Invocation {
+                                        expr: Expr::AnonymousFn {
+                                            params: vec![DeclarePattern::Id(id("n"), None)],
+                                            body: Block {
+                                                items: vec![],
+                                                stmts: vec![Stmt::Expr {
+                                                    expr: str("hi im closure").into()
+                                                }]
+                                            }
+                                        }
+                                        .into(),
+                                        args: vec![Argument {
+                                            name: None,
+                                            expr: Expr::AnonymousFn {
+                                                params: vec![DeclarePattern::Id(id("n"), None)],
+                                                body: Block {
+                                                    items: vec![],
+                                                    stmts: vec![Stmt::Expr {
+                                                        expr: str("hi im closure").into()
+                                                    }]
+                                                }
+                                            }
+                                        }]
+                                    }
+                                ]
+                            )
+                            .into()
+                        }]
+                    );
+                }
+            },
         }
     }
 }
