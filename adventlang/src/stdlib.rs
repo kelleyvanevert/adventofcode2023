@@ -111,6 +111,49 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     );
 
     runtime.builtin(
+        "chunks",
+        [FnSig {
+            params: vec![
+                Pattern::Id("items".into(), Some(Type::List(Type::Any.into()))),
+                Pattern::Id("size".into(), Some(Type::Numeric)),
+            ],
+            body: FnBody::Builtin(|runtime, scope| {
+                let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
+
+                let Value::List(t, list) = items else {
+                    return Err(RuntimeError(format!(
+                        "cannot get chunks of: {}",
+                        items.ty()
+                    )));
+                };
+
+                let size = runtime.scopes[scope].values.get(&id("size")).unwrap();
+
+                let Value::Numeric(Numeric::Int(size)) = size else {
+                    return Err(RuntimeError(format!(
+                        "chunks() size must be int >= 1, is a: {}",
+                        size.ty()
+                    )));
+                };
+
+                if size < &1 {
+                    return Err(RuntimeError(format!(
+                        "chunks() size must be int >= 1, is: {}",
+                        size
+                    )));
+                }
+
+                Ok(Value::List(
+                    Type::List(t.clone().into()),
+                    list.chunks_exact(*size as usize)
+                        .map(|chunk| Value::List(t.clone(), chunk.to_vec()))
+                        .collect::<Vec<_>>(),
+                ))
+            }),
+        }],
+    );
+
+    runtime.builtin(
         "map",
         [FnSig {
             params: vec![idpat("items"), idpat("cb")],

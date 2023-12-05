@@ -65,7 +65,30 @@ fn solve(input: str) {
     :min
 }
 
+fn bonus(input: str) {
+  let [seeds, ..rest] = input :trim :split "\n\n"
+  let seeds = seeds :replace ("seeds: ", "") :split " " :map int
+  let mappers = rest :map construct_mapper
+
+  seeds
+    :chunks 2
+    :flat_map |[start, num]| {
+      range(start, start + num)
+    }
+    :map |seed| {
+      for let m in mappers {
+        seed = m(seed)
+      }
+      seed
+    }
+    :min
+}
+
 print("Example solution: {solve(example_input)}")
 
 // ±4ms
 print("Solution: {solve(stdin)}")
+
+print("Example bonus: {bonus(example_input)}")
+
+print("Bonus: {bonus(stdin)}")
