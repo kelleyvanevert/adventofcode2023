@@ -197,22 +197,32 @@ impl Display for Identifier {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
-pub enum Pattern {
+pub enum DeclarePattern {
     Id(Identifier, Option<Type>),
     List {
-        elements: Vec<Pattern>,
+        elements: Vec<DeclarePattern>,
         rest: Option<(Identifier, Option<Type>)>,
     },
     Tuple {
-        elements: Vec<Pattern>,
+        elements: Vec<DeclarePattern>,
         rest: Option<(Identifier, Option<Type>)>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum AssignLocation {
+pub enum AssignPattern {
     Id(Identifier),
-    Index(Box<AssignLocation>, Box<Expr>),
+    Index(Box<AssignPattern>, Box<Expr>),
+    List {
+        elements: Vec<AssignPattern>,
+        // TODO maybe also add rest spread
+        //   AFTER I also add rest spread to list literal exprs
+    },
+    Tuple {
+        elements: Vec<AssignPattern>,
+        // TODO maybe also add rest spread
+        //   AFTER I also add rest spread to tuple literal exprs
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -262,11 +272,11 @@ pub enum Expr {
         args: Vec<Argument>,
     },
     AnonymousFn {
-        params: Vec<Pattern>,
+        params: Vec<DeclarePattern>,
         body: Block,
     },
     If {
-        pattern: Option<Pattern>,
+        pattern: Option<DeclarePattern>,
         cond: Box<Expr>,
         then: Block,
         els: Option<Block>,
@@ -283,17 +293,17 @@ pub enum Expr {
         body: Block,
     },
     For {
-        pattern: Pattern,
+        pattern: DeclarePattern,
         range: Box<Expr>,
         body: Block,
     },
 }
 
-impl From<AssignLocation> for Expr {
-    fn from(location: AssignLocation) -> Self {
-        match location {
-            AssignLocation::Id(id) => Expr::Variable(id),
-            AssignLocation::Index(box location, box index_expr) => Expr::Invocation {
+impl From<AssignPattern> for Expr {
+    fn from(pattern: AssignPattern) -> Self {
+        match pattern {
+            AssignPattern::Id(id) => Expr::Variable(id),
+            AssignPattern::Index(box location, box index_expr) => Expr::Invocation {
                 expr: Expr::Variable(Identifier("index".into())).into(),
                 args: vec![
                     Argument {
@@ -306,6 +316,12 @@ impl From<AssignLocation> for Expr {
                     },
                 ],
             },
+            AssignPattern::List { elements } => Expr::ListLiteral {
+                elements: elements.into_iter().map(Expr::from).collect(),
+            },
+            AssignPattern::Tuple { elements } => Expr::TupleLiteral {
+                elements: elements.into_iter().map(Expr::from).collect(),
+            },
         }
     }
 }
@@ -314,7 +330,7 @@ impl From<AssignLocation> for Expr {
 pub enum Item {
     NamedFn {
         name: Identifier,
-        params: Vec<Pattern>,
+        params: Vec<DeclarePattern>,
         body: Block,
     },
 }
@@ -325,11 +341,11 @@ pub enum Stmt {
         expr: Box<Expr>,
     },
     Declare {
-        pattern: Pattern,
+        pattern: DeclarePattern,
         expr: Box<Expr>,
     },
     Assign {
-        location: AssignLocation,
+        pattern: AssignPattern,
         expr: Box<Expr>,
     },
     Expr {

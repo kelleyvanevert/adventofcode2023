@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Identifier, Pattern, Type},
+    ast::{DeclarePattern, Identifier, Type},
     runtime::{FnBody, FnSig, Numeric, Runtime, RuntimeError, Value},
 };
 
@@ -7,12 +7,12 @@ fn id(id: &str) -> Identifier {
     Identifier(id.into())
 }
 
-fn idpat(id: &str) -> Pattern {
-    Pattern::Id(Identifier(id.into()), None)
+fn idpat(id: &str) -> DeclarePattern {
+    DeclarePattern::Id(Identifier(id.into()), None)
 }
 
-fn idpat_ty(id: &str, ty: Type) -> Pattern {
-    Pattern::Id(Identifier(id.into()), Some(ty))
+fn idpat_ty(id: &str, ty: Type) -> DeclarePattern {
+    DeclarePattern::Id(Identifier(id.into()), Some(ty))
 }
 
 pub fn implement_stdlib(runtime: &mut Runtime) {
@@ -130,8 +130,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         "chunks",
         [FnSig {
             params: vec![
-                Pattern::Id("items".into(), Some(Type::List(Type::Any.into()))),
-                Pattern::Id("size".into(), Some(Type::Numeric)),
+                DeclarePattern::Id("items".into(), Some(Type::List(Type::Any.into()))),
+                DeclarePattern::Id("size".into(), Some(Type::Numeric)),
             ],
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
@@ -790,8 +790,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         [
             FnSig {
                 params: vec![
-                    Pattern::Id(id("list"), Some(Type::List(Type::Any.into()))),
-                    Pattern::Id(id("i"), Some(Type::Numeric)),
+                    DeclarePattern::Id(id("list"), Some(Type::List(Type::Any.into()))),
+                    DeclarePattern::Id(id("i"), Some(Type::Numeric)),
                 ],
                 body: FnBody::Builtin(|runtime, scope| {
                     let list = runtime.scopes[scope].values.get(&id("list")).unwrap();
@@ -826,8 +826,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
             },
             FnSig {
                 params: vec![
-                    Pattern::Id(id("text"), Some(Type::Str)),
-                    Pattern::Id(id("i"), Some(Type::Numeric)),
+                    DeclarePattern::Id(id("text"), Some(Type::Str)),
+                    DeclarePattern::Id(id("i"), Some(Type::Numeric)),
                 ],
                 body: FnBody::Builtin(|runtime, scope| {
                     let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
@@ -859,8 +859,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
             },
             FnSig {
                 params: vec![
-                    Pattern::Id(id("text"), Some(Type::Str)),
-                    Pattern::Id(id("range"), Some(Type::Tuple)),
+                    DeclarePattern::Id(id("text"), Some(Type::Str)),
+                    DeclarePattern::Id(id("range"), Some(Type::Tuple)),
                 ],
                 body: FnBody::Builtin(|runtime, scope| {
                     let text = runtime.scopes[scope].values.get(&id("text")).unwrap();

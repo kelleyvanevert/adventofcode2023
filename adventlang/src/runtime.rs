@@ -7,8 +7,8 @@ use try_map::FallibleMapExt;
 
 use crate::{
     ast::{
-        AssignLocation, Block, Document, Expr, Identifier, Item, Pattern, Stmt, StrLiteralPiece,
-        Type,
+        AssignPattern, Block, DeclarePattern, Document, Expr, Identifier, Item, Stmt,
+        StrLiteralPiece, Type,
     },
     stdlib::implement_stdlib,
 };
@@ -205,7 +205,7 @@ impl std::hash::Hash for FnDef {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FnSig {
-    pub params: Vec<Pattern>,
+    pub params: Vec<DeclarePattern>,
     pub body: FnBody,
 }
 
@@ -457,10 +457,18 @@ impl Value {
 
 // Not the most beautiful situation, but .. oh well
 // This type is to `AssignLocation` what `Value` is to `Expr` -- the runtime-internal evaluated version, say
-pub struct Assignable {
-    pub scope: usize,
-    pub id: Identifier,
-    pub indexes: Vec<Value>,
+pub enum Assignable {
+    Loc {
+        scope: usize,
+        id: Identifier,
+        indexes: Vec<Value>,
+    },
+    List {
+        elements: Vec<Assignable>,
+    },
+    Tuple {
+        elements: Vec<Assignable>,
+    },
 }
 
 #[derive(Debug, PartialEq)]
@@ -508,9 +516,18 @@ impl Runtime {
         }
 
         if let Some(parent_scope_id) = scope.parent_scope {
-            self.lookup(parent_scope_id, id)
+            match self.lookup(parent_scope_id, id) {
+                Ok(res) => Ok(res),
+                Err(_) => Err(RuntimeError(format!(
+                    "variable `{id}` does not exist in scope tree: {}",
+                    self.debug_scope(scope_id)
+                ))),
+            }
         } else {
-            Err(RuntimeError(format!("variable does not exist: {id}")))
+            Err(RuntimeError(format!(
+                "variable `{id}` does not exist in scope tree: {}",
+                self.debug_scope(scope_id)
+            )))
         }
     }
 
@@ -559,124 +576,152 @@ impl Runtime {
     pub fn assign(
         &mut self,
         scope: usize,
-        location: &AssignLocation,
+        assignable: Assignable,
         value: Value,
     ) -> Result<Option<Value>, RuntimeError> {
-        let mut assignable = match self.evaluate_assign_location(scope, &location)? {
-            Either::Left(a) => a,
-            Either::Right(return_value) => {
-                return Ok(Some(return_value));
+        match assignable {
+            Assignable::Loc { scope, id, indexes } => {
+                if indexes.len() == 0 {
+                    self.scopes[scope].values.insert(id.clone(), value.clone());
+                    return Ok(None);
+                }
+
+                let mut location_value = self.scopes[scope]
+                    .values
+                    .get_mut(&id)
+                    .expect("assignable location id get failed");
+
+                for index_value in indexes {
+                    match location_value {
+                        Value::List(t, list) => {
+                            let Ok(i) = index_value.auto_coerce_int() else {
+                                return Err(RuntimeError(format!(
+                                    "list index must be int, is: {}",
+                                    index_value.ty(),
+                                )));
+                            };
+
+                            if i < 0 {
+                                return Err(RuntimeError(format!(
+                                    "list index must be positive int, is: {}",
+                                    i,
+                                )));
+                            }
+
+                            let i = i as usize;
+
+                            if !(*t >= value.ty()) {
+                                return Err(RuntimeError(format!(
+                                    "cannot insert value of type {} into list of type {}",
+                                    value.ty(),
+                                    Type::List(t.clone().into())
+                                )));
+                            }
+
+                            if list.len() < i + 1 {
+                                list.resize(i + 1, Value::Nil);
+                            }
+
+                            location_value = &mut list[i]
+                        }
+                        Value::Tuple(list) => {
+                            let Ok(i) = index_value.auto_coerce_int() else {
+                                return Err(RuntimeError(format!(
+                                    "tuple index must be int, is: {}",
+                                    index_value.ty(),
+                                )));
+                            };
+
+                            if i < 0 {
+                                return Err(RuntimeError(format!(
+                                    "tuple index must be positive int, is: {}",
+                                    i,
+                                )));
+                            }
+
+                            let i = i as usize;
+
+                            if list.len() < i + 1 {
+                                list.resize(i + 1, Value::Nil);
+                            }
+
+                            location_value = &mut list[i]
+                        }
+                        Value::Dict(dict) => {
+                            location_value = dict.0.entry(index_value).or_insert(Value::Nil);
+                        }
+                        _ => {
+                            return Err(RuntimeError(format!(
+                                "cannot assign into value of type: {}",
+                                value.ty()
+                            )))
+                        }
+                    }
+                }
+
+                // and then, finally:
+                *location_value = value;
+
+                Ok(None)
             }
-        };
-
-        let Assignable { scope, id, indexes } = assignable;
-
-        if indexes.len() == 0 {
-            self.scopes[scope].values.insert(id.clone(), value.clone());
-            return Ok(None);
-        }
-
-        let mut location_value = self.scopes[scope]
-            .values
-            .get_mut(&id)
-            .expect("assignable location id get failed");
-
-        for index_value in indexes {
-            match location_value {
-                Value::List(t, list) => {
-                    let Ok(i) = index_value.auto_coerce_int() else {
-                        return Err(RuntimeError(format!(
-                            "list index must be int, is: {}",
-                            index_value.ty(),
-                        )));
-                    };
-
-                    if i < 0 {
-                        return Err(RuntimeError(format!(
-                            "list index must be positive int, is: {}",
-                            i,
-                        )));
-                    }
-
-                    let i = i as usize;
-
-                    if !(*t >= value.ty()) {
-                        return Err(RuntimeError(format!(
-                            "cannot insert value of type {} into list of type {}",
-                            value.ty(),
-                            Type::List(t.clone().into())
-                        )));
-                    }
-
-                    if list.len() < i + 1 {
-                        list.resize(i + 1, Value::Nil);
-                    }
-
-                    location_value = &mut list[i]
-                }
-                Value::Tuple(list) => {
-                    let Ok(i) = index_value.auto_coerce_int() else {
-                        return Err(RuntimeError(format!(
-                            "tuple index must be int, is: {}",
-                            index_value.ty(),
-                        )));
-                    };
-
-                    if i < 0 {
-                        return Err(RuntimeError(format!(
-                            "tuple index must be positive int, is: {}",
-                            i,
-                        )));
-                    }
-
-                    let i = i as usize;
-
-                    if list.len() < i + 1 {
-                        list.resize(i + 1, Value::Nil);
-                    }
-
-                    location_value = &mut list[i]
-                }
-                Value::Dict(dict) => {
-                    location_value = dict.0.entry(index_value).or_insert(Value::Nil);
-                }
-                _ => {
+            Assignable::List { elements } => {
+                let Value::List(_, items) = value else {
                     return Err(RuntimeError(format!(
-                        "cannot assign into value of type: {}",
+                        "cannot assign into list pattern: {}",
                         value.ty()
-                    )))
+                    )));
+                };
+
+                for (pattern, value) in elements
+                    .into_iter()
+                    .zip(items.into_iter().chain(std::iter::repeat(Value::Nil)))
+                {
+                    self.assign(scope, pattern, value)?;
                 }
+
+                Ok(None)
+            }
+            Assignable::Tuple { elements } => {
+                let Value::Tuple(items) = value else {
+                    return Err(RuntimeError(format!(
+                        "cannot assign into tuple pattern: {}",
+                        value.ty()
+                    )));
+                };
+
+                for (pattern, value) in elements
+                    .into_iter()
+                    .zip(items.into_iter().chain(std::iter::repeat(Value::Nil)))
+                {
+                    self.assign(scope, pattern, value)?;
+                }
+
+                Ok(None)
             }
         }
-
-        // and then, finally:
-        *location_value = value;
-
-        Ok(None)
     }
 
     pub fn declare(
         &mut self,
         scope: usize,
-        pattern: &Pattern,
+        pattern: &DeclarePattern,
         value: Value,
     ) -> Result<(), RuntimeError> {
         match pattern {
-            Pattern::Id(id, _) => {
+            DeclarePattern::Id(id, _) => {
                 self.scopes[scope].values.insert(id.clone(), value);
             }
-            Pattern::List { elements, rest } => {
-                let Value::List(t, mut items) = value else {
+            DeclarePattern::List { elements, rest } => {
+                let Value::List(item_type, mut items) = value else {
                     return Err(RuntimeError(format!(
                         "cannot assign to list pattern: {}",
                         value.ty()
                     )));
                 };
 
-                let assign_rest_later = rest.clone().try_map(|(id, t)| {
-                    self.declare(scope, &Pattern::Id(id.clone(), t), Value::Nil)?;
-                    Ok((id.clone(), items.split_off(elements.len())))
-                })?;
+                let assign_rest_later = rest
+                    .clone()
+                    .try_map(|(id, t)| Ok((id, t, items.split_off(elements.len()))))?;
 
                 for (pattern, value) in elements
                     .into_iter()
@@ -685,11 +730,15 @@ impl Runtime {
                     self.declare(scope, pattern, value)?;
                 }
 
-                if let Some((id, items)) = assign_rest_later {
-                    self.assign(scope, &AssignLocation::Id(id), Value::List(t, items))?;
+                if let Some((id, t, items)) = assign_rest_later {
+                    self.declare(
+                        scope,
+                        &DeclarePattern::Id(id, t),
+                        Value::List(item_type, items),
+                    )?;
                 }
             }
-            Pattern::Tuple { elements, rest } => {
+            DeclarePattern::Tuple { elements, rest } => {
                 let Value::Tuple(mut items) = value else {
                     return Err(RuntimeError(format!(
                         "cannot assign to tiple pattern: {}",
@@ -697,10 +746,9 @@ impl Runtime {
                     )));
                 };
 
-                let assign_rest_later = rest.clone().try_map(|(id, t)| {
-                    self.declare(scope, &Pattern::Id(id.clone(), t), Value::Nil)?;
-                    Ok((id.clone(), items.split_off(elements.len())))
-                })?;
+                let assign_rest_later = rest
+                    .clone()
+                    .try_map(|(id, t)| Ok((id, t, items.split_off(elements.len()))))?;
 
                 for (pattern, value) in elements
                     .into_iter()
@@ -709,8 +757,8 @@ impl Runtime {
                     self.declare(scope, pattern, value)?;
                 }
 
-                if let Some((id, items)) = assign_rest_later {
-                    self.assign(scope, &AssignLocation::Id(id), Value::Tuple(items))?;
+                if let Some((id, t, items)) = assign_rest_later {
+                    self.declare(scope, &DeclarePattern::Id(id, t), Value::Tuple(items))?;
                 }
             }
         }
@@ -743,13 +791,20 @@ impl Runtime {
 
                 Ok((Value::Nil, None))
             }
-            Stmt::Assign { location, expr } => {
+            Stmt::Assign { pattern, expr } => {
                 let (value, ret) = self.evaluate(scope, expr)?;
                 if let Some(return_value) = ret {
                     return Ok((Value::Nil, Some(return_value)));
                 }
 
-                let ret = self.assign(scope, location, value)?;
+                let assignable = match self.evaluate_assignable(scope, &pattern)? {
+                    Either::Left(a) => a,
+                    Either::Right(return_value) => {
+                        return Ok((Value::Nil, Some(return_value)));
+                    }
+                };
+
+                let ret = self.assign(scope, assignable, value)?;
                 if let Some(return_value) = ret {
                     return Ok((Value::Nil, Some(return_value)));
                 }
@@ -774,19 +829,19 @@ impl Runtime {
                 //     println!("fits? pattern {:?} value {:?}", pat, value);
                 // }
                 match pat {
-                    Pattern::List { .. } => {
+                    DeclarePattern::List { .. } => {
                         if !(Type::List(Type::Any.into()) >= value.ty()) {
                             // println!("does not match sig: list");
                             return false;
                         }
                     }
-                    Pattern::Tuple { .. } => {
+                    DeclarePattern::Tuple { .. } => {
                         if !(Type::Tuple >= value.ty()) {
                             // println!("does not match sig: tuple");
                             return false;
                         }
                     }
-                    Pattern::Id(_, Some(t)) => {
+                    DeclarePattern::Id(_, Some(t)) => {
                         if !(*t >= value.ty()) {
                             // println!("does not match sig: type");
                             return false;
@@ -844,7 +899,7 @@ impl Runtime {
             if let Some(name) = arg_name {
                 // assign named param
                 match params_remaining.iter().position(|p| match p {
-                    Pattern::Id(n, _) => n == &name,
+                    DeclarePattern::Id(n, _) => n == &name,
                     _ => false,
                 }) {
                     Some(i) => {
@@ -884,37 +939,94 @@ impl Runtime {
         })
     }
 
-    pub fn evaluate_assign_location(
+    pub fn evaluate_assignable(
         &mut self,
-        scope: usize,
-        location: &AssignLocation,
+        eval_scope: usize,
+        pattern: &AssignPattern,
     ) -> Result<Either<Assignable, Value>, RuntimeError> {
-        match location {
-            AssignLocation::Id(id) => {
-                let (def_scope, _) = self.lookup(scope, id)?;
-                Ok(Either::Left(Assignable {
+        match pattern {
+            AssignPattern::Id(id) => {
+                let (def_scope, _) = self.lookup(eval_scope, id)?;
+                Ok(Either::Left(Assignable::Loc {
                     scope: def_scope,
                     id: id.clone(),
                     indexes: vec![],
                 }))
             }
-            AssignLocation::Index(location, index_expr) => {
-                let mut assignable = match self.evaluate_assign_location(scope, &location)? {
-                    Either::Left(a) => a,
-                    Either::Right(return_value) => {
-                        return Ok(Either::Right(return_value));
+            AssignPattern::Index(pattern, index_expr) => {
+                match self.evaluate_assignable(eval_scope, &pattern)? {
+                    Either::Right(return_value) => Ok(Either::Right(return_value)),
+                    Either::Left(Assignable::Loc {
+                        scope,
+                        id,
+                        mut indexes,
+                    }) => {
+                        let (result, ret) = self.evaluate(eval_scope, index_expr)?;
+                        if let Some(return_value) = ret {
+                            return Ok(Either::Right(return_value));
+                        }
+
+                        indexes.push(result);
+
+                        Ok(Either::Left(Assignable::Loc { scope, id, indexes }))
                     }
-                };
-
-                let (result, ret) = self.evaluate(scope, index_expr)?;
-                if let Some(return_value) = ret {
-                    return Ok(Either::Right(return_value));
+                    _ => Err(RuntimeError(format!(
+                        "cannot index into list or tuple assignable pattern"
+                    ))),
                 }
-
-                assignable.indexes.push(result);
-
-                Ok(Either::Left(assignable))
             }
+            AssignPattern::List { elements } => {
+                let mut assignable_elements = Vec::with_capacity(elements.len());
+                for pattern in elements {
+                    match self.evaluate_assignable(eval_scope, pattern)? {
+                        Either::Right(return_value) => {
+                            return Ok(Either::Right(return_value));
+                        }
+                        Either::Left(assignable) => {
+                            assignable_elements.push(assignable);
+                        }
+                    }
+                }
+                Ok(Either::Left(Assignable::List {
+                    elements: assignable_elements,
+                }))
+            }
+            AssignPattern::Tuple { elements } => {
+                let mut assignable_elements = Vec::with_capacity(elements.len());
+                for pattern in elements {
+                    match self.evaluate_assignable(eval_scope, pattern)? {
+                        Either::Right(return_value) => {
+                            return Ok(Either::Right(return_value));
+                        }
+                        Either::Left(assignable) => {
+                            assignable_elements.push(assignable);
+                        }
+                    }
+                }
+                Ok(Either::Left(Assignable::Tuple {
+                    elements: assignable_elements,
+                }))
+            }
+        }
+    }
+
+    fn debug_scope(&self, scope: usize) -> String {
+        if scope == 0 {
+            "RootScope".into()
+        } else {
+            format!(
+                "Scope({}){}",
+                self.scopes[scope]
+                    .values
+                    .keys()
+                    .map(|key| { key.0.to_string() })
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                match self.scopes[scope].parent_scope {
+                    None => "".into(),
+                    Some(parent_id) => format!(" <- {}", self.debug_scope(parent_id)),
+                }
+            )
         }
     }
 
@@ -1366,6 +1478,14 @@ mod tests {
         assert_eq!(
             execute(&parse_document("let [] = [2, 3, 4]").unwrap(), "".into()),
             Ok(Value::Nil)
+        );
+
+        assert_eq!(
+            execute(
+                &parse_document("let a = 4; let b = 5; [a, b] = [1, 2, 3, 4]; (a, b)").unwrap(),
+                "".into()
+            ),
+            Ok(tuple(vec![int(1), int(2)]))
         );
     }
 
