@@ -151,3 +151,35 @@ Added:
 
 - `sort_by_key`
   - for which I needed to implement `PartialOrd` for `Value`, ...and also `Ord`, although it's actually not supported though. So.. that's a bit messy, let's see how this goes..
+
+AL TODOs
+
+- Solve this syntax ambiguity:
+
+  ```
+  fn construct_smart_mapper(input: str) {
+    let rules = input.trim.lines.slice(1)
+      .map |line| {
+        line :split " " :map int
+      }
+      :sort_by_key |rule| {
+        rule[1]
+      }
+
+    // Here, the intended return closure is currently parsed as
+    //  a trailing anonymous function somehow
+    // (I just fixed it ad-hoc with an explicit `return` for now)
+    |n: int| {
+      for let [dest, source, num] in rules {
+        if n < source {
+          return (n, source - n)
+        }
+        if n >= source && n < source + num {
+          return (dest + (n - source), source + num - n)
+        }
+      }
+
+      return (n, 999999999)
+    }
+  }
+  ```
