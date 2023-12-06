@@ -19,7 +19,22 @@
     "commands": [
       {
         "command": "adventlang.helloWorld",
-        "title": "Hello World"
+        "title": "Adventlang says hi!"
+      }
+    ],
+    "languages": [
+      {
+        "id": "adventlang",
+        "extensions": [
+          ".al"
+        ]
+      }
+    ],
+    "grammars": [
+      {
+        "language": "adventlang",
+        "scopeName": "source.adventlang",
+        "path": "./syntaxes/adventlang.tmGrammar.json"
       }
     ]
   },
