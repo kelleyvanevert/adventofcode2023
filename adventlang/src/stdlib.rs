@@ -1286,4 +1286,26 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
             }),
         }],
     );
+
+    runtime.builtin(
+        "round",
+        [FnSig {
+            params: vec![DeclarePattern::Id("num".into(), Some(Type::Numeric))],
+            body: FnBody::Builtin(|runtime, scope| {
+                let num = runtime.scopes[scope].values.get(&id("num")).unwrap();
+
+                let Value::Numeric(num) = num else {
+                    return Err(RuntimeError(format!(
+                        "abs() num should be a num, is a: {}",
+                        num.ty()
+                    )));
+                };
+
+                match num {
+                    Numeric::Int(n) => Ok(Value::Numeric(Numeric::Int(*n))),
+                    Numeric::Double(d) => Ok(Value::Numeric(Numeric::Int(d.round() as i64))),
+                }
+            }),
+        }],
+    );
 }

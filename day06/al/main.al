@@ -24,7 +24,7 @@ fn race((t, d)) {
     let lo = (t - sqrt((t^2) - 4 * d)) / 2
     let hi = (t + sqrt((t^2) - 4 * d)) / 2
 
-    funky_floor(hi) - funky_ceil(lo) + 1
+    round(funky_floor(hi) - funky_ceil(lo) + 1)
 }
 
 fn solve(input: str) {
