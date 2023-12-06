@@ -7,6 +7,9 @@
     "statements": {
       "patterns": [
         {
+          "include": "#comment"
+        },
+        {
           "include": "#string"
         },
         {
@@ -27,16 +30,36 @@
       ]
     },
     "keyword": {
-      "name": "keyword.control.al",
-      "match": "\b(fn|let|if|else|do|while|for|loop)\b",
-      "captures": {
-        "0": {
-          "name": "keyword.control.al"
+      "name": "keyword.other.al",
+      "match": "\\b(fn|let|if|else|do|while|for|loop)\\b"
+    },
+    "comment": {
+      "patterns": [
+        {
+          "begin": "(^[ \\t]+)?(?=//)",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.whitespace.comment.leading.al"
+            }
+          },
+          "end": "(?=$)",
+          "patterns": [
+            {
+              "name": "comment.line.double-slash.al",
+              "begin": "//",
+              "beginCaptures": {
+                "0": {
+                  "name": "punctuation.definition.comment.al"
+                }
+              },
+              "end": "(?=$)"
+            }
+          ]
         }
-      }
+      ]
     },
     "expression": {
-      "name": "meta.expression.ts",
+      "name": "meta.expression.al",
       "patterns": [
         {
           "include": "#string"
