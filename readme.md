@@ -28,6 +28,16 @@ Anyhow, you could summarize it as follows:
   - Extending/improving the toy language to be capable to solving the day's challenge
   - Some other by-product or accompanying creative work
 
+## Adventlang
+
+<img src="./adventlang_vscode_ext/icon.png" align="left" width="200px"/>
+
+This year's challenges will (hopefully all) be completed in a new programming language _Adventlang_! This exciting new interpreted language has syntax that looks like Rust, but anonymous functions like in Kotlin, postfix/infix notation function calls to make it all look very succinct, and soon-to-be-implemented GC :)
+
+If you use VS Code, be sure to install the ✨[_official language features extension_](https://marketplace.visualstudio.com/items?itemName=hello-kelley.adventlang)✨. It currently just attempts to add some syntax highlighting, but I have high ambitions! Maybe I can get Rust code, compiled to WASM, to power a LSP? 🫣
+
+<br clear="left" />
+
 ## Day 1
 
 I extended the toy language to be able to solve today's challenge, by adding a bunch of built-in methods (`starts_with`, `slice`, `in`, `filter_map`, etc.), and adding tuples.
