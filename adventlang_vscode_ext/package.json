@@ -1,0 +1,36 @@
+{
+  "name": "adventlang",
+  "displayName": "Adventlang",
+  "author": {
+    "name": "Kelley van Evert",
+    "email": "hello@klve.nl"
+  },
+  "description": "Language features for Kelley's Adventlang :)",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.84.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "adventlang.helloWorld",
+        "title": "Hello World"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "yarn run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.84.0",
+    "@types/node": "18.x",
+    "typescript": "^5.3.2"
+  }
+}
