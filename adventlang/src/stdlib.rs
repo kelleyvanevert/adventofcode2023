@@ -881,22 +881,37 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                 let Value::Tuple(def) = def else {
                     return Err(RuntimeError(format!(
-                        "replace() def must be a string, is a: {}",
+                        "replace() def must be a tuple, is a: {}",
                         def.ty()
                     )));
                 };
 
-                let Some(Value::Str(find)) = def.get(0) else {
-                    return Err(RuntimeError(format!("replace() def[0] must be a string")));
-                };
+                if def.len() != 2 {
+                    return Err(RuntimeError(format!(
+                        "replace() def must be a tuple with two elements"
+                    )));
+                }
 
-                let Some(Value::Str(replace)) = def.get(1) else {
+                let replace = def.get(1).unwrap();
+
+                let Value::Str(replace) = replace else {
                     return Err(RuntimeError(format!("replace() def[1] must be a string")));
                 };
 
-                let result = text.replace(find.as_str(), replace).into();
+                let find = def.get(0).unwrap();
 
-                Ok(Value::Str(result))
+                match find {
+                    Value::Str(find) => Ok(Value::Str(text.replace(find.as_str(), replace).into())),
+                    Value::Regex(find) => Ok(Value::Str(
+                        find.0.replace_all(&text, replace.to_string()).into(),
+                    )),
+                    _ => {
+                        return Err(RuntimeError(format!(
+                            "replace() def[0] must be a string or regex, is a: {}",
+                            find.ty()
+                        )));
+                    }
+                }
             }),
         }],
     );

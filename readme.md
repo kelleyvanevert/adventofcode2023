@@ -186,12 +186,31 @@ AL TODOs
 
 ## Day 6
 
-Added:
+Today was a bit mathsy! :P I guess that if you solved the first part without maths, then probably the bonus would run you into performance problems, but because I solved the maths problems in the first part already, the bonus was no additional effort.
 
-- `.[n]` sugar -- apply indexing as if it's a unary postfix notation fn call
-- `zip`
-- `fold`
+I did entirely forget how to solve for x through, had to Google it and use some online symbolic calculator tool to realize that I needed the ABC formula and should've been able to do this myself 😅 oh well
+
+Added to AL:
+
+- `.[n]` syntactic sugar
+
+  - It's nice to be able to apply indexing as if it's a unary postfix notation fn call, because then you don't have to stop midway your data flow operational notation, like in:
+
+    ```
+    line :split ":" .[1] .trim :split /[ ]+/ :map int
+    ```
+
+    of course you could already have written it like so:
+
+    ```
+    line :split ":" :index 1 .trim :split /[ ]+/ :map int
+    ```
+
+    ...but, that's kinda ugly, so, I added the `.[n]` syntax
+
+- `zip`, `fold`
 - `%`, `/`, `sqrt`, `ceil`, `floor`
+- overload for built-in `str :replace (regex, str)`
 
 Also, I apparently messed up the parser's rules for recognizing additional params to infix and postfix notation function calls. Worse actually, the syntax was not what I meant at best, or ambiguous at worst. Because, what's the parse to make of this?
 
@@ -207,3 +226,5 @@ The _new syntax rule_, therefore, is that if you want to pass _additional argume
 [1, 2, 3] :fold(1) |a, b| { a * b} // fold([1,2,3], <fn>, 1)
 [1, 2, 3] :fold (1) |a, b| { a * b} // fold([1,2,3], 1) .. and then some remaining syntax
 ```
+
+This syntax hassle was by far the largest part of today's work :P
