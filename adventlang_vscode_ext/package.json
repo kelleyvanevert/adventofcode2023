@@ -7,18 +7,23 @@
   },
   "description": "Language features for Kelley's Adventlang :)",
   "publisher": "hello-kelley",
+  "icon": "icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/kelleyvanevert/adventofcode2023",
     "directory": "adventlang_vscode_ext"
   },
   "license": "MIT",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "engines": {
     "vscode": "^1.84.0"
   },
   "categories": [
-    "Other"
+    "Programming Languages"
+  ],
+  "keywords": [
+    "Advent of Code",
+    "Syntax highlighting"
   ],
   "activationEvents": [],
   "main": "./out/extension.js",
@@ -48,8 +53,7 @@
   "scripts": {
     "vscode:prepublish": "yarn run compile",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "publish": "vsce package && vsce publish"
+    "watch": "tsc -watch -p ./"
   },
   "devDependencies": {
     "@types/vscode": "^1.84.0",
