@@ -6,3 +6,6 @@ build
 target
 
 profile.json
+
+node_modules
+out
