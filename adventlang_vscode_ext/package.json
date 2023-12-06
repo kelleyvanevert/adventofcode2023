@@ -6,6 +6,13 @@
     "email": "hello@klve.nl"
   },
   "description": "Language features for Kelley's Adventlang :)",
+  "publisher": "hello-kelley",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kelleyvanevert/adventofcode2023",
+    "directory": "adventlang_vscode_ext"
+  },
+  "license": "MIT",
   "version": "0.0.1",
   "engines": {
     "vscode": "^1.84.0"
@@ -41,7 +48,8 @@
   "scripts": {
     "vscode:prepublish": "yarn run compile",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "publish": "vsce package && vsce publish"
   },
   "devDependencies": {
     "@types/vscode": "^1.84.0",
