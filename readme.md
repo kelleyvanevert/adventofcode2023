@@ -209,7 +209,7 @@ Added to AL:
     ...but, that's kinda ugly, so, I added the `.[n]` syntax
 
 - `zip`, `fold`
-- `%`, `/`, `sqrt`, `ceil`, `floor`
+- `%`, `/`, `sqrt`, `ceil`, `floor`, `round`
 - overload for built-in `str :replace (regex, str)`
 
 Also, I apparently messed up the parser's rules for recognizing additional params to infix and postfix notation function calls. Worse actually, the syntax was not what I meant at best, or ambiguous at worst. Because, what's the parse to make of this?
