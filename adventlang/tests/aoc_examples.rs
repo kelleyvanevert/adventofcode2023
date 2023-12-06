@@ -425,7 +425,7 @@ humidity-to-location map:
 ";
 
 fn construct_mapper(input: str) {
-  let rules = input.trim.lines.slice(1).map |line| {
+  let rules = input.trim.lines.slice(1) :map |line| {
     line :split " " :map int
   }
 
@@ -456,7 +456,7 @@ fn solve(input: str) {
 
 fn construct_smart_mapper(input: str) {
   let rules = input.trim.lines.slice(1)
-    .map |line| {
+    :map |line| {
       line :split " " :map int
     }
     :sort_by_key |rule| {

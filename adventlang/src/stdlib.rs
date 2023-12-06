@@ -215,6 +215,84 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     );
 
     runtime.builtin(
+        "zip",
+        [FnSig {
+            params: vec![idpat("xs"), idpat("ys")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let xs = runtime.scopes[scope].values.get(&id("xs")).unwrap();
+                let ys = runtime.scopes[scope].values.get(&id("ys")).unwrap();
+
+                match (&xs, &ys) {
+                    (Value::List(_, x_els), Value::List(_, y_els)) => Ok(Value::List(
+                        Type::Tuple,
+                        x_els
+                            .into_iter()
+                            .zip(y_els.into_iter())
+                            .map(|(x, y)| Value::Tuple(vec![x.clone(), y.clone()]))
+                            .collect(),
+                    )),
+                    (Value::Tuple(x_els), Value::Tuple(y_els)) => Ok(Value::Tuple(
+                        x_els
+                            .into_iter()
+                            .zip(y_els.into_iter())
+                            .map(|(x, y)| Value::Tuple(vec![x.clone(), y.clone()]))
+                            .collect(),
+                    )),
+                    _ => {
+                        return Err(RuntimeError(format!(
+                            "cannot apply zip to these types: {}, {}",
+                            xs.ty(),
+                            ys.ty()
+                        )))
+                    }
+                }
+            }),
+        }],
+    );
+
+    runtime.builtin(
+        "fold",
+        [FnSig {
+            params: vec![idpat("items"), idpat("cb"), idpat("init")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
+                let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
+                let init = runtime.scopes[scope].values.get(&id("init")).unwrap();
+
+                let Value::FnDef(def) = cb else {
+                    return Err(RuntimeError(format!(
+                        "fold() cb must be a fn, is a: {}",
+                        cb.ty()
+                    )));
+                };
+
+                let def = def.clone();
+
+                match items {
+                    Value::List(_, els) => {
+                        Ok(els.clone().into_iter().try_fold(init.clone(), |acc, el| {
+                            runtime.invoke(def.clone(), vec![(None, acc), (None, el.clone())])
+                        })?)
+                    }
+                    Value::Tuple(els) => {
+                        Ok(els.clone().into_iter().try_fold(init.clone(), |acc, el| {
+                            runtime.invoke(def.clone(), vec![(None, acc), (None, el.clone())])
+                        })?)
+                    }
+                    _ => {
+                        return Err(RuntimeError(format!(
+                            "cannot apply fold to these types: {}, {}, {}",
+                            items.ty(),
+                            cb.ty(),
+                            init.ty()
+                        )))
+                    }
+                }
+            }),
+        }],
+    );
+
+    runtime.builtin(
         "map",
         [FnSig {
             params: vec![idpat("items"), idpat("cb")],
@@ -586,35 +664,73 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "split",
-        [FnSig {
-            params: vec![idpat("text"), idpat("sep")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
+        [
+            FnSig {
+                params: vec![
+                    DeclarePattern::Id("text".into(), Some(Type::Str)),
+                    DeclarePattern::Id("sep".into(), Some(Type::Str)),
+                ],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
-                let Value::Str(text) = text else {
-                    return Err(RuntimeError(format!(
-                        "split[#1] must be a string, is a: {}",
-                        text.ty()
-                    )));
-                };
+                    let Value::Str(text) = text else {
+                        return Err(RuntimeError(format!(
+                            "split() text must be a string, is a: {}",
+                            text.ty()
+                        )));
+                    };
 
-                let sep = runtime.scopes[scope].values.get(&id("sep")).unwrap();
+                    let sep = runtime.scopes[scope].values.get(&id("sep")).unwrap();
 
-                let Value::Str(sep) = sep else {
-                    return Err(RuntimeError(format!(
-                        "split[#2] must be a string, is a: {}",
-                        sep.ty()
-                    )));
-                };
+                    let Value::Str(sep) = sep else {
+                        return Err(RuntimeError(format!(
+                            "split() sep must be a string, is a: {}",
+                            sep.ty()
+                        )));
+                    };
 
-                let result = text
-                    .split(sep.as_str())
-                    .map(|piece| Value::Str(text.substr_from(piece)))
-                    .collect::<Vec<_>>();
+                    let result = text
+                        .split(sep.as_str())
+                        .map(|piece| Value::Str(text.substr_from(piece)))
+                        .collect::<Vec<_>>();
 
-                Ok(Value::List(Type::Str, result))
-            }),
-        }],
+                    Ok(Value::List(Type::Str, result))
+                }),
+            },
+            FnSig {
+                params: vec![
+                    DeclarePattern::Id("text".into(), Some(Type::Str)),
+                    DeclarePattern::Id("sep".into(), Some(Type::Regex)),
+                ],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
+
+                    let Value::Str(text) = text else {
+                        return Err(RuntimeError(format!(
+                            "split() text must be a string, is a: {}",
+                            text.ty()
+                        )));
+                    };
+
+                    let sep = runtime.scopes[scope].values.get(&id("sep")).unwrap();
+
+                    let Value::Regex(sep) = sep else {
+                        return Err(RuntimeError(format!(
+                            "split() setp must be a regex, is a: {}",
+                            sep.ty()
+                        )));
+                    };
+
+                    let result = sep
+                        .0
+                        .split(&text)
+                        .map(|piece| Value::Str(text.substr_from(piece)))
+                        .collect::<Vec<_>>();
+
+                    Ok(Value::List(Type::Str, result))
+                }),
+            },
+        ],
     );
 
     runtime.builtin(
@@ -946,7 +1062,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                 let Value::Numeric(i) = i else {
                     return Err(RuntimeError(format!(
-                        "split[#2] must be an int, is a: {}",
+                        "index() i must be an int, is a: {}",
                         i.ty()
                     )));
                 };
@@ -1073,6 +1189,85 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let result = data.auto_coerce_int()?;
 
                 Ok(Value::Numeric(Numeric::Int(result)))
+            }),
+        }],
+    );
+
+    runtime.builtin(
+        "sqrt",
+        [FnSig {
+            params: vec![DeclarePattern::Id("num".into(), Some(Type::Numeric))],
+            body: FnBody::Builtin(|runtime, scope| {
+                let num = runtime.scopes[scope].values.get(&id("num")).unwrap();
+
+                let Value::Numeric(num) = num else {
+                    return Err(RuntimeError(format!(
+                        "sqrt() num should be a num, is a: {}",
+                        num.ty()
+                    )));
+                };
+
+                Ok(Value::Numeric(Numeric::Double(num.get_double().sqrt())))
+            }),
+        }],
+    );
+
+    runtime.builtin(
+        "ceil",
+        [FnSig {
+            params: vec![DeclarePattern::Id("num".into(), Some(Type::Numeric))],
+            body: FnBody::Builtin(|runtime, scope| {
+                let num = runtime.scopes[scope].values.get(&id("num")).unwrap();
+
+                let Value::Numeric(num) = num else {
+                    return Err(RuntimeError(format!(
+                        "ceil() num should be a num, is a: {}",
+                        num.ty()
+                    )));
+                };
+
+                Ok(Value::Numeric(Numeric::Double(num.get_double().ceil())))
+            }),
+        }],
+    );
+
+    runtime.builtin(
+        "floor",
+        [FnSig {
+            params: vec![DeclarePattern::Id("num".into(), Some(Type::Numeric))],
+            body: FnBody::Builtin(|runtime, scope| {
+                let num = runtime.scopes[scope].values.get(&id("num")).unwrap();
+
+                let Value::Numeric(num) = num else {
+                    return Err(RuntimeError(format!(
+                        "floor() num should be a num, is a: {}",
+                        num.ty()
+                    )));
+                };
+
+                Ok(Value::Numeric(Numeric::Double(num.get_double().floor())))
+            }),
+        }],
+    );
+
+    runtime.builtin(
+        "abs",
+        [FnSig {
+            params: vec![DeclarePattern::Id("num".into(), Some(Type::Numeric))],
+            body: FnBody::Builtin(|runtime, scope| {
+                let num = runtime.scopes[scope].values.get(&id("num")).unwrap();
+
+                let Value::Numeric(num) = num else {
+                    return Err(RuntimeError(format!(
+                        "abs() num should be a num, is a: {}",
+                        num.ty()
+                    )));
+                };
+
+                match num {
+                    Numeric::Int(n) => Ok(Value::Numeric(Numeric::Int(n.abs()))),
+                    Numeric::Double(d) => Ok(Value::Numeric(Numeric::Double(d.abs()))),
+                }
             }),
         }],
     );

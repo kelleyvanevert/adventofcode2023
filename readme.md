@@ -183,3 +183,27 @@ AL TODOs
     }
   }
   ```
+
+## Day 6
+
+Added:
+
+- `.[n]` sugar -- apply indexing as if it's a unary postfix notation fn call
+- `zip`
+- `fold`
+- `%`, `/`, `sqrt`, `ceil`, `floor`
+
+Also, I apparently messed up the parser's rules for recognizing additional params to infix and postfix notation function calls. Worse actually, the syntax was not what I meant at best, or ambiguous at worst. Because, what's the parse to make of this?
+
+```
+[1, 2, 3] :fold (1) |a, b| { a * b}
+```
+
+My meaning was to be able to interpret the `(1)` as an "additional argument" (appended after the first two arguments, probably usually useful for named options, and in this case for a nice init value). But, how does the parser know it's an additional argument, and not just the right-hand argument, parenthesized? (Worse, in this case, it actually took all of `(1) |a, b| { a * b}`, i.e. an application of `1` to the anonymous fn, as the right-hand argument to `fold`. I changed this behaviour though, by now parsing the right-hand argument in _constrained_ mode. This actually also solves the syntax ambiguity problem I encountered yesterday as well.)
+
+The _new syntax rule_, therefore, is that if you want to pass _additional arguments_ to infix or postfix notation function calls, they opening parenthesis _must directly follow_ the function identifier, whereas the right-hand argument _must_ follow at least a single space. So that now it parses like so:
+
+```
+[1, 2, 3] :fold(1) |a, b| { a * b} // fold([1,2,3], <fn>, 1)
+[1, 2, 3] :fold (1) |a, b| { a * b} // fold([1,2,3], 1) .. and then some remaining syntax
+```

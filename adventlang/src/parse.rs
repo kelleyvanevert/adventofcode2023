@@ -144,9 +144,17 @@ fn regex_literal(input: &str) -> ParseResult<&str, Expr> {
 }
 
 // TODO
-fn numeric(input: &str) -> ParseResult<&str, Numeric> {
+fn integer(input: &str) -> ParseResult<&str, Numeric> {
     map(regex(r"^-?[0-9]+"), |s| {
         Numeric::Int(s.parse::<i64>().unwrap())
+    })
+    .parse(input)
+}
+
+// TODO
+fn double(input: &str) -> ParseResult<&str, Numeric> {
+    map(regex(r"^-?[0-9]+\.[0-9]+"), |s| {
+        Numeric::Double(s.parse::<f64>().unwrap())
     })
     .parse(input)
 }
@@ -343,7 +351,8 @@ fn expr_leaf(input: &str) -> ParseResult<&str, Expr> {
         loop_expr,
         for_expr,
         map(identifier, Expr::Variable),
-        map(numeric, Expr::Numeric),
+        map(double, Expr::Numeric),
+        map(integer, Expr::Numeric),
         str_literal,
         regex_literal,
         anonymous_fn,
@@ -467,41 +476,80 @@ fn unary_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr
     )
 }
 
-fn infix_or_postfix_fn_call_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> {
-    enum Op {
-        Unary(Identifier),
-        Binary((Identifier, Expr)),
-    }
+#[derive(Debug, Clone)]
+enum TmpOp {
+    IndexSugar(Expr),
+    Unary {
+        id: Identifier,
+        additional_args: Vec<Argument>,
+    },
+    Binary(Identifier, Expr, Vec<Argument>),
+}
 
+fn postfix_index_sugar<'a>(input: &'a str) -> ParseResult<&'a str, TmpOp> {
+    map(
+        delimited(seq((ws0, tag(".["))), expr(false), tag("]")),
+        TmpOp::IndexSugar,
+    )
+    .parse(input)
+}
+
+fn unary_postfix_fn<'a>(input: &'a str) -> ParseResult<&'a str, TmpOp> {
+    map(
+        seq((
+            preceded(seq((ws0, tag("."))), identifier),
+            optional(invocation_args(true)),
+        )),
+        |(id, additional_args)| TmpOp::Unary {
+            id,
+            additional_args: additional_args.unwrap_or(vec![]),
+        },
+    )
+    .parse(input)
+}
+
+fn binary_infix_fn_latter_part<'a>(constrained: bool) -> impl Parser<&'a str, Output = TmpOp> {
+    map(
+        seq((
+            preceded(seq((ws0, tag(":"))), identifier),
+            optional(invocation_args(true)),
+            preceded(ws1, unary_expr_stack(true)),
+        )),
+        |(id, additional_args, expr)| TmpOp::Binary(id, expr, additional_args.unwrap_or(vec![])),
+    )
+}
+
+fn infix_or_postfix_fn_call_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> {
     map(
         seq((
             unary_expr_stack(constrained),
-            many0(seq((
-                alt((
-                    map(preceded(seq((ws0, tag("."))), identifier), Op::Unary),
-                    map(
-                        seq((
-                            preceded(seq((ws0, tag(":"))), identifier),
-                            preceded(ws0, unary_expr_stack(constrained)),
-                        )),
-                        Op::Binary,
-                    ),
-                )),
-                optional(preceded(slws0, invocation_args(constrained))),
+            many0(alt((
+                postfix_index_sugar,
+                unary_postfix_fn,
+                binary_infix_fn_latter_part(constrained),
             ))),
         )),
         |(mut expr, ops)| {
-            for (op, additional_args) in ops {
+            for op in ops {
                 expr = match op {
-                    Op::Unary(fn_name) => Expr::Invocation {
-                        expr: Expr::Variable(fn_name).into(),
+                    TmpOp::IndexSugar(index_expr) => Expr::Invocation {
+                        expr: Expr::Variable(Identifier("index".into())).into(),
                         args: vec![
-                            vec![Argument { name: None, expr }],
-                            additional_args.unwrap_or(vec![]),
-                        ]
-                        .concat(),
+                            Argument { name: None, expr },
+                            Argument {
+                                name: None,
+                                expr: index_expr,
+                            },
+                        ],
                     },
-                    Op::Binary((fn_name, right)) => Expr::Invocation {
+                    TmpOp::Unary {
+                        id,
+                        additional_args,
+                    } => Expr::Invocation {
+                        expr: Expr::Variable(id).into(),
+                        args: vec![vec![Argument { name: None, expr }], additional_args].concat(),
+                    },
+                    TmpOp::Binary(fn_name, right, additional_args) => Expr::Invocation {
                         expr: Expr::Variable(fn_name).into(),
                         args: vec![
                             vec![
@@ -511,7 +559,7 @@ fn infix_or_postfix_fn_call_stack<'a>(constrained: bool) -> impl Parser<&'a str,
                                     expr: right.into(),
                                 },
                             ],
-                            additional_args.unwrap_or(vec![]),
+                            additional_args,
                         ]
                         .concat(),
                     },
@@ -528,7 +576,7 @@ fn mul_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> 
             infix_or_postfix_fn_call_stack(constrained),
             many0(seq((
                 ws0,
-                alt((tag("*"), tag("/"))),
+                alt((tag("*"), tag("/"), tag("%"))),
                 ws0,
                 infix_or_postfix_fn_call_stack(constrained),
             ))),
@@ -865,7 +913,14 @@ fn assign_stmt(input: &str) -> ParseResult<&str, Stmt> {
         seq((
             assign_pattern,
             ws0,
-            optional(alt((tag("+"), tag("*"), tag("^"), tag("-"), tag("/")))),
+            optional(alt((
+                tag("+"),
+                tag("*"),
+                tag("^"),
+                tag("-"),
+                tag("/"),
+                tag("%"),
+            ))),
             tag("="),
             ws0,
             expr(false),
@@ -1016,8 +1071,16 @@ mod tests {
         Expr::Variable(Identifier(name.into()))
     }
 
+    fn list(elements: Vec<Expr>) -> Expr {
+        Expr::ListLiteral { elements }
+    }
+
     fn tuple(elements: Vec<Expr>) -> Expr {
         Expr::TupleLiteral { elements }
+    }
+
+    fn param(name: &str) -> DeclarePattern {
+        DeclarePattern::Id(id(name), None)
     }
 
     fn str(s: &str) -> Expr {
@@ -1901,68 +1964,131 @@ fn make_closure() {
             },
         }
 
-        let doc_2 = parse_document(
-            r#"
-fn make_closure() {
-  let rules = input
-    :map |n| {
-      "hi im closure"
-    } |n| {
-      "hi im closure"
-    }
-}
-        "#,
-        )
-        .expect("should parse");
+        //         let doc_2 = parse_document(
+        //             r#"
+        // fn make_closure() {
+        //   let rules = input
+        //     :map |n| {
+        //       "hi im closure"
+        //     } |n| {
+        //       "hi im closure"
+        //     }
+        // }
+        //         "#,
+        //         )
+        //         .expect("should parse");
 
-        match doc_2 {
-            Document {
-                body: Block { mut items, .. },
-            } => match items.pop().unwrap() {
-                Item::NamedFn {
-                    body: Block { stmts, .. },
-                    ..
-                } => {
-                    assert_eq!(stmts.len(), 1);
-                    assert_eq!(
-                        stmts,
-                        vec![Stmt::Declare {
-                            pattern: DeclarePattern::Id(id("rules"), None),
-                            expr: simple_invocation(
-                                "map",
-                                vec![
-                                    var("input"),
-                                    Expr::Invocation {
-                                        expr: Expr::AnonymousFn {
-                                            params: vec![DeclarePattern::Id(id("n"), None)],
-                                            body: Block {
-                                                items: vec![],
-                                                stmts: vec![Stmt::Expr {
-                                                    expr: str("hi im closure").into()
-                                                }]
-                                            }
-                                        }
-                                        .into(),
-                                        args: vec![Argument {
-                                            name: None,
-                                            expr: Expr::AnonymousFn {
-                                                params: vec![DeclarePattern::Id(id("n"), None)],
-                                                body: Block {
-                                                    items: vec![],
-                                                    stmts: vec![Stmt::Expr {
-                                                        expr: str("hi im closure").into()
-                                                    }]
-                                                }
-                                            }
-                                        }]
-                                    }
-                                ]
-                            )
-                            .into()
-                        }]
-                    );
-                }
+        //         match doc_2 {
+        //             Document {
+        //                 body: Block { mut items, .. },
+        //             } => match items.pop().unwrap() {
+        //                 Item::NamedFn {
+        //                     body: Block { stmts, .. },
+        //                     ..
+        //                 } => {
+        //                     assert_eq!(stmts.len(), 1);
+        //                     assert_eq!(
+        //                         stmts,
+        //                         vec![Stmt::Declare {
+        //                             pattern: DeclarePattern::Id(id("rules"), None),
+        //                             expr: simple_invocation(
+        //                                 "map",
+        //                                 vec![
+        //                                     var("input"),
+        //                                     Expr::Invocation {
+        //                                         expr: Expr::AnonymousFn {
+        //                                             params: vec![DeclarePattern::Id(id("n"), None)],
+        //                                             body: Block {
+        //                                                 items: vec![],
+        //                                                 stmts: vec![Stmt::Expr {
+        //                                                     expr: str("hi im closure").into()
+        //                                                 }]
+        //                                             }
+        //                                         }
+        //                                         .into(),
+        //                                         args: vec![Argument {
+        //                                             name: None,
+        //                                             expr: Expr::AnonymousFn {
+        //                                                 params: vec![DeclarePattern::Id(id("n"), None)],
+        //                                                 body: Block {
+        //                                                     items: vec![],
+        //                                                     stmts: vec![Stmt::Expr {
+        //                                                         expr: str("hi im closure").into()
+        //                                                     }]
+        //                                                 }
+        //                                             }
+        //                                         }]
+        //                                     }
+        //                                 ]
+        //                             )
+        //                             .into()
+        //                         }]
+        //                     );
+        //                 }
+        //             },
+        //         }
+    }
+
+    #[test]
+    fn infix_fns() {
+        let anonymous_fn = Expr::AnonymousFn {
+            params: vec![param("a"), param("b")],
+            body: Block {
+                items: vec![],
+                stmts: vec![Stmt::Expr {
+                    expr: binary("*", var("a"), var("b")).into(),
+                }],
             },
-        }
+        };
+
+        // This is the intended syntax / usage
+        // --
+        // There's no space between `fold` and `(1)`, which allows the `1` to be an additional param to `fold`
+        assert_eq!(
+            expr(false).parse("[1, 2, 3] :fold(1) |a, b| { a * b }"),
+            Some((
+                "",
+                Expr::Invocation {
+                    expr: var("fold").into(),
+                    args: vec![
+                        Argument {
+                            name: None,
+                            expr: list(vec![int(1), int(2), int(3)])
+                        },
+                        Argument {
+                            name: None,
+                            expr: anonymous_fn.clone()
+                        },
+                        Argument {
+                            name: None,
+                            expr: int(1)
+                        }
+                    ]
+                }
+            ))
+        );
+
+        // This is probably the programmer's syntax mistake
+        // ---
+        // There's a space between `fold` and `(1)`, which makes the `1` ineligible for additional params.
+        assert_eq!(
+            expr(false).parse("[1, 2, 3] :fold (1) |a, b| { a * b }"),
+            Some((
+                " |a, b| { a * b }",
+                Expr::Invocation {
+                    expr: var("fold").into(),
+                    args: vec![
+                        Argument {
+                            name: None,
+                            expr: list(vec![int(1), int(2), int(3)])
+                        },
+                        Argument {
+                            name: None,
+                            expr: int(1)
+                        }
+                    ]
+                }
+            ))
+        );
     }
 }

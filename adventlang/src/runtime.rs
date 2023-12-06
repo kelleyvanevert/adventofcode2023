@@ -160,6 +160,24 @@ impl Numeric {
         }
     }
 
+    pub fn div(&self, other: Numeric) -> Numeric {
+        match (self, other) {
+            (Numeric::Double(a), b) => Numeric::Double(a / b.get_double()),
+            (a, Numeric::Double(b)) => Numeric::Double(a.get_double() / b),
+
+            (Numeric::Int(a), Numeric::Int(b)) => Numeric::Int(a / b),
+        }
+    }
+
+    pub fn modulo(&self, other: Numeric) -> Numeric {
+        match (self, other) {
+            (Numeric::Double(a), b) => Numeric::Double(a % b.get_double()),
+            (a, Numeric::Double(b)) => Numeric::Double(a.get_double() % b),
+
+            (Numeric::Int(a), Numeric::Int(b)) => Numeric::Int(a % b),
+        }
+    }
+
     pub fn get_double(&self) -> f64 {
         match self {
             Numeric::Int(a) => *a as f64,
@@ -368,6 +386,28 @@ impl Value {
     pub fn mul(&self, other: Value) -> Result<Value, RuntimeError> {
         match (self, other) {
             (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.mul(b))),
+            (a, b) => Err(RuntimeError(format!(
+                "can't perform {} + {}",
+                a.ty(),
+                b.ty()
+            ))),
+        }
+    }
+
+    pub fn div(&self, other: Value) -> Result<Value, RuntimeError> {
+        match (self, other) {
+            (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.div(b))),
+            (a, b) => Err(RuntimeError(format!(
+                "can't perform {} + {}",
+                a.ty(),
+                b.ty()
+            ))),
+        }
+    }
+
+    pub fn modulo(&self, other: Value) -> Result<Value, RuntimeError> {
+        match (self, other) {
+            (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.modulo(b))),
             (a, b) => Err(RuntimeError(format!(
                 "can't perform {} + {}",
                 a.ty(),
@@ -1010,7 +1050,7 @@ impl Runtime {
         }
     }
 
-    fn debug_scope(&self, scope: usize) -> String {
+    pub fn debug_scope(&self, scope: usize) -> String {
         if scope == 0 {
             "RootScope".into()
         } else {
@@ -1018,8 +1058,8 @@ impl Runtime {
                 "Scope({}){}",
                 self.scopes[scope]
                     .values
-                    .keys()
-                    .map(|key| { key.0.to_string() })
+                    .iter()
+                    .map(|(key, value)| { format!("{key}: {}", value.ty()) })
                     .collect::<Vec<_>>()
                     .join(", "),
                 match self.scopes[scope].parent_scope {
@@ -1109,6 +1149,20 @@ impl Runtime {
                             return Ok((Value::Nil, Some(return_value)));
                         }
                         Ok((left_value.mul(right_value)?, None))
+                    }
+                    "/" => {
+                        let (right_value, ret) = self.evaluate(scope, right)?;
+                        if let Some(return_value) = ret {
+                            return Ok((Value::Nil, Some(return_value)));
+                        }
+                        Ok((left_value.div(right_value)?, None))
+                    }
+                    "%" => {
+                        let (right_value, ret) = self.evaluate(scope, right)?;
+                        if let Some(return_value) = ret {
+                            return Ok((Value::Nil, Some(return_value)));
+                        }
+                        Ok((left_value.modulo(right_value)?, None))
                     }
                     "<" => {
                         let (right_value, ret) = self.evaluate(scope, right)?;
