@@ -10,6 +10,7 @@ See https://adventofcode.com/2023
   - [Blaž](https://codeberg.org/blazp/advent_of_code_2023)
   - [Stijn](https://github.com/AuguB/Rust_Advent_Of_Code_2023)
   - [Auke](https://github.com/Fadarrizz/advent-of-code/tree/main/2023/)
+  - [Cyril](https://github.com/c-y-r-c-l-e/adventofcode2023)
 
 ## Goals
 
