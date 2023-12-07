@@ -10,6 +10,9 @@
           "include": "#comment"
         },
         {
+          "include": "#return-stmt"
+        },
+        {
           "include": "#string"
         },
         {
@@ -22,6 +25,10 @@
           "include": "#expression"
         }
       ]
+    },
+    "return-stmt": {
+      "name": "keyword.control.flow.ts",
+      "match": "(?<!\\.|\\$)\\b(return)\\b(?!\\$)"
     },
     "declaration": {
       "name": "meta.declaration.al",
@@ -313,7 +320,7 @@
     },
     "keyword": {
       "name": "keyword.other.al",
-      "match": "\\b(fn|let|if|else|do|while|for|loop)\\b"
+      "match": "\\b(fn|let|if|else|do|while|for|loop|return)\\b"
     },
     "comment": {
       "patterns": [
