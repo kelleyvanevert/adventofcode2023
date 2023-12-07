@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use either::Either;
 use regex::Regex;
 
 use crate::{
@@ -335,9 +336,27 @@ fn tuple_literal_or_parenthesized_expr(input: &str) -> ParseResult<&str, Expr> {
     .parse(input)
 }
 
-// TODO
+fn dict_pair(input: &str) -> ParseResult<&str, (Either<Identifier, Expr>, Expr)> {
+    map(
+        seq((
+            alt((
+                map(preceded(tag("."), identifier), Either::Left),
+                map(expr(true), Either::Right),
+            )),
+            ws1,
+            expr(false),
+        )),
+        |(key, _, value)| (key, value),
+    )
+    .parse(input)
+}
+
 fn dict_literal(input: &str) -> ParseResult<&str, Expr> {
-    map(tag("@{}"), |_| Expr::DictLiteral {}).parse(input)
+    map(
+        preceded(tag("@"), listy("{", dict_pair, dict_pair, "}")),
+        |elements| Expr::DictLiteral { elements },
+    )
+    .parse(input)
 }
 
 fn expr_leaf(input: &str) -> ParseResult<&str, Expr> {
@@ -600,7 +619,7 @@ fn add_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> 
             mul_expr_stack(constrained),
             many0(seq((
                 ws0,
-                alt((tag("+"), tag("-"))),
+                alt((tag("+"), tag("-"), tag("<<"))),
                 ws0,
                 mul_expr_stack(constrained),
             ))),
@@ -920,6 +939,7 @@ fn assign_stmt(input: &str) -> ParseResult<&str, Stmt> {
                 tag("-"),
                 tag("/"),
                 tag("%"),
+                tag("<<"),
             ))),
             tag("="),
             ws0,

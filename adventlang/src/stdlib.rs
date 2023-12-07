@@ -180,7 +180,10 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
                 let Value::List(t, list) = items.clone() else {
-                    return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                    return Err(RuntimeError(format!(
+                        "sort_by_key() items must be a list, is a: {}",
+                        items.ty()
+                    )));
                 };
 
                 let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
@@ -210,6 +213,33 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 }
 
                 Ok(Value::List(t.clone(), result))
+            }),
+        }],
+    );
+
+    runtime.builtin(
+        "reverse",
+        [FnSig {
+            params: vec![idpat("items")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
+
+                match items.clone() {
+                    Value::List(t, mut list) => {
+                        list.reverse();
+                        Ok(Value::List(t, list))
+                    }
+                    Value::Tuple(mut list) => {
+                        list.reverse();
+                        Ok(Value::Tuple(list))
+                    }
+                    _ => {
+                        return Err(RuntimeError(format!(
+                            "reverse() items must be a list or tuple, is a: {}",
+                            items.ty()
+                        )));
+                    }
+                }
             }),
         }],
     );
@@ -477,6 +507,45 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     );
 
     runtime.builtin(
+        "any",
+        [FnSig {
+            params: vec![idpat("items"), idpat("cb")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
+
+                let Value::List(_, list) = items else {
+                    return Err(RuntimeError(format!(
+                        "any() items must be a list, is a: {}",
+                        items.ty()
+                    )));
+                };
+
+                let list = list.clone();
+
+                let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
+
+                let Value::FnDef(def) = cb else {
+                    return Err(RuntimeError(format!(
+                        "cannot use any() w/ cb of type: {}",
+                        cb.ty()
+                    )));
+                };
+
+                let def = def.clone();
+
+                for item in list {
+                    let item = runtime.invoke(def.clone(), vec![(None, item)])?;
+                    if item.truthy()? {
+                        return Ok(Value::Bool(true));
+                    }
+                }
+
+                Ok(Value::Bool(false))
+            }),
+        }],
+    );
+
+    runtime.builtin(
         "find_map",
         [FnSig {
             params: vec![idpat("items"), idpat("cb")],
@@ -502,13 +571,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                 for item in list {
                     let item = runtime.invoke(def.clone(), vec![(None, item)])?;
-
-                    match item {
-                        // TODO fix the "nil as well as unit" problem
-                        Value::Nil => {}
-                        _ => {
-                            return Ok(item);
-                        }
+                    if item.truthy()? {
+                        return Ok(item);
                     }
                 }
 

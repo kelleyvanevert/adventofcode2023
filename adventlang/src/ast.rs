@@ -1,6 +1,7 @@
 use std::{cmp::Ordering, collections::HashSet, fmt::Display};
 
 use compact_str::CompactString;
+use either::Either;
 
 use crate::runtime::{AlRegex, Numeric};
 
@@ -265,7 +266,7 @@ pub enum Expr {
         elements: Vec<Expr>,
     },
     DictLiteral {
-        // TODO elements
+        elements: Vec<(Either<Identifier, Expr>, Expr)>,
     },
     Invocation {
         expr: Box<Expr>,

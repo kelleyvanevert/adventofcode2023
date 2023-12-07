@@ -346,6 +346,19 @@ impl Value {
         }
     }
 
+    pub fn left_shift(&self, other: Value) -> Result<Value, RuntimeError> {
+        match (self, other) {
+            (Value::Numeric(Numeric::Int(a)), Value::Numeric(Numeric::Int(b))) if b >= 0 => {
+                Ok(Value::Numeric(Numeric::Int(a << b)))
+            }
+            (a, b) => Err(RuntimeError(format!(
+                "can't perform {} << {}",
+                a.ty(),
+                b.ty()
+            ))),
+        }
+    }
+
     pub fn pow(&self, other: Value) -> Result<Value, RuntimeError> {
         match (self, other) {
             (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.pow(b))),
@@ -1078,7 +1091,30 @@ impl Runtime {
         match expr {
             Expr::Bool(b) => Ok((Value::Bool(*b), None)),
             Expr::NilLiteral => Ok((Value::Nil, None)),
-            Expr::DictLiteral {} => Ok((Value::Dict(Dict::new()), None)),
+            Expr::DictLiteral { elements } => {
+                let mut dict = Dict::new();
+                for (key, value_expr) in elements {
+                    let key_value = match key {
+                        Either::Left(name) => Value::Str(name.0.to_string().into()),
+                        Either::Right(key_expr) => {
+                            let (val, ret) = self.evaluate(scope, key_expr)?;
+                            if ret.is_some() {
+                                return Ok((Value::Nil, ret));
+                            }
+                            val
+                        }
+                    };
+
+                    let (expr_value, ret) = self.evaluate(scope, value_expr)?;
+                    if ret.is_some() {
+                        return Ok((Value::Nil, ret));
+                    }
+
+                    dict.0.insert(key_value, expr_value);
+                }
+
+                Ok((Value::Dict(dict), None))
+            }
             Expr::StrLiteral { pieces } => {
                 let mut build = "".to_string();
 
@@ -1128,6 +1164,13 @@ impl Runtime {
                             return Ok((Value::Nil, Some(return_value)));
                         }
                         Ok((left_value.pow(right_value)?, None))
+                    }
+                    "<<" => {
+                        let (right_value, ret) = self.evaluate(scope, right)?;
+                        if let Some(return_value) = ret {
+                            return Ok((Value::Nil, Some(return_value)));
+                        }
+                        Ok((left_value.left_shift(right_value)?, None))
                     }
                     "+" => {
                         let (right_value, ret) = self.evaluate(scope, right)?;
@@ -1192,6 +1235,16 @@ impl Runtime {
                         match left_value.partial_cmp(&right_value) {
                             None => Err(RuntimeError(format!("cannot compare"))),
                             Some(ord) => Ok((Value::Bool(ord == Ordering::Equal), None)),
+                        }
+                    }
+                    "!=" => {
+                        let (right_value, ret) = self.evaluate(scope, right)?;
+                        if let Some(return_value) = ret {
+                            return Ok((Value::Nil, Some(return_value)));
+                        }
+                        match left_value.partial_cmp(&right_value) {
+                            None => Err(RuntimeError(format!("cannot compare"))),
+                            Some(ord) => Ok((Value::Bool(ord != Ordering::Equal), None)),
                         }
                     }
                     ">=" => {

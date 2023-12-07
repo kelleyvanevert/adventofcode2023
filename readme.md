@@ -239,3 +239,31 @@ The _new syntax rule_, therefore, is that if you want to pass _additional argume
 ```
 
 This syntax hassle was by far the largest part of today's work :P
+
+## Day 7
+
+- dictionary literals containing key-value pairs
+
+  ```
+  let kelley = @{
+    .name "Kelley"
+    .age 31
+    .hobbies ["programming", "making music", "watching movies"]
+
+    .nested @{
+      .fields "ok"
+    }
+
+    "key as expr" "some value"
+    this_is_a_var_btw 42
+  }
+
+  kelley.name
+  kelley["name"]
+  kelley.nested.fields
+  people :map name // ?!
+  ```
+
+- `<<` left bit shift
+- `!=` implemented
+- list built-ins: `reverse(list)`, `any(list, fn)`
