@@ -242,7 +242,13 @@ This syntax hassle was by far the largest part of today's work :P
 
 ## Day 7
 
-- dictionary literals containing key-value pairs
+Today I spent an embarrasing amount of time fidgeting with the code 😅 I figured that in order to sort all the hands, I could just calculate them into a number, because comparing hands' cards in done sequentially (as opposed to real poker, where the highest card is used). This way, I hope(d), sorting would be super easy, because assigning a definite "score" to a hand would probably be easier than implementing comparison logic (and maybe even especially in AL).
+
+Subsequently, I got myself into a little drama with the bonus, when I forgot to set J's score to 0, forgot to remove it from the cards counting toward a score, etc. I think I failed my answer.. 6 times or so? before getting it right. But, it works!
+
+Added to AL:
+
+- Dictionary literals are now complete, and the key-value pairs look like this:
 
   ```
   let kelley = @{
@@ -263,6 +269,10 @@ This syntax hassle was by far the largest part of today's work :P
   kelley.nested.fields
   people :map name // ?!
   ```
+
+  This is a bit of a syntax design problem, because, well, `.bla` syntax has technically already been reserved for postfix notation function calls. I considered a bunch of alternatives, e.g. with other characters `@`, `#`, `$`, `->`, or simply _no dividing character_ like `person name`, and `@{ name "Kelley" }` etc. But.. they're all either just so ugly or unintuitive..
+
+  So now I basically made implementing AL a bit harder, because a postfix `.bla` can EITHER be a dictionary item access, OR it can be a function call. This ambiguity, however, kinda also seems "cute" (?) from the perspective that properties of objects could also "mathematically" be seen as functions assigning values to their "owning" objects. Hmm.. Maybe I'm getting myself in too much trouble and will revert this decision later on..
 
 - `<<` left bit shift
 - `!=` implemented
