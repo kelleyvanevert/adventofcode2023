@@ -9,15 +9,82 @@ use crate::{
         StrLiteralPiece, Type,
     },
     parser_combinators::{
-        alt, delimited, many0, map, optional, preceded, regex, seq, tag, terminated, ParseResult,
+        alt, delimited, many0, map, optional, optional_if, preceded, seq, terminated, ParseResult,
         Parser,
     },
-    runtime::{AlRegex, Numeric},
+    value::{AlRegex, Numeric},
 };
 
-fn identifier(input: &str) -> ParseResult<&str, Identifier> {
-    let (input, id) =
-        map(regex(r"^[_a-zA-Z][_a-zA-Z0-9]*"), |s| Identifier(s.into())).parse(input)?;
+#[derive(Debug, Clone, PartialEq)]
+struct State<'a> {
+    input: &'a str,
+    constrained: bool,
+}
+
+impl<'a> From<&'a str> for State<'a> {
+    fn from(input: &'a str) -> Self {
+        State {
+            input,
+            constrained: false,
+        }
+    }
+}
+
+impl<'a> State<'a> {
+    fn constrained(mut self, c: bool) -> Self {
+        self.constrained = c;
+        self
+    }
+
+    fn slice(&self, i: usize) -> Self {
+        State {
+            input: &self.input[i..],
+            constrained: self.constrained,
+        }
+    }
+}
+
+fn constrained<'a, P, O>(constrain: bool, mut p: P) -> impl Parser<State<'a>, Output = O>
+where
+    P: Parser<State<'a>, Output = O>,
+{
+    move |s: State<'a>| {
+        let remember = s.constrained;
+
+        let (s, o) = p.parse(s.constrained(constrain))?;
+
+        Some((s.constrained(remember), o))
+    }
+}
+
+fn tag<'a>(tag: &'static str) -> impl Parser<State<'a>, Output = &'a str> {
+    move |s: State<'a>| {
+        if s.input.starts_with(tag) {
+            Some((s.slice(tag.len()), tag))
+        } else {
+            None
+        }
+    }
+}
+
+fn regex<'a>(re: &'static str) -> impl Parser<State<'a>, Output = &'a str> {
+    let re = Regex::new(re).unwrap();
+
+    move |s: State<'a>| {
+        if let Some(m) = re.find(s.input) {
+            let found = &s.input[m.range()];
+            Some((s.slice(found.len()), found))
+        } else {
+            None
+        }
+    }
+}
+
+fn identifier(s: State) -> ParseResult<State, Identifier> {
+    let (s, id) = map(regex(r"^[_a-zA-Z][_a-zA-Z0-9]*"), |id| {
+        Identifier(id.into())
+    })
+    .parse(s)?;
 
     if [
         "fn", "if", "else", "then", "while", "do", "for", "let", "loop", "true", "false",
@@ -27,28 +94,28 @@ fn identifier(input: &str) -> ParseResult<&str, Identifier> {
         return None;
     }
 
-    Some((input, id))
+    Some((s, id))
 }
 
-fn slws0(input: &str) -> ParseResult<&str, &str> {
-    regex(r"^[ \t]*").parse(input)
+fn slws0(s: State) -> ParseResult<State, &str> {
+    regex(r"^[ \t]*").parse(s)
 }
 
-fn ws0(input: &str) -> ParseResult<&str, &str> {
-    regex(r"^\s*").parse(input)
+fn ws0(s: State) -> ParseResult<State, &str> {
+    regex(r"^\s*").parse(s)
 }
 
-fn ws1(input: &str) -> ParseResult<&str, &str> {
-    regex(r"^\s+").parse(input)
+fn ws1(s: State) -> ParseResult<State, &str> {
+    regex(r"^\s+").parse(s)
 }
 
-fn slws1(input: &str) -> ParseResult<&str, &str> {
-    regex(r"^[ \t]+").parse(input)
+fn slws1(s: State) -> ParseResult<State, &str> {
+    regex(r"^[ \t]+").parse(s)
 }
 
-fn eof(input: &str) -> ParseResult<&str, ()> {
-    if input.len() == 0 {
-        Some((input, ()))
+fn eof(s: State) -> ParseResult<State, ()> {
+    if s.input.len() == 0 {
+        Some((s, ()))
     } else {
         None
     }
@@ -59,9 +126,9 @@ fn listy<'a, P, O>(
     first: P,
     rest: P,
     close_tag: &'static str,
-) -> impl Parser<&'a str, Output = Vec<O>>
+) -> impl Parser<State<'a>, Output = Vec<O>>
 where
-    P: Parser<&'a str, Output = O>,
+    P: Parser<State<'a>, Output = O>,
 {
     delimited(
         seq((tag(open_tag), ws0)),
@@ -89,14 +156,14 @@ fn unescape(input: &str) -> String {
     input.replace("\\n", "\n").replace("\\/", "/")
 }
 
-fn str_literal(input: &str) -> ParseResult<&str, Expr> {
+fn str_literal(s: State) -> ParseResult<State, Expr> {
     map(
         delimited(
             tag("\""),
             many0(alt((
                 map(map(regex("^[^\"{]+"), unescape), StrLiteralPiece::Fragment),
                 map(
-                    seq((tag("{"), ws0, expr(false), ws0, tag("}"))),
+                    seq((tag("{"), ws0, constrained(false, expr), ws0, tag("}"))),
                     |(_, _, expr, _, _)| StrLiteralPiece::Interpolation(expr),
                 ),
             ))),
@@ -104,15 +171,15 @@ fn str_literal(input: &str) -> ParseResult<&str, Expr> {
         ),
         |pieces| Expr::StrLiteral { pieces },
     )
-    .parse(input)
+    .parse(s)
 }
 
 // ugly, I know
-fn regex_contents(input: &str) -> ParseResult<&str, String> {
+fn regex_contents(s: State) -> ParseResult<State, String> {
     let mut contents = "".to_string();
     let mut escaped = false;
 
-    for (i, c) in input.char_indices() {
+    for (i, c) in s.input.char_indices() {
         if escaped {
             if c == 'n' {
                 contents.push('\n');
@@ -122,7 +189,7 @@ fn regex_contents(input: &str) -> ParseResult<&str, String> {
             }
             escaped = false;
         } else if c == '/' {
-            return Some((&input[i..], contents));
+            return Some((s.slice(i), contents));
         } else if c == '\\' {
             escaped = true;
         } else {
@@ -130,44 +197,47 @@ fn regex_contents(input: &str) -> ParseResult<&str, String> {
         }
     }
 
-    Some(("", contents))
+    Some((s.slice(s.input.len()), contents))
 }
 
-fn regex_literal(input: &str) -> ParseResult<&str, Expr> {
-    let (rem, str) = delimited(tag("/"), regex_contents, tag("/")).parse(input)?;
+fn regex_literal(s: State) -> ParseResult<State, Expr> {
+    let (s, re) = delimited(tag("/"), regex_contents, tag("/")).parse(s)?;
 
     Some((
-        rem,
+        s,
         Expr::RegexLiteral {
-            regex: AlRegex(Regex::from_str(&str).ok()?),
+            regex: AlRegex(Regex::from_str(&re).ok()?),
         },
     ))
 }
 
 // TODO
-fn integer(input: &str) -> ParseResult<&str, Numeric> {
-    map(regex(r"^-?[0-9]+"), |s| {
-        Numeric::Int(s.parse::<i64>().unwrap())
+fn integer(s: State) -> ParseResult<State, Numeric> {
+    map(regex(r"^-?[0-9]+"), |num| {
+        Numeric::Int(num.parse::<i64>().unwrap())
     })
-    .parse(input)
+    .parse(s)
 }
 
 // TODO
-fn double(input: &str) -> ParseResult<&str, Numeric> {
-    map(regex(r"^-?[0-9]+\.[0-9]+"), |s| {
-        Numeric::Double(s.parse::<f64>().unwrap())
+fn double(s: State) -> ParseResult<State, Numeric> {
+    map(regex(r"^-?[0-9]+\.[0-9]+"), |num| {
+        Numeric::Double(num.parse::<f64>().unwrap())
     })
-    .parse(input)
+    .parse(s)
 }
 
-fn anonymous_fn(input: &str) -> ParseResult<&str, Expr> {
+fn anonymous_fn(s: State) -> ParseResult<State, Expr> {
     map(
         seq((
-            optional(delimited(
-                seq((tag("|"), ws0)),
-                parameter_list,
-                seq((ws0, tag("|"), ws0)),
-            )),
+            optional_if(
+                delimited(
+                    seq((tag("|"), ws0)),
+                    parameter_list,
+                    seq((ws0, tag("|"), ws0)),
+                ),
+                |s| !s.constrained,
+            ),
             delimited(seq((tag("{"), ws0)), block_contents, seq((ws0, tag("}")))),
         )),
         |(params, body)| Expr::AnonymousFn {
@@ -175,28 +245,28 @@ fn anonymous_fn(input: &str) -> ParseResult<&str, Expr> {
             body,
         },
     )
-    .parse(input)
+    .parse(s)
 }
 
-fn maybe_parenthesized<'a, P, T>(mut parser: P) -> impl Parser<&'a str, Output = T>
+fn maybe_parenthesized<'a, P, T>(mut parser: P) -> impl Parser<State<'a>, Output = T>
 where
-    P: Parser<&'a str, Output = T>,
+    P: Parser<State<'a>, Output = T>,
 {
-    move |input| {
-        let (input, opt) = optional(seq((tag("("), ws0))).parse(input)?;
+    move |s| {
+        let (s, opt) = optional(seq((tag("("), ws0))).parse(s)?;
 
-        let (input, res) = parser.parse(input)?;
+        let (s, res) = parser.parse(s)?;
 
-        let input = match opt {
-            None => input,
-            Some(_) => seq((ws0, tag(")"))).parse(input)?.0,
+        let s = match opt {
+            None => s,
+            Some(_) => seq((ws0, tag(")"))).parse(s)?.0,
         };
 
-        Some((input, res))
+        Some((s, res))
     }
 }
 
-fn if_expr(input: &str) -> ParseResult<&str, Expr> {
+fn if_expr(s: State) -> ParseResult<State, Expr> {
     map(
         seq((
             tag("if"),
@@ -207,7 +277,7 @@ fn if_expr(input: &str) -> ParseResult<&str, Expr> {
                     declare_pattern,
                     seq((ws0, tag("="), ws0)),
                 )),
-                expr(true),
+                constrained(true, expr),
             ))),
             ws0,
             delimited(seq((tag("{"), ws0)), block_contents, seq((ws0, tag("}")))),
@@ -242,10 +312,10 @@ fn if_expr(input: &str) -> ParseResult<&str, Expr> {
             },
         },
     )
-    .parse(input)
+    .parse(s)
 }
 
-fn do_while_expr(input: &str) -> ParseResult<&str, Expr> {
+fn do_while_expr(s: State) -> ParseResult<State, Expr> {
     map(
         seq((
             tag("do"),
@@ -253,7 +323,7 @@ fn do_while_expr(input: &str) -> ParseResult<&str, Expr> {
             delimited(seq((tag("{"), ws0)), block_contents, seq((ws0, tag("}")))),
             optional(preceded(
                 seq((ws0, tag("while"), slws1)),
-                maybe_parenthesized(expr(true)),
+                maybe_parenthesized(constrained(true, expr)),
             )),
         )),
         |(_, _, body, cond)| Expr::DoWhile {
@@ -261,10 +331,10 @@ fn do_while_expr(input: &str) -> ParseResult<&str, Expr> {
             body,
         },
     )
-    .parse(input)
+    .parse(s)
 }
 
-fn loop_expr(input: &str) -> ParseResult<&str, Expr> {
+fn loop_expr(s: State) -> ParseResult<State, Expr> {
     map(
         seq((
             tag("loop"),
@@ -273,15 +343,15 @@ fn loop_expr(input: &str) -> ParseResult<&str, Expr> {
         )),
         |(_, _, body)| Expr::Loop { body },
     )
-    .parse(input)
+    .parse(s)
 }
 
-fn while_expr(input: &str) -> ParseResult<&str, Expr> {
+fn while_expr(s: State) -> ParseResult<State, Expr> {
     map(
         seq((
             tag("while"),
             ws1,
-            maybe_parenthesized(expr(true)),
+            maybe_parenthesized(constrained(true, expr)),
             ws0,
             delimited(seq((tag("{"), ws0)), block_contents, seq((ws0, tag("}")))),
         )),
@@ -290,10 +360,10 @@ fn while_expr(input: &str) -> ParseResult<&str, Expr> {
             body,
         },
     )
-    .parse(input)
+    .parse(s)
 }
 
-fn for_expr(input: &str) -> ParseResult<&str, Expr> {
+fn for_expr(s: State) -> ParseResult<State, Expr> {
     map(
         seq((
             tag("for"),
@@ -305,7 +375,7 @@ fn for_expr(input: &str) -> ParseResult<&str, Expr> {
                 ws0,
                 tag("in"),
                 ws0,
-                expr(true),
+                constrained(true, expr),
             ))),
             ws0,
             delimited(seq((tag("{"), ws0)), block_contents, seq((ws0, tag("}")))),
@@ -316,23 +386,27 @@ fn for_expr(input: &str) -> ParseResult<&str, Expr> {
             body,
         },
     )
-    .parse(input)
+    .parse(s)
 }
 
-fn list_literal(input: &str) -> ParseResult<&str, Expr> {
-    map(listy("[", expr(false), expr(false), "]"), |elements| {
-        Expr::ListLiteral { elements }
-    })
-    .parse(input)
+fn list_literal(s: State) -> ParseResult<State, Expr> {
+    map(
+        listy("[", constrained(false, expr), constrained(false, expr), "]"),
+        |elements| Expr::ListLiteral { elements },
+    )
+    .parse(s)
 }
 
-fn tuple_literal_or_parenthesized_expr(input: &str) -> ParseResult<&str, Expr> {
+fn tuple_literal_or_parenthesized_expr(s: State) -> ParseResult<State, Expr> {
     delimited(
         seq((tag("("), ws0)),
         map(
             seq((
-                expr(false),
-                many0(preceded(seq((ws0, tag(","), ws0)), expr(false))),
+                constrained(false, expr),
+                many0(preceded(
+                    seq((ws0, tag(","), ws0)),
+                    constrained(false, expr),
+                )),
                 ws0,
                 optional(tag(",")),
             )),
@@ -351,33 +425,33 @@ fn tuple_literal_or_parenthesized_expr(input: &str) -> ParseResult<&str, Expr> {
         ),
         seq((ws0, tag(")"))),
     )
-    .parse(input)
+    .parse(s)
 }
 
-fn dict_pair(input: &str) -> ParseResult<&str, (Either<Identifier, Expr>, Expr)> {
+fn dict_pair(s: State) -> ParseResult<State, (Either<Identifier, Expr>, Expr)> {
     map(
         seq((
             alt((
                 map(preceded(tag("."), identifier), Either::Left),
-                map(expr(true), Either::Right),
+                map(constrained(true, expr), Either::Right),
             )),
             ws1,
-            expr(false),
+            constrained(false, expr),
         )),
         |(key, _, value)| (key, value),
     )
-    .parse(input)
+    .parse(s)
 }
 
-fn dict_literal(input: &str) -> ParseResult<&str, Expr> {
+fn dict_literal(s: State) -> ParseResult<State, Expr> {
     map(
         preceded(tag("@"), listy("{", dict_pair, dict_pair, "}")),
         |elements| Expr::DictLiteral { elements },
     )
-    .parse(input)
+    .parse(s)
 }
 
-fn expr_leaf(input: &str) -> ParseResult<&str, Expr> {
+fn expr_leaf(s: State) -> ParseResult<State, Expr> {
     alt((
         dict_literal,
         map(tag("true"), |_| Expr::Bool(true)),
@@ -396,65 +470,65 @@ fn expr_leaf(input: &str) -> ParseResult<&str, Expr> {
         tuple_literal_or_parenthesized_expr,
         list_literal,
     ))
-    .parse(input)
+    .parse(s)
 }
 
-fn argument(input: &str) -> ParseResult<&str, Argument> {
+fn argument(s: State) -> ParseResult<State, Argument> {
     map(
         seq((
             optional(terminated(identifier, seq((ws0, tag("="), ws0)))),
-            expr(false),
+            constrained(false, expr),
         )),
         |(name, expr)| Argument {
             name,
             expr: expr.into(),
         },
     )
-    .parse(input)
+    .parse(s)
 }
 
-fn invocation_args<'a>(constrained: bool) -> impl Parser<&'a str, Output = Vec<Argument>> {
-    move |input: &'a str| {
-        let trailing_anon_fn = map(anonymous_fn, |anon| Argument {
-            name: None,
-            expr: anon.into(),
-        });
+fn invocation_args(s: State) -> ParseResult<State, Vec<Argument>> {
+    let constrained = s.constrained;
 
-        if let Some((input, args)) = listy("(", argument, argument, ")").parse(input) {
-            let mut seen_named_arg = false;
-            for arg in &args {
-                if seen_named_arg && arg.name.is_none() {
-                    // unnamed args cannot follow named args
-                    return None;
-                } else if arg.name.is_some() {
-                    seen_named_arg = true;
-                }
-            }
+    let trailing_anon_fn = map(anonymous_fn, |anon| Argument {
+        name: None,
+        expr: anon.into(),
+    });
 
-            if !constrained && let Some((input, arg)) = preceded(slws0, trailing_anon_fn).parse(input) {
-                let mut args = args;
-                args.push(arg);
-                Some((input, args))
-            } else {
-                Some((input, args))
+    if let Some((s, args)) = listy("(", argument, argument, ")").parse(s.clone()) {
+        let mut seen_named_arg = false;
+        for arg in &args {
+            if seen_named_arg && arg.name.is_none() {
+                // unnamed args cannot follow named args
+                return None;
+            } else if arg.name.is_some() {
+                seen_named_arg = true;
             }
+        }
+
+        if !constrained && let Some((s, arg)) = preceded(slws0, trailing_anon_fn).parse(s.clone()) {
+            let mut args = args;
+            args.push(arg);
+            Some((s, args))
         } else {
-            if constrained {
-                None
-            } else {
-                map(trailing_anon_fn, |arg| vec![arg]).parse(input)
-            }
+            Some((s, args))
+        }
+    } else {
+        if constrained {
+            None
+        } else {
+            map(trailing_anon_fn, |arg| vec![arg]).parse(s)
         }
     }
 }
 
-fn expr_index_stack(input: &str) -> ParseResult<&str, Expr> {
+fn expr_index_stack(s: State) -> ParseResult<State, Expr> {
     map(
         seq((
             expr_leaf,
             many0(delimited(
                 seq((ws0, tag("["), ws0)),
-                expr(false),
+                constrained(false, expr),
                 seq((ws0, tag("]"))),
             )),
         )),
@@ -474,15 +548,12 @@ fn expr_index_stack(input: &str) -> ParseResult<&str, Expr> {
             expr
         },
     )
-    .parse(input)
+    .parse(s)
 }
 
-fn expr_call_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> {
+fn expr_call_stack(s: State) -> ParseResult<State, Expr> {
     map(
-        seq((
-            expr_index_stack,
-            many0(preceded(slws0, invocation_args(constrained))),
-        )),
+        seq((expr_index_stack, many0(preceded(slws0, invocation_args)))),
         |(mut expr, invocations)| {
             for args in invocations {
                 expr = Expr::Invocation {
@@ -493,14 +564,12 @@ fn expr_call_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr>
             expr
         },
     )
+    .parse(s)
 }
 
-fn unary_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> {
+fn unary_expr_stack(s: State) -> ParseResult<State, Expr> {
     map(
-        seq((
-            many0(terminated(tag("!"), ws0)),
-            expr_call_stack(constrained),
-        )),
+        seq((many0(terminated(tag("!"), ws0)), expr_call_stack)),
         |(ops, mut expr)| {
             for op in ops.into_iter().rev() {
                 expr = Expr::UnaryExpr {
@@ -511,60 +580,51 @@ fn unary_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr
             expr
         },
     )
+    .parse(s)
 }
 
 #[derive(Debug, Clone)]
 enum TmpOp {
     IndexSugar(Expr),
-    Unary {
-        id: Identifier,
-        additional_args: Vec<Argument>,
-    },
-    Binary(Identifier, Expr, Vec<Argument>),
+    InfixOrPostfix { id: Identifier, args: Vec<Expr> },
 }
 
-fn postfix_index_sugar<'a>(input: &'a str) -> ParseResult<&'a str, TmpOp> {
+fn postfix_index_sugar(input: State) -> ParseResult<State, TmpOp> {
     map(
-        delimited(seq((ws0, tag(".["))), expr(false), tag("]")),
+        delimited(seq((ws0, tag(":["))), constrained(false, expr), tag("]")),
         TmpOp::IndexSugar,
     )
     .parse(input)
 }
 
-fn unary_postfix_fn<'a>(input: &'a str) -> ParseResult<&'a str, TmpOp> {
+fn infix_or_postfix_fn_latter_part(input: State) -> ParseResult<State, TmpOp> {
     map(
         seq((
-            preceded(seq((ws0, tag("."))), identifier),
-            optional(invocation_args(true)),
+            preceded(seq((ws0, tag(":"))), identifier),
+            optional(seq((
+                preceded(slws0, unary_expr_stack),
+                many0(preceded(seq((slws0, tag(","), slws0)), unary_expr_stack)),
+            ))),
         )),
-        |(id, additional_args)| TmpOp::Unary {
+        |(id, opt)| TmpOp::InfixOrPostfix {
             id,
-            additional_args: additional_args.unwrap_or(vec![]),
+            args: match opt {
+                None => vec![],
+                Some((first, mut rest)) => {
+                    rest.insert(0, first);
+                    rest
+                }
+            },
         },
     )
     .parse(input)
 }
 
-fn binary_infix_fn_latter_part<'a>(constrained: bool) -> impl Parser<&'a str, Output = TmpOp> {
+fn infix_or_postfix_fn_call_stack(s: State) -> ParseResult<State, Expr> {
     map(
         seq((
-            preceded(seq((ws0, tag(":"))), identifier),
-            optional(invocation_args(true)),
-            preceded(ws1, unary_expr_stack(true)),
-        )),
-        |(id, additional_args, expr)| TmpOp::Binary(id, expr, additional_args.unwrap_or(vec![])),
-    )
-}
-
-fn infix_or_postfix_fn_call_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> {
-    map(
-        seq((
-            unary_expr_stack(constrained),
-            many0(alt((
-                postfix_index_sugar,
-                unary_postfix_fn,
-                binary_infix_fn_latter_part(constrained),
-            ))),
+            unary_expr_stack,
+            many0(alt((postfix_index_sugar, infix_or_postfix_fn_latter_part))),
         )),
         |(mut expr, ops)| {
             for op in ops {
@@ -579,24 +639,13 @@ fn infix_or_postfix_fn_call_stack<'a>(constrained: bool) -> impl Parser<&'a str,
                             },
                         ],
                     },
-                    TmpOp::Unary {
-                        id,
-                        additional_args,
-                    } => Expr::Invocation {
+                    TmpOp::InfixOrPostfix { id, args } => Expr::Invocation {
                         expr: Expr::Variable(id).into(),
-                        args: vec![vec![Argument { name: None, expr }], additional_args].concat(),
-                    },
-                    TmpOp::Binary(fn_name, right, additional_args) => Expr::Invocation {
-                        expr: Expr::Variable(fn_name).into(),
-                        args: vec![
-                            vec![
-                                Argument { name: None, expr },
-                                Argument {
-                                    name: None,
-                                    expr: right.into(),
-                                },
-                            ],
-                            additional_args,
+                        args: [
+                            vec![Argument { name: None, expr }],
+                            args.into_iter()
+                                .map(|expr| Argument { name: None, expr })
+                                .collect(),
                         ]
                         .concat(),
                     },
@@ -605,17 +654,18 @@ fn infix_or_postfix_fn_call_stack<'a>(constrained: bool) -> impl Parser<&'a str,
             expr
         },
     )
+    .parse(s)
 }
 
-fn mul_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> {
+fn mul_expr_stack(s: State) -> ParseResult<State, Expr> {
     map(
         seq((
-            infix_or_postfix_fn_call_stack(constrained),
+            infix_or_postfix_fn_call_stack,
             many0(seq((
                 ws0,
                 alt((tag("*"), tag("/"), tag("%"))),
                 ws0,
-                infix_or_postfix_fn_call_stack(constrained),
+                infix_or_postfix_fn_call_stack,
             ))),
         )),
         |(mut expr, ops)| {
@@ -629,17 +679,18 @@ fn mul_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> 
             expr
         },
     )
+    .parse(s)
 }
 
-fn add_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> {
+fn add_expr_stack(s: State) -> ParseResult<State, Expr> {
     map(
         seq((
-            mul_expr_stack(constrained),
+            mul_expr_stack,
             many0(seq((
                 ws0,
                 alt((tag("+"), tag("-"), tag("<<"))),
                 ws0,
-                mul_expr_stack(constrained),
+                mul_expr_stack,
             ))),
         )),
         |(mut expr, ops)| {
@@ -653,12 +704,13 @@ fn add_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> 
             expr
         },
     )
+    .parse(s)
 }
 
-fn equ_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> {
+fn equ_expr_stack(s: State) -> ParseResult<State, Expr> {
     map(
         seq((
-            add_expr_stack(constrained),
+            add_expr_stack,
             many0(seq((
                 ws0,
                 alt((
@@ -671,7 +723,7 @@ fn equ_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> 
                     tag("^"),
                 )),
                 ws0,
-                add_expr_stack(constrained),
+                add_expr_stack,
             ))),
         )),
         |(mut expr, ops)| {
@@ -685,12 +737,13 @@ fn equ_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> 
             expr
         },
     )
+    .parse(s)
 }
 
-fn and_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> {
+fn and_expr_stack(s: State) -> ParseResult<State, Expr> {
     map(
         seq((
-            equ_expr_stack(constrained),
+            equ_expr_stack,
             many0(seq((
                 ws0,
                 alt((
@@ -698,7 +751,7 @@ fn and_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> 
                     //
                 )),
                 ws0,
-                equ_expr_stack(constrained),
+                equ_expr_stack,
             ))),
         )),
         |(mut expr, ops)| {
@@ -712,12 +765,13 @@ fn and_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> 
             expr
         },
     )
+    .parse(s)
 }
 
-fn or_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> {
+fn or_expr_stack(s: State) -> ParseResult<State, Expr> {
     map(
         seq((
-            and_expr_stack(constrained),
+            and_expr_stack,
             many0(seq((
                 ws0,
                 alt((
@@ -725,7 +779,7 @@ fn or_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> {
                     //
                 )),
                 ws0,
-                and_expr_stack(constrained),
+                and_expr_stack,
             ))),
         )),
         |(mut expr, ops)| {
@@ -739,45 +793,47 @@ fn or_expr_stack<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> {
             expr
         },
     )
+    .parse(s)
 }
 
-fn expr<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> {
-    alt((if_expr, or_expr_stack(constrained)))
+fn expr(s: State) -> ParseResult<State, Expr> {
+    alt((if_expr, or_expr_stack)).parse(s)
 }
 
-fn parameter_list(mut input: &str) -> ParseResult<&str, Vec<DeclarePattern>> {
-    if let Some((rem, id)) = declare_pattern.parse(input) {
+fn parameter_list(mut s: State) -> ParseResult<State, Vec<DeclarePattern>> {
+    if let Some((rem, id)) = declare_pattern.parse(s.clone()) {
         let mut ids = vec![];
         let mut seen_comma = false;
 
         ids.push(id);
-        input = rem;
+        s = rem;
 
         loop {
-            if seen_comma && let Some((rem, id)) = preceded(ws0, declare_pattern).parse(input) {
+            if seen_comma && let Some((rem, id)) = preceded(ws0, declare_pattern).parse(s.clone()) {
                 ids.push(id);
-                input = rem;
+                s = rem;
                 seen_comma = false;
-            } else if !seen_comma && let Some((rem, _)) = preceded(ws0, tag(",")).parse(input) {
-                input = rem;
+            } else if !seen_comma && let Some((rem, _)) = preceded(ws0, tag(",")).parse(s.clone()) {
+                s = rem;
                 seen_comma = true;
             } else {
-                return Some((input, ids));
+                return Some((s, ids));
             }
         }
     }
 
-    Some((input, vec![]))
+    Some((s, vec![]))
 }
 
-fn return_stmt(input: &str) -> ParseResult<&str, Stmt> {
-    map(seq((tag("return"), ws1, expr(false))), |(_, _, expr)| {
-        Stmt::Return { expr: expr.into() }
-    })
-    .parse(input)
+fn return_stmt(s: State) -> ParseResult<State, Stmt> {
+    map(
+        seq((tag("return"), ws1, constrained(false, expr))),
+        |(_, _, expr)| Stmt::Return { expr: expr.into() },
+    )
+    .parse(s)
 }
 
-fn type_leaf(input: &str) -> ParseResult<&str, Type> {
+fn type_leaf(s: State) -> ParseResult<State, Type> {
     alt((
         map(tag("any"), |_| Type::Any),
         map(tag("nil"), |_| Type::Nil),
@@ -789,10 +845,10 @@ fn type_leaf(input: &str) -> ParseResult<&str, Type> {
         map(tag("list"), |_| Type::List(Type::Any.into())),
         map(tag("tuple"), |_| Type::Tuple),
     ))
-    .parse(input)
+    .parse(s)
 }
 
-fn typespec(input: &str) -> ParseResult<&str, Type> {
+fn typespec(s: State) -> ParseResult<State, Type> {
     map(
         seq((
             type_leaf,
@@ -807,17 +863,17 @@ fn typespec(input: &str) -> ParseResult<&str, Type> {
             }
         },
     )
-    .parse(input)
+    .parse(s)
 }
 
-fn assign_pattern(input: &str) -> ParseResult<&str, AssignPattern> {
+fn assign_pattern(s: State) -> ParseResult<State, AssignPattern> {
     alt((
         map(
             seq((
                 identifier,
                 many0(delimited(
                     seq((ws0, tag("["), ws0)),
-                    expr(false),
+                    constrained(false, expr),
                     seq((ws0, tag("]"))),
                 )),
             )),
@@ -840,10 +896,10 @@ fn assign_pattern(input: &str) -> ParseResult<&str, AssignPattern> {
             |elements| AssignPattern::Tuple { elements },
         ),
     ))
-    .parse(input)
+    .parse(s)
 }
 
-fn declare_pattern(input: &str) -> ParseResult<&str, DeclarePattern> {
+fn declare_pattern(s: State) -> ParseResult<State, DeclarePattern> {
     alt((
         map(
             seq((
@@ -923,10 +979,10 @@ fn declare_pattern(input: &str) -> ParseResult<&str, DeclarePattern> {
             seq((ws0, tag(")"))),
         ),
     ))
-    .parse(input)
+    .parse(s)
 }
 
-fn declare_stmt(input: &str) -> ParseResult<&str, Stmt> {
+fn declare_stmt(s: State) -> ParseResult<State, Stmt> {
     map(
         seq((
             tag("let"),
@@ -935,17 +991,17 @@ fn declare_stmt(input: &str) -> ParseResult<&str, Stmt> {
             ws0,
             tag("="),
             ws0,
-            expr(false),
+            constrained(false, expr),
         )),
         |(_, _, pattern, _, _, _, expr)| Stmt::Declare {
             pattern,
             expr: expr.into(),
         },
     )
-    .parse(input)
+    .parse(s)
 }
 
-fn assign_stmt(input: &str) -> ParseResult<&str, Stmt> {
+fn assign_stmt(s: State) -> ParseResult<State, Stmt> {
     map(
         seq((
             assign_pattern,
@@ -961,7 +1017,7 @@ fn assign_stmt(input: &str) -> ParseResult<&str, Stmt> {
             ))),
             tag("="),
             ws0,
-            expr(false),
+            constrained(false, expr),
         )),
         |(location, _, op, _, _, expr)| Stmt::Assign {
             pattern: location.clone(),
@@ -976,20 +1032,22 @@ fn assign_stmt(input: &str) -> ParseResult<&str, Stmt> {
             },
         },
     )
-    .parse(input)
+    .parse(s)
 }
 
-fn stmt(input: &str) -> ParseResult<&str, Stmt> {
+fn stmt(s: State) -> ParseResult<State, Stmt> {
     alt((
         return_stmt,
         declare_stmt,
         assign_stmt,
-        map(expr(false), |expr| Stmt::Expr { expr: expr.into() }),
+        map(constrained(false, expr), |expr| Stmt::Expr {
+            expr: expr.into(),
+        }),
     ))
-    .parse(input)
+    .parse(s)
 }
 
-fn named_fn_item(input: &str) -> ParseResult<&str, Item> {
+fn named_fn_item(s: State) -> ParseResult<State, Item> {
     map(
         seq((
             tag("fn"),
@@ -1014,17 +1072,17 @@ fn named_fn_item(input: &str) -> ParseResult<&str, Item> {
             body,
         },
     )
-    .parse(input)
+    .parse(s)
 }
 
-fn item(input: &str) -> ParseResult<&str, Item> {
+fn item(s: State) -> ParseResult<State, Item> {
     alt((
         named_fn_item,
         // declare_stmt,
         // assign_stmt,
         // map(expr, |expr| Stmt::Expr { expr: expr.into() }),
     ))
-    .parse(input)
+    .parse(s)
 }
 
 enum StmtOrItem {
@@ -1032,11 +1090,11 @@ enum StmtOrItem {
     Item(Item),
 }
 
-fn stmt_or_item(input: &str) -> ParseResult<&str, StmtOrItem> {
-    alt((map(stmt, StmtOrItem::Stmt), map(item, StmtOrItem::Item))).parse(input)
+fn stmt_or_item(s: State) -> ParseResult<State, StmtOrItem> {
+    alt((map(stmt, StmtOrItem::Stmt), map(item, StmtOrItem::Item))).parse(s)
 }
 
-fn block_contents(input: &str) -> ParseResult<&str, Block> {
+fn block_contents(s: State) -> ParseResult<State, Block> {
     let sep = regex(r"^[ \t]*([;\n][ \t]*)+");
 
     map(
@@ -1067,14 +1125,14 @@ fn block_contents(input: &str) -> ParseResult<&str, Block> {
             block
         },
     )
-    .parse(input)
+    .parse(s)
 }
 
-fn document(input: &str) -> ParseResult<&str, Document> {
+fn document(s: State) -> ParseResult<State, Document> {
     map(seq((ws0, block_contents, ws0, eof)), |(_, body, _, _)| {
         Document { body }
     })
-    .parse(input)
+    .parse(s)
 }
 
 pub fn parse_document(input: &str) -> Option<Document> {
@@ -1088,17 +1146,18 @@ pub fn parse_document(input: &str) -> Option<Document> {
         .collect::<Vec<_>>()
         .join("\n");
 
-    document.parse(&input).map(|(_, doc)| doc)
+    document.parse(State::from(&input[..])).map(|(_, doc)| doc)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::process::Output;
 
     use super::*;
     use crate::{
         ast::Identifier,
         parse::identifier,
-        parser_combinators::{alt, recognize, seq, tag, Parser},
+        parser_combinators::{alt, seq, Parser},
     };
 
     fn id(id: &str) -> Identifier {
@@ -1179,41 +1238,61 @@ mod tests {
         }
     }
 
+    fn simple_if(cond: Expr, then: Expr, els: Expr) -> Expr {
+        Expr::If {
+            pattern: None,
+            cond: cond.into(),
+            then: Block {
+                items: vec![],
+                stmts: vec![Stmt::Expr { expr: then.into() }],
+            },
+            els: Some(Block {
+                items: vec![],
+                stmts: vec![Stmt::Expr { expr: els.into() }],
+            }),
+        }
+    }
+
+    fn test_parse<'a, O>(
+        mut parser: impl Parser<State<'a>, Output = O>,
+        input: &'a str,
+    ) -> Option<(&'a str, O)> {
+        parser
+            .parse(input.into())
+            .map(|(rem, out)| (rem.input, out))
+    }
+
     #[test]
     fn bla() {
-        assert_eq!(identifier.parse("kelley"), Some(("", id("kelley"))));
-        assert_eq!(identifier.parse("_kel6*"), Some(("*", id("_kel6"))));
-        assert_eq!(identifier.parse(" kelley"), None);
-        assert_eq!(identifier.parse(""), None);
+        assert_eq!(test_parse(identifier, "kelley"), Some(("", id("kelley"))));
+        assert_eq!(test_parse(identifier, "_kel6*"), Some(("*", id("_kel6"))));
+        assert_eq!(test_parse(identifier, " kelley"), None);
+        assert_eq!(test_parse(identifier, ""), None);
 
         assert_eq!(
-            seq((ws0, identifier)).parse("kelley"),
+            test_parse(seq((ws0, identifier)), "kelley"),
             Some(("", ("", id("kelley"))))
         );
-        assert_eq!(seq((ws1, identifier)).parse("kelley"), None);
+        assert_eq!(test_parse(seq((ws1, identifier)), "kelley"), None);
         assert_eq!(
-            seq((ws1, identifier)).parse(" kelley"),
+            test_parse(seq((ws1, identifier)), " kelley"),
             Some(("", (" ", id("kelley"))))
         );
         assert_eq!(
-            recognize(seq((ws1, identifier, ws0))).parse(" kelley ?"),
-            Some(("?", " kelley "))
-        );
-        assert_eq!(
-            seq((ws1, identifier, ws1, identifier)).parse(" kelley  bla"),
+            test_parse(seq((ws1, identifier, ws1, identifier)), " kelley  bla"),
             Some(("", (" ", id("kelley"), "  ", id("bla"))))
         );
-        assert_eq!(alt((tag("blue"), tag("red"))).parse("  kelley"), None);
+        assert_eq!(test_parse(alt((tag("blue"), tag("red"))), "  kelley"), None);
         assert_eq!(
-            alt((tag("blue"), tag("red"), ws1)).parse("  kelley"),
+            test_parse(alt((tag("blue"), tag("red"), ws1)), "  kelley"),
             Some(("kelley", "  "))
         );
         assert_eq!(
-            alt((tag("blue"), tag("red"), ws1)).parse("blue  kelley"),
+            test_parse(alt((tag("blue"), tag("red"), ws1)), "blue  kelley"),
             Some(("  kelley", "blue"))
         );
         assert_eq!(
-            parameter_list.parse("blue , kelley"),
+            test_parse(parameter_list, "blue , kelley"),
             Some((
                 "",
                 vec![
@@ -1223,11 +1302,12 @@ mod tests {
             ))
         );
         assert_eq!(
-            parameter_list.parse("kelley ,,"),
+            test_parse(parameter_list, "kelley ,,"),
             Some((",", vec![DeclarePattern::Id(id("kelley"), None)]))
         );
+
         assert_eq!(
-            parameter_list.parse("kelley , blue , )"),
+            test_parse(parameter_list, "kelley , blue , )"),
             Some((
                 " )",
                 vec![
@@ -1236,18 +1316,24 @@ mod tests {
                 ]
             ))
         );
-        assert_eq!(expr(false).parse("kelley ?"), Some((" ?", var("kelley"))));
-        assert_eq!(expr(false).parse("(kelley) ?"), Some((" ?", var("kelley"))));
         assert_eq!(
-            expr(false).parse("(kelley,) ?"),
+            test_parse(constrained(false, expr), "kelley ?"),
+            Some((" ?", var("kelley")))
+        );
+        assert_eq!(
+            test_parse(constrained(false, expr), "(kelley) ?"),
+            Some((" ?", var("kelley")))
+        );
+        assert_eq!(
+            test_parse(constrained(false, expr), "(kelley,) ?"),
             Some((" ?", tuple(vec![var("kelley")])))
         );
         assert_eq!(
-            expr(false).parse("(kelley, 21,) ?"),
+            test_parse(constrained(false, expr), "(kelley, 21,) ?"),
             Some((" ?", tuple(vec![var("kelley"), int(21)])))
         );
         assert_eq!(
-            expr(false).parse("kelley + 21 ?"),
+            test_parse(constrained(false, expr), "kelley + 21 ?"),
             Some((
                 " ?",
                 Expr::BinaryExpr {
@@ -1258,7 +1344,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            if_expr.parse("if ( kelley ) { 21 } ?"),
+            test_parse(if_expr, "if ( kelley ) { 21 } ?"),
             Some((
                 " ?",
                 Expr::If {
@@ -1275,7 +1361,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            if_expr.parse("if (let h = kelley ) { 21 } ?"),
+            test_parse(if_expr, "if (let h = kelley ) { 21 } ?"),
             Some((
                 " ?",
                 Expr::If {
@@ -1292,7 +1378,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            expr(false).parse("kelley(12) + 21 ?"),
+            test_parse(constrained(false, expr), "kelley(12) + 21 ?"),
             Some((
                 " ?",
                 Expr::BinaryExpr {
@@ -1310,7 +1396,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            expr(false).parse("kelley ( bla = 12, ) + 21 ?"),
+            test_parse(constrained(false, expr), "kelley ( bla = 12, ) + 21 ?"),
             Some((
                 " ?",
                 Expr::BinaryExpr {
@@ -1327,8 +1413,12 @@ mod tests {
                 }
             ))
         );
+
         assert_eq!(
-            expr(false).parse("kelley ( bla = 12, ) || { } + 21 ?"),
+            test_parse(
+                constrained(false, expr),
+                "kelley ( bla = 12, ) || { } + 21 ?"
+            ),
             Some((
                 " ?",
                 binary(
@@ -1357,8 +1447,9 @@ mod tests {
                 )
             ))
         );
+
         assert_eq!(
-            expr(false).parse("|| { } ?"),
+            test_parse(constrained(false, expr), "|| { } ?"),
             Some((
                 " ?",
                 Expr::AnonymousFn {
@@ -1371,7 +1462,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            expr(false).parse("||{} ?"),
+            test_parse(constrained(false, expr), "||{} ?"),
             Some((
                 " ?",
                 Expr::AnonymousFn {
@@ -1384,7 +1475,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            expr(false).parse("|a| { } ?"),
+            test_parse(constrained(false, expr), "|a| { } ?"),
             Some((
                 " ?",
                 Expr::AnonymousFn {
@@ -1397,7 +1488,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            expr(false).parse("|(a, b)| { } ?"),
+            test_parse(constrained(false, expr), "|(a, b)| { } ?"),
             Some((
                 " ?",
                 Expr::AnonymousFn {
@@ -1416,7 +1507,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            stmt.parse("let h= 7 ?"),
+            test_parse(stmt, "let h= 7 ?"),
             Some((
                 " ?",
                 Stmt::Declare {
@@ -1426,7 +1517,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            stmt.parse("let h= -7 ?"),
+            test_parse(stmt, "let h= -7 ?"),
             Some((
                 " ?",
                 Stmt::Declare {
@@ -1436,7 +1527,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            stmt.parse("let h= !-7 ?"),
+            test_parse(stmt, "let h= !-7 ?"),
             Some((
                 " ?",
                 Stmt::Declare {
@@ -1445,17 +1536,17 @@ mod tests {
                 }
             ))
         );
-        assert_eq!(expr(false).parse(r#""world""#), Some(("", str("world"))));
-        assert_eq!(expr(false).parse(r#"stdin"#), Some(("", var("stdin"))));
+        assert_eq!(test_parse(expr, r#""world""#), Some(("", str("world"))));
+        assert_eq!(test_parse(expr, r#"stdin"#), Some(("", var("stdin"))));
         assert_eq!(
-            expr(false).parse(r#"stdin :split "\n\n""#),
+            test_parse(expr, r#"stdin :split "\n\n""#),
             Some((
                 "",
                 simple_invocation("split", vec![var("stdin"), str("\n\n")])
             ))
         );
         assert_eq!(
-            expr(false).parse(r#"stdin :split "\n\n" :map {}"#),
+            test_parse(expr, r#"stdin :split "\n\n" :map {}"#),
             Some((
                 "",
                 simple_invocation(
@@ -1468,7 +1559,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            expr(false).parse(r#"stdin :split "\n\n" :map |group| { group }"#),
+            test_parse(expr, r#"stdin :split "\n\n" :map |group| { group }"#),
             Some((
                 "",
                 simple_invocation(
@@ -1481,7 +1572,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            expr(false).parse(r#"stdin :split "\n\n" :map |group| { group } .max"#),
+            test_parse(expr, r#"stdin :split "\n\n" :map |group| { group } :max"#),
             Some((
                 "",
                 simple_invocation(
@@ -1497,7 +1588,10 @@ mod tests {
             ))
         );
         assert_eq!(
-            expr(false).parse(r#"stdin :split "\n\n" :map |group| { group } .max :bla bla"#),
+            test_parse(
+                expr,
+                r#"stdin :split "\n\n" :map |group| { group } :max :bla bla"#
+            ),
             Some((
                 "",
                 simple_invocation(
@@ -1519,7 +1613,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            stmt.parse(r#"let v = /[0-9]+/"#),
+            test_parse(stmt, r#"let v = /[0-9]+/"#),
             Some((
                 "",
                 Stmt::Declare {
@@ -1532,7 +1626,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            stmt.parse(r#"let v = /[0-9\/]+/"#),
+            test_parse(stmt, r#"let v = /[0-9\/]+/"#),
             Some((
                 "",
                 Stmt::Declare {
@@ -1545,7 +1639,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            stmt.parse(r#"let v = /[!@^&*#+%$=\/]/"#),
+            test_parse(stmt, r#"let v = /[!@^&*#+%$=\/]/"#),
             Some((
                 "",
                 Stmt::Declare {
@@ -1557,8 +1651,10 @@ mod tests {
                 }
             ))
         );
+
         assert_eq!(
-            stmt.parse(
+            test_parse(
+                stmt,
                 r#"let v = y > 0 && schematic[y - 1] :slice (x, x+len) :match /[!@^&*#+%$=\/]/"#
             ),
             Some((
@@ -1597,7 +1693,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            stmt.parse(r#"let v = "world""#),
+            test_parse(stmt, r#"let v = "world""#),
             Some((
                 "",
                 Stmt::Declare {
@@ -1607,7 +1703,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            stmt.parse(r#"let v = "world"[0]"#),
+            test_parse(stmt, r#"let v = "world"[0]"#),
             Some((
                 "",
                 Stmt::Declare {
@@ -1618,7 +1714,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            stmt.parse(r#"let v = "wor{ x + 1 }ld""#),
+            test_parse(stmt, r#"let v = "wor{ x + 1 }ld""#),
             Some((
                 "",
                 Stmt::Declare {
@@ -1639,7 +1735,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            item.parse(r#"fn main() {}"#),
+            test_parse(item, r#"fn main() {}"#),
             Some((
                 "",
                 Item::NamedFn {
@@ -1653,7 +1749,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            item.parse(r#"fn main() { h = 1 }"#),
+            test_parse(item, r#"fn main() { h = 1 }"#),
             Some((
                 "",
                 Item::NamedFn {
@@ -1700,7 +1796,8 @@ mod tests {
         };
 
         assert_eq!(
-            item.parse(
+            test_parse(
+                item,
                 r#"fn make_counter(start) {
                     let n = start
                     |d| {
@@ -1743,7 +1840,8 @@ mod tests {
         );
 
         assert_eq!(
-            expr(false).parse(
+            test_parse(
+                constrained(false, expr),
                 r#"if (d == 0) {
                     n = 0
                 } else {
@@ -1754,7 +1852,8 @@ mod tests {
         );
 
         assert_eq!(
-            expr(false).parse(
+            test_parse(
+                constrained(false, expr),
                 r#"if (d == 0) {
                     n = 0
                 } else if (d == 0) {
@@ -1791,7 +1890,8 @@ mod tests {
         );
 
         assert_eq!(
-            block_contents.parse(
+            test_parse(
+                block_contents,
                 "let h= 7
  ?"
             ),
@@ -1807,8 +1907,9 @@ mod tests {
             ))
         );
         assert_eq!(
-            block_contents.parse(
-                "h+= 7 
+            test_parse(
+                block_contents,
+                "h+= 7
 
 5 ?"
             ),
@@ -1829,8 +1930,9 @@ mod tests {
             ))
         );
         assert_eq!(
-            block_contents.parse(
-                "let h:int = 7 ; kelley= 712 ;; 
+            test_parse(
+                block_contents,
+                "let h:int = 7 ; kelley= 712 ;;
 
 5 ?"
             ),
@@ -1855,7 +1957,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            block_contents.parse("let h = 7; fn main() {}"),
+            test_parse(block_contents, "let h = 7; fn main() {}"),
             Some((
                 "",
                 Block {
@@ -1875,7 +1977,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            stmt.parse("let h= { 7 ;1 } ?"),
+            test_parse(stmt, "let h= { 7 ;1 } ?"),
             Some((
                 " ?",
                 Stmt::Declare {
@@ -1899,7 +2001,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            stmt.parse("for (let i in range(1, 2)) {} ?"),
+            test_parse(stmt, "for (let i in range(1, 2)) {} ?"),
             Some((
                 " ?",
                 Stmt::Expr {
@@ -1916,16 +2018,17 @@ mod tests {
             ))
         );
         assert_eq!(
-            document.parse(
+            test_parse(
+                document,
                 r#"
-let v = "world"
+        let v = "world"
 
-let h = 2
+        let h = 2
 
-{
-  "hello {v} {h}"
-}
-"#
+        {
+          "hello {v} {h}"
+        }
+        "#
             ),
             Some((
                 "",
@@ -1972,42 +2075,31 @@ let h = 2
         );
 
         {
-            let a = document.parse(
+            let a = test_parse(
+                document,
                 r#"
-let v = "world"
+        let v = "world"
 
-View() {
-    print("hello {v}")
+        View() {
+            print("hello {v}")
 
-    let result = run {
-        let h = 7
-        6 + h
-    }
+            let result = run {
+                let h = 7
+                6 + h
+            }
 
-    if (something(2, 6)) {
-        sdf
-    } else {
+            if (something(2, 6)) {
+                sdf
+            } else {
 
-    }
+            }
 
-    Box |ctx| {
-        Title {
+            Box |ctx| {
+                Title {
 
+                }
+            }
         }
-    }
-}
-"#,
-            );
-
-            assert!(a.is_some());
-        }
-
-        {
-            let a = document.parse(
-                r#"let i = 0
-
-        fn make_counter(start) {}
-
         "#,
             );
 
@@ -2019,17 +2111,17 @@ View() {
     fn trailing_anon_vs_separate_stmt_ambiguity() {
         let doc_1 = parse_document(
             r#"
-fn make_closure() {
-  let rules = input
-    :map |n| {
-      "hi im closure"
-    }
+        fn make_closure() {
+          let rules = input
+            :map |n| {
+              "hi im closure"
+            }
 
-  |n| {
-    "hi im closure"
-  }
-}
-        "#,
+          |n| {
+            "hi im closure"
+          }
+        }
+                "#,
         )
         .expect("should parse");
 
@@ -2052,131 +2144,152 @@ fn make_closure() {
                 }
             },
         }
-
-        //         let doc_2 = parse_document(
-        //             r#"
-        // fn make_closure() {
-        //   let rules = input
-        //     :map |n| {
-        //       "hi im closure"
-        //     } |n| {
-        //       "hi im closure"
-        //     }
-        // }
-        //         "#,
-        //         )
-        //         .expect("should parse");
-
-        //         match doc_2 {
-        //             Document {
-        //                 body: Block { mut items, .. },
-        //             } => match items.pop().unwrap() {
-        //                 Item::NamedFn {
-        //                     body: Block { stmts, .. },
-        //                     ..
-        //                 } => {
-        //                     assert_eq!(stmts.len(), 1);
-        //                     assert_eq!(
-        //                         stmts,
-        //                         vec![Stmt::Declare {
-        //                             pattern: DeclarePattern::Id(id("rules"), None),
-        //                             expr: simple_invocation(
-        //                                 "map",
-        //                                 vec![
-        //                                     var("input"),
-        //                                     Expr::Invocation {
-        //                                         expr: Expr::AnonymousFn {
-        //                                             params: vec![DeclarePattern::Id(id("n"), None)],
-        //                                             body: Block {
-        //                                                 items: vec![],
-        //                                                 stmts: vec![Stmt::Expr {
-        //                                                     expr: str("hi im closure").into()
-        //                                                 }]
-        //                                             }
-        //                                         }
-        //                                         .into(),
-        //                                         args: vec![Argument {
-        //                                             name: None,
-        //                                             expr: Expr::AnonymousFn {
-        //                                                 params: vec![DeclarePattern::Id(id("n"), None)],
-        //                                                 body: Block {
-        //                                                     items: vec![],
-        //                                                     stmts: vec![Stmt::Expr {
-        //                                                         expr: str("hi im closure").into()
-        //                                                     }]
-        //                                                 }
-        //                                             }
-        //                                         }]
-        //                                     }
-        //                                 ]
-        //                             )
-        //                             .into()
-        //                         }]
-        //                     );
-        //                 }
-        //             },
-        //         }
     }
 
     #[test]
     fn infix_fns() {
-        let anonymous_fn = Expr::AnonymousFn {
-            params: vec![param("a"), param("b")],
-            body: Block {
-                items: vec![],
-                stmts: vec![Stmt::Expr {
-                    expr: binary("*", var("a"), var("b")).into(),
-                }],
-            },
-        };
-
-        // This is the intended syntax / usage
-        // --
-        // There's no space between `fold` and `(1)`, which allows the `1` to be an additional param to `fold`
         assert_eq!(
-            expr(false).parse("[1, 2, 3] :fold(1) |a, b| { a * b }"),
+            test_parse(expr, r"input :trim :split b"),
             Some((
                 "",
-                Expr::Invocation {
-                    expr: var("fold").into(),
-                    args: vec![
-                        Argument {
-                            name: None,
-                            expr: list(vec![int(1), int(2), int(3)])
-                        },
-                        Argument {
-                            name: None,
-                            expr: anonymous_fn.clone()
-                        },
-                        Argument {
-                            name: None,
-                            expr: int(1)
-                        }
-                    ]
-                }
+                simple_invocation(
+                    "split",
+                    vec![simple_invocation("trim", vec![var("input")]), var("b")]
+                )
             ))
         );
 
-        // This is probably the programmer's syntax mistake
-        // ---
-        // There's a space between `fold` and `(1)`, which makes the `1` ineligible for additional params.
         assert_eq!(
-            expr(false).parse("[1, 2, 3] :fold (1) |a, b| { a * b }"),
+            test_parse(expr, r"input :trim :split b c"),
             Some((
-                " |a, b| { a * b }",
-                Expr::Invocation {
-                    expr: var("fold").into(),
-                    args: vec![
-                        Argument {
-                            name: None,
-                            expr: list(vec![int(1), int(2), int(3)])
-                        },
-                        Argument {
-                            name: None,
-                            expr: int(1)
-                        }
+                " c",
+                simple_invocation(
+                    "split",
+                    vec![simple_invocation("trim", vec![var("input")]), var("b")]
+                )
+            ))
+        );
+
+        assert_eq!(
+            test_parse(expr, r"input :trim :split b, c"),
+            Some((
+                "",
+                simple_invocation(
+                    "split",
+                    vec![
+                        simple_invocation("trim", vec![var("input")]),
+                        var("b"),
+                        var("c")
                     ]
-                }
+                )
+            ))
+        );
+
+        assert_eq!(
+            test_parse(expr, r"input :trim :split b, c :fold 1, |acc, bla| { 42 }"),
+            Some((
+                "",
+                simple_invocation(
+                    "fold",
+                    vec![
+                        simple_invocation(
+                            "split",
+                            vec![
+                                simple_invocation("trim", vec![var("input")]),
+                                var("b"),
+                                var("c")
+                            ]
+                        ),
+                        int(1),
+                        anon_expr(vec!["acc", "bla"], int(42))
+                    ]
+                )
+            ))
+        );
+
+        assert_eq!(
+            test_parse(
+                constrained(true, expr),
+                r"input :trim :split b, c :fold 1, { 42 }"
+            ),
+            Some((
+                ", { 42 }",
+                simple_invocation(
+                    "fold",
+                    vec![
+                        simple_invocation(
+                            "split",
+                            vec![
+                                simple_invocation("trim", vec![var("input")]),
+                                var("b"),
+                                var("c")
+                            ]
+                        ),
+                        int(1),
+                    ]
+                )
+            ))
+        );
+
+        assert_eq!(
+            test_parse(
+                constrained(true, expr),
+                r"input :trim :split b, c :fold 1, |acc, bla| { 42 }"
+            ),
+            Some((
+                "",
+                simple_invocation(
+                    "fold",
+                    vec![
+                        simple_invocation(
+                            "split",
+                            vec![
+                                simple_invocation("trim", vec![var("input")]),
+                                var("b"),
+                                var("c")
+                            ]
+                        ),
+                        int(1),
+                        anon_expr(vec!["acc", "bla"], int(42))
+                    ]
+                )
+            ))
+        );
+
+        assert_eq!(
+            test_parse(
+                constrained(true, expr),
+                r"input :trim :split b, c :fold 1, (|acc, bla| { 42 })"
+            ),
+            Some((
+                "",
+                simple_invocation(
+                    "fold",
+                    vec![
+                        simple_invocation(
+                            "split",
+                            vec![
+                                simple_invocation("trim", vec![var("input")]),
+                                var("b"),
+                                var("c")
+                            ]
+                        ),
+                        int(1),
+                        anon_expr(vec!["acc", "bla"], int(42))
+                    ]
+                )
+            ))
+        );
+
+        assert_eq!(
+            test_parse(expr, r"if lines :map { a } else { b }"),
+            Some((
+                "",
+                simple_if(
+                    simple_invocation("map", vec![var("lines"),]),
+                    var("a"),
+                    var("b")
+                )
             ))
         );
     }

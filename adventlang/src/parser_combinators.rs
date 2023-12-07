@@ -1,5 +1,3 @@
-use regex::Regex;
-
 pub type ParseResult<I, O> = Option<(I, O)>;
 
 pub trait Parser<I> {
@@ -19,29 +17,6 @@ where
     }
 }
 
-pub fn regex<'a>(str: &str) -> impl Parser<&'a str, Output = &'a str> {
-    let re = Regex::new(str).unwrap();
-
-    move |input: &'a str| {
-        if let Some(m) = re.find(input) {
-            let found = &input[m.range()];
-            Some((&input[found.len()..], found))
-        } else {
-            None
-        }
-    }
-}
-
-pub fn tag<'a>(tag: &'static str) -> impl Parser<&'a str, Output = &'a str> {
-    move |input: &'a str| {
-        if input.starts_with(tag) {
-            Some((&input[tag.len()..], tag))
-        } else {
-            None
-        }
-    }
-}
-
 pub fn map<I, O1, O2>(
     mut p1: impl Parser<I, Output = O1>,
     mut f: impl FnMut(O1) -> O2,
@@ -51,6 +26,19 @@ pub fn map<I, O1, O2>(
             //
             (remaining, f(res))
         })
+    }
+}
+
+pub fn cond<I, O>(
+    mut p: impl Parser<I, Output = O>,
+    check: impl Fn(&I) -> bool,
+) -> impl Parser<I, Output = O> {
+    move |input: I| {
+        if check(&input) {
+            p.parse(input)
+        } else {
+            None
+        }
     }
 }
 
@@ -231,18 +219,6 @@ pub fn alt<I, O, List: Alt<I, Output = O>>(mut list: List) -> impl Parser<I, Out
     move |input: I| list.choice(input)
 }
 
-pub fn recognize<'a, P, O>(mut p: P) -> impl Parser<&'a str, Output = &'a str>
-where
-    P: Parser<&'a str, Output = O>,
-{
-    move |input: &'a str| {
-        p.parse(input).map(|(remaining, _)| {
-            let len = input.len() - remaining.len();
-            (remaining, &input[..len])
-        })
-    }
-}
-
 pub fn delimited<I, P1, O1, P2, O2, P3, O3>(p1: P1, p2: P2, p3: P3) -> impl Parser<I, Output = O2>
 where
     P1: Parser<I, Output = O1>,
@@ -277,6 +253,22 @@ where
             Some((input, Some(res)))
         } else {
             Some((input, None))
+        }
+    }
+}
+
+pub fn optional_if<P, I: Clone, O, C>(mut p: P, check: C) -> impl Parser<I, Output = Option<O>>
+where
+    P: Parser<I, Output = O>,
+    C: Fn(&I) -> bool,
+{
+    move |input: I| {
+        if let Some((input, res)) = p.parse(input.clone()) {
+            Some((input, Some(res)))
+        } else if check(&input) {
+            Some((input, None))
+        } else {
+            None
         }
     }
 }

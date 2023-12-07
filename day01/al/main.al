@@ -61,7 +61,7 @@ fn bonus(input) {
     let digits = range(0, line:len)
       :filter_map |i| {
         nums :find_map |t| {
-          if (line:slice(i):starts_with(t[0])) {
+          if line :slice i :starts_with t[0] {
             t[1]
           }
         }

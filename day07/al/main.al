@@ -186,7 +186,7 @@ fn bonus(input: str) {
     convert_base(hand) + (hand_type(hand) << 20)
   }
 
-  input:trim:lines
+  input :trim :lines
     :map |line| { line :split " " }
     :sort_by_key |[hand, bid]| { score_hand(hand) }
     :enumerate

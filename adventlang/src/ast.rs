@@ -3,7 +3,7 @@ use std::{cmp::Ordering, collections::HashSet, fmt::Display};
 use compact_str::CompactString;
 use either::Either;
 
-use crate::runtime::{AlRegex, Numeric};
+use crate::value::{AlRegex, Numeric};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {

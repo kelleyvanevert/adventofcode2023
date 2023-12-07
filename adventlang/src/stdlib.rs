@@ -1,6 +1,7 @@
 use crate::{
     ast::{DeclarePattern, Identifier, Type},
-    runtime::{FnBody, FnSig, Numeric, Runtime, RuntimeError, Value},
+    runtime::{FnBody, FnSig, Runtime, Value},
+    value::{Numeric, RuntimeError},
 };
 
 fn id(id: &str) -> Identifier {
@@ -283,7 +284,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "fold",
         [FnSig {
-            params: vec![idpat("items"), idpat("cb"), idpat("init")],
+            params: vec![idpat("items"), idpat("init"), idpat("cb")],
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
                 let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();

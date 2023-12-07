@@ -8,3 +8,4 @@ pub mod parse;
 pub mod parser_combinators;
 pub mod runtime;
 pub mod stdlib;
+pub mod value;

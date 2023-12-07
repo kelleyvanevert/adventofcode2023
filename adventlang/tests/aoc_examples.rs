@@ -1,6 +1,7 @@
 use adventlang::{
     parse::parse_document,
-    runtime::{execute, Numeric, Value},
+    runtime::{execute, Value},
+    value::Numeric,
 };
 
 fn tuple(elements: impl IntoIterator<Item = Value>) -> Value {
@@ -56,20 +57,20 @@ let nums = [
 ]
 
 fn solve(input) {
-  let values = input .lines :map |line| {
-    let digits = line .chars :filter is_digit
+  let values = input :lines :map |line| {
+    let digits = line :chars :filter is_digit
     int(digits[0] + digits[-1])
   }
 
-  values.sum
+  values :sum
 }
 
 fn bonus(input) {
-  let values = input .lines :map |line| {
-    let digits = range(0, line.len)
+  let values = input :lines :map |line| {
+    let digits = range(0, line :len)
       :filter_map |i| {
         nums :find_map |t| {
-          if line.slice(i).starts_with(t[0]) {
+          if line :slice i :starts_with t[0] {
             t[1]
           }
         }
@@ -78,7 +79,7 @@ fn bonus(input) {
     int(digits[0] + digits[-1])
   }
 
-  values.sum
+  values :sum
 }
 
 let solution = solve("1abc2
@@ -99,7 +100,10 @@ zoneight234
 "#;
 
     assert_eq!(
-        execute(&parse_document(document).unwrap(), "".into()),
+        execute(
+            &parse_document(document).expect("document should parse"),
+            "".into()
+        ),
         Ok(tuple([int(142), int(281)]))
     );
 }
@@ -114,20 +118,20 @@ Game 2: 1 blue, 2 green; 3 green, 4 blue, 1 red; 1 green, 1 blue
 Game 3: 8 green, 6 blue, 20 red; 5 blue, 4 red, 13 green; 5 green, 1 red
 Game 4: 1 green, 3 red, 6 blue; 3 green, 6 red; 3 green, 15 blue, 14 red
 Game 5: 6 red, 1 blue, 3 green; 2 blue, 1 red, 2 green
-";
+"
 
 fn solve(input, red, green, blue) {
   input
-    .trim
-    .lines
+    :trim
+    :lines
     :map |game| {
       let [id, sets] = game :split ": "
-      let id = id :replace ("Game ", "") .int
+      let id = id :replace ("Game ", "") :int
       let invalid = sets :split "; "
         :flat_map |set| { set :split ", " }
         :map |draw| {
-          let [num, color] = draw.split(" ")
-          (num.int, color)
+          let [num, color] = draw :split " "
+          (num:int, color)
         }
         :find |(num, color)| {
           color == "red" && num > red
@@ -141,13 +145,13 @@ fn solve(input, red, green, blue) {
         id
       }
     }
-    .sum
+    :sum
 }
 
 fn bonus(input) {
   input
-    .trim
-    .lines
+    :trim
+    :lines
     :map |game| {
       let red = 0;
       let green = 0;
@@ -157,8 +161,8 @@ fn bonus(input) {
       sets :split "; "
         :flat_map |set| { set :split ", " }
         :map |draw| {
-          let [num, color] = draw.split(" ")
-          (num.int, color)
+          let [num, color] = draw :split " "
+          (num:int, color)
         }
         :map |(num, color)| {
           if (color == "red") {
@@ -174,7 +178,7 @@ fn bonus(input) {
 
       red * green * blue
     }
-    .sum
+    :sum
 }
 
 let solution = solve(example_input, 12, 13, 14)
@@ -186,7 +190,10 @@ let bonus_solution = bonus(example_input)
 "#;
 
     assert_eq!(
-        execute(&parse_document(document).unwrap(), "".into()),
+        execute(
+            &parse_document(document).expect("document should parse"),
+            "".into()
+        ),
         Ok(tuple([int(8), int(2286)]))
     );
 }
@@ -209,36 +216,36 @@ let example_input = "
 "
 
 fn solve(input) {
-  let schematic = input.trim.lines
+  let schematic = input :trim :lines
   let total = 0
 
   fn should_include(y, x, l) {
     // check previous row
-    if y > 0 && schematic[y - 1] :slice ((x-1) :max 0, x+l+1) :match /[-!@^&*#+%$=\/]/ {
+    if y > 0 && schematic[y - 1] :slice (max(x-1, 0), x+l+1) :match /[-!@^&*#+%$=\/]/ {
       return true
     }
 
     // check current row
-    if schematic[y] :slice ((x-1) :max 0, x+l+1) :match /[-!@^&*#+%$=\/]/ {
+    if schematic[y] :slice (max(x-1, 0), x+l+1) :match /[-!@^&*#+%$=\/]/ {
       return true
     }
 
     // check next row
-    if y < schematic.len - 1 && schematic[y + 1] :slice ((x-1) :max 0, x+l+1) :match /[-!@^&*#+%$=\/]/ {
+    if y < schematic:len - 1 && schematic[y + 1] :slice (max(x-1, 0), x+l+1) :match /[-!@^&*#+%$=\/]/ {
       return true
     }
 
     false
   }
 
-  for let (y, line) in schematic.enumerate {
+  for let (y, line) in schematic:enumerate {
     let x = 0
-    while x < line.len {
+    while x < line:len {
       if let m = line :slice x :match /^[0-9]+/ {
-        if should_include(y, x, m[0].len) {
-          total = total + (m[0].int)
+        if should_include(y, x, m[0]:len) {
+          total = total + int(m[0])
         }
-        x += m[0].len
+        x += m[0]:len
       } else {
         x += 1
       }
@@ -249,7 +256,7 @@ fn solve(input) {
 }
 
 fn bonus(input) {
-  let schematic = input.trim.lines
+  let schematic = input :trim :lines
   let total = 0
   let possible_gears = @{}
 
@@ -265,35 +272,35 @@ fn bonus(input) {
     // check previous row
     if y > 0 {
       let start = (x-1) :max 0
-      if let m = schematic[y - 1] :slice (start, x + s.len + 1) :match /[*]/ {
+      if let m = schematic[y - 1] :slice (start, x + s:len + 1) :match /[*]/ {
         let pos = (y-1, start+m[1])
-        found_adj(pos, s.int)
+        found_adj(pos, s:int)
       }
     }
 
     // check current row
     let start = (x-1) :max 0
-    if let m = schematic[y] :slice (start, x + s.len + 1) :match /[*]/ {
+    if let m = schematic[y] :slice (start, x + s:len + 1) :match /[*]/ {
       let pos = (y, start+m[1])
-      found_adj(pos, s.int)
+      found_adj(pos, s:int)
     }
 
     // check next row
-    if y < schematic.len - 1 {
+    if y < schematic:len - 1 {
       let start = (x-1) :max 0
-      if let m = schematic[y + 1] :slice (start, x + s.len + 1) :match /[*]/ {
+      if let m = schematic[y + 1] :slice (start, x + s:len + 1) :match /[*]/ {
         let pos = (y+1, start+m[1])
-        found_adj(pos, s.int)
+        found_adj(pos, s:int)
       }
     }
   }
 
-  for let (y, line) in schematic.enumerate {
+  for let (y, line) in schematic:enumerate {
     let x = 0
-    while x < line.len {
+    while x < line:len {
       if let m = line :slice x :match /^[0-9]+/ {
         possible_gear_part(y, x, m[0])
-        x += m[0].len
+        x += m[0]:len
       } else {
         x += 1
       }
@@ -312,7 +319,10 @@ let bonus_solution = bonus(example_input);
 "#;
 
     assert_eq!(
-        execute(&parse_document(document).unwrap(), "".into()),
+        execute(
+            &parse_document(document).expect("document should parse"),
+            "".into()
+        ),
         Ok(tuple([int(4361), int(467835)]))
     );
 }
@@ -332,14 +342,14 @@ Card 6: 31 18 13 56 72 | 74 77 10 23 35 67 36 11
 
 fn solve(input: str) {
   input
-    .trim
-    .lines
+    :trim
+    :lines
     :map |line: str| {
       let [_, rest] = line :split ":"
       let [winning, yours] = rest :split "|" :map |seg| {
-        seg :match_all /[0-9]+/ :map |t| { t[0].int }
+        seg :match_all /[0-9]+/ :map |t| { t[0]:int }
       }
-      let wins = yours :filter |n| { n :in winning } .len
+      let wins = yours :filter |n| { n :in winning } :len
 
       if (wins > 0) {
         2 ^ (wins - 1)
@@ -347,27 +357,27 @@ fn solve(input: str) {
         0
       }
     }
-    .sum
+    :sum
 }
 
 fn bonus(input: str) {
-  let card_wins = input.trim.lines :map |line: str| {
+  let card_wins = input :trim :lines :map |line: str| {
     let [_, rest] = line :split ":"
     let [winning, yours] = rest :split "|" :map |seg| {
-      seg :match_all /[0-9]+/ :map |t| { t[0].int }
+      seg :match_all /[0-9]+/ :map |t| { t[0]:int }
     }
-    yours :filter |n| { n :in winning } .len
+    yours :filter |n| { n :in winning } :len
   }
 
   let copies = card_wins :map |_| { 1 }
 
-  for let i in range(0, card_wins.len) {
+  for let i in range(0, card_wins:len) {
     for let w in range(1, card_wins[i] + 1) {
       copies[i + w] += copies[i]
     }
   }
 
-  copies.sum
+  copies:sum
 }
 
 let solution = solve(example_input);
@@ -379,7 +389,10 @@ let bonus_solution = bonus(example_input);
 "#;
 
     assert_eq!(
-        execute(&parse_document(document).unwrap(), "".into()),
+        execute(
+            &parse_document(document).expect("document should parse"),
+            "".into()
+        ),
         Ok(tuple([int(13), int(30)]))
     );
 }
@@ -425,7 +438,7 @@ humidity-to-location map:
 ";
 
 fn construct_mapper(input: str) {
-  let rules = input.trim.lines.slice(1) :map |line| {
+  let rules = input :trim :lines :slice(1) :map |line| {
     line :split " " :map int
   }
 
@@ -440,7 +453,7 @@ fn construct_mapper(input: str) {
 }
 
 fn solve(input: str) {
-  let [seeds, ..rest] = input.trim :split "\n\n"
+  let [seeds, ..rest] = input :trim :split "\n\n"
   let seeds = seeds :replace ("seeds: ", "") :split " " :map int
   let mappers = rest :map construct_mapper
 
@@ -451,11 +464,11 @@ fn solve(input: str) {
       }
       seed
     }
-    .min
+    :min
 }
 
 fn construct_smart_mapper(input: str) {
-  let rules = input.trim.lines.slice(1)
+  let rules = input :trim :lines :slice(1)
     :map |line| {
       line :split " " :map int
     }
@@ -478,7 +491,7 @@ fn construct_smart_mapper(input: str) {
 }
 
 fn bonus(input: str) {
-  let [seeds, ..rest] = input.trim :split "\n\n"
+  let [seeds, ..rest] = input :trim :split "\n\n"
   let seeds = seeds :replace ("seeds: ", "") :split " " :map int
   let mappers = rest :map construct_smart_mapper
 
@@ -512,7 +525,10 @@ let bonus_solution = bonus(example_input);
 "#;
 
     assert_eq!(
-        execute(&parse_document(document).unwrap(), "".into()),
+        execute(
+            &parse_document(document).expect("document should parse"),
+            "".into()
+        ),
         Ok(tuple([int(35), int(46)]))
     );
 }
@@ -550,23 +566,23 @@ fn race((t, d)) {
 }
 
 fn solve(input: str) {
-    let [time, dist] = input.trim.lines :map |line| {
-        line :split ":" .[1] .trim :split /[ ]+/ :map int
+    let [time, dist] = input :trim :lines :map |line| {
+        line :split ":" :[1] :trim :split /[ ]+/ :map int
     }
 
     let races = time :zip dist
 
     races
         :map race
-        :fold(1) |a, b| { a * b }
+        :fold 1, |a, b| { a * b }
 }
 
 fn bonus(input: str) {
-    let [time, dist] = input.trim.lines :map |line| {
-        line :split ":" .[1] .trim :replace (/[ ]+/, "") .int
+    let [time, dist] = input :trim :lines :map |line| {
+        line :split ":" :[1] :trim :replace (/[ ]+/, "") :int
     }
 
-    (time, dist).race
+    (time, dist):race
 }
 
 let solution = solve(example_input);
@@ -578,7 +594,10 @@ let bonus_solution = bonus(example_input);
 "#;
 
     assert_eq!(
-        execute(&parse_document(document).unwrap(), "".into()),
+        execute(
+            &parse_document(document).expect("document should parse"),
+            "".into()
+        ),
         Ok(tuple([int(288), int(71503)]))
     );
 }
@@ -621,14 +640,14 @@ fn solve(input: str) {
   }
 
   fn convert_base(hand: str) {
-    hand .chars .reverse .enumerate
+    hand :chars :reverse :enumerate
       :map |(i, d)| { digits[d] << (i * 4) }
-      .sum
+      :sum
   }
 
   fn hand_type(hand: str) {
     let counts = range(0, 16) :map |i| { (i, 0) }
-    for let k in hand .chars :map |d| { digits[d] } {
+    for let k in hand :chars :map |d| { digits[d] } {
       counts[k][1] += 1
     }
 
@@ -663,14 +682,13 @@ fn solve(input: str) {
     convert_base(hand) + (hand_type(hand) << 20)
   }
 
-  input.trim.lines
+  input :trim :lines
     :map |line| { line :split " " }
     :sort_by_key |[hand, bid]| { score_hand(hand) }
-    .enumerate
-    :map |(i, [hand, bid])| { (i + 1) * bid.int }
-    .sum
+    :enumerate
+    :map |(i, [hand, bid])| { (i + 1) * bid:int }
+    :sum
 }
-
 
 fn bonus(input: str) {
   let J = 0
@@ -694,14 +712,14 @@ fn bonus(input: str) {
   }
 
   fn convert_base(hand: str) {
-    hand .chars .reverse .enumerate
+    hand :chars :reverse :enumerate
       :map |(i, d)| { digits[d] << (i * 4) }
-      .sum
+      :sum
   }
 
   fn hand_type(hand: str) {
     let counts = range(0, 16) :map |i| { (i, 0) }
-    for let k in hand .chars :map |d| { digits[d] } {
+    for let k in hand :chars :map |d| { digits[d] } {
       counts[k][1] += 1
     }
 
@@ -774,12 +792,12 @@ fn bonus(input: str) {
     convert_base(hand) + (hand_type(hand) << 20)
   }
 
-  input.trim.lines
+  input :trim :lines
     :map |line| { line :split " " }
     :sort_by_key |[hand, bid]| { score_hand(hand) }
-    .enumerate
-    :map |(i, [hand, bid])| { (i + 1) * bid.int }
-    .sum
+    :enumerate
+    :map |(i, [hand, bid])| { (i + 1) * bid:int }
+    :sum
 }
 
 let solution = solve(example_input);
@@ -791,7 +809,10 @@ let bonus_solution = bonus(example_input);
 "#;
 
     assert_eq!(
-        execute(&parse_document(document).unwrap(), "".into()),
+        execute(
+            &parse_document(document).expect("document should parse"),
+            "".into()
+        ),
         Ok(tuple([int(6440), int(5905)]))
     );
 }
