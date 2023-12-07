@@ -256,7 +256,7 @@
           "include": "#boolean-literal"
         },
         {
-          "include": "#null-literal"
+          "include": "#nil-literal"
         }
       ]
     },
@@ -316,11 +316,11 @@
     },
     "nil-literal": {
       "name": "constant.language.null.al",
-      "match": "(?<!\\.|\\$)\\nil\\b(?!\\$)"
+      "match": "(?<!\\.|\\$)\\bnil\\b(?!\\$)"
     },
     "keyword": {
       "name": "keyword.other.al",
-      "match": "\\b(fn|let|if|else|do|while|for|loop|return)\\b"
+      "match": "\\b(fn|let|if|else|do|while|for|in|loop|return)\\b"
     },
     "comment": {
       "patterns": [
