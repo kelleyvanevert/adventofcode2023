@@ -136,8 +136,7 @@ fn bonus(input: str) {
     if let (i, k) = counts :find |(i, c)| { c == 3 } {
       if jokers >= 2 {
         return five_of_a_kind
-      }
-      if jokers >= 1 {
+      } else if jokers >= 1 {
         return four_of_a_kind
       }
 
@@ -151,8 +150,7 @@ fn bonus(input: str) {
     if let (i, k) = counts :find |(i, c)| { c == 2 } {
       if jokers >= 3 {
         return five_of_a_kind
-      }
-      if jokers >= 2 {
+      } else if jokers >= 2 {
         return four_of_a_kind
       }
 
@@ -173,16 +171,14 @@ fn bonus(input: str) {
 
     if jokers >= 4 {
       return five_of_a_kind
-    }
-    if jokers >= 3 {
+    } else if jokers >= 3 {
       return four_of_a_kind
-    }
-    if jokers >= 2 {
+    } else if jokers >= 2 {
       return three_of_a_kind
-    }
-    if jokers >= 1 {
+    } else if jokers >= 1 {
       return one_pair
     }
+
     return high_card
   }
 

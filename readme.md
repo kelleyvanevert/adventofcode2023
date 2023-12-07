@@ -267,3 +267,4 @@ This syntax hassle was by far the largest part of today's work :P
 - `<<` left bit shift
 - `!=` implemented
 - list built-ins: `reverse(list)`, `any(list, fn)`
+- `else if` syntax (which isn't free in our case, because both branches need to be blocks, and cannot be single expressions like in some other languages)

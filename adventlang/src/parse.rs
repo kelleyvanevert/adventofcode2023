@@ -211,17 +211,35 @@ fn if_expr(input: &str) -> ParseResult<&str, Expr> {
             ))),
             ws0,
             delimited(seq((tag("{"), ws0)), block_contents, seq((ws0, tag("}")))),
-            optional(delimited(
-                seq((ws0, tag("else"), ws0, tag("{"), ws0)),
-                block_contents,
-                seq((ws0, tag("}"))),
+            optional(preceded(
+                seq((ws0, tag("else"), ws0)),
+                alt((
+                    map(if_expr, Either::Left),
+                    map(
+                        delimited(
+                            seq((ws0, tag("{"), ws0)),
+                            block_contents,
+                            seq((ws0, tag("}"))),
+                        ),
+                        Either::Right,
+                    ),
+                )),
             )),
         )),
-        |(_, _, (pattern, cond), _, then, els)| Expr::If {
+        |(_, _, (pattern, cond), _, then, further)| Expr::If {
             pattern,
             cond: cond.into(),
             then,
-            els,
+            els: match further {
+                Some(Either::Left(if_expr)) => Some(Block {
+                    items: vec![],
+                    stmts: vec![Stmt::Expr {
+                        expr: if_expr.into(),
+                    }],
+                }),
+                Some(Either::Right(else_block)) => Some(else_block),
+                _ => None,
+            },
         },
     )
     .parse(input)
@@ -1651,6 +1669,36 @@ mod tests {
                 }
             ))
         );
+
+        let if_block = Expr::If {
+            pattern: None,
+            cond: Expr::BinaryExpr {
+                left: Expr::Variable(id("d")).into(),
+                op: "==".into(),
+                right: Expr::Numeric(Numeric::Int(0)).into(),
+            }
+            .into(),
+            then: Block {
+                items: vec![],
+                stmts: vec![Stmt::Assign {
+                    pattern: AssignPattern::Id(id("n")),
+                    expr: Expr::Numeric(Numeric::Int(0)).into(),
+                }],
+            },
+            els: Some(Block {
+                items: vec![],
+                stmts: vec![Stmt::Assign {
+                    pattern: AssignPattern::Id(id("n")),
+                    expr: Expr::BinaryExpr {
+                        left: Expr::Variable(id("n")).into(),
+                        op: "+".into(),
+                        right: Expr::Variable(id("d")).into(),
+                    }
+                    .into(),
+                }],
+            }),
+        };
+
         assert_eq!(
             item.parse(
                 r#"fn make_counter(start) {
@@ -1682,35 +1730,7 @@ mod tests {
                                     body: Block {
                                         items: vec![],
                                         stmts: vec![Stmt::Expr {
-                                            expr: Expr::If {
-                                                pattern: None,
-                                                cond: Expr::BinaryExpr {
-                                                    left: Expr::Variable(id("d")).into(),
-                                                    op: "==".into(),
-                                                    right: Expr::Numeric(Numeric::Int(0)).into()
-                                                }
-                                                .into(),
-                                                then: Block {
-                                                    items: vec![],
-                                                    stmts: vec![Stmt::Assign {
-                                                        pattern: AssignPattern::Id(id("n")),
-                                                        expr: Expr::Numeric(Numeric::Int(0)).into()
-                                                    }]
-                                                },
-                                                els: Some(Block {
-                                                    items: vec![],
-                                                    stmts: vec![Stmt::Assign {
-                                                        pattern: AssignPattern::Id(id("n")),
-                                                        expr: Expr::BinaryExpr {
-                                                            left: Expr::Variable(id("n")).into(),
-                                                            op: "+".into(),
-                                                            right: Expr::Variable(id("d")).into()
-                                                        }
-                                                        .into()
-                                                    }]
-                                                })
-                                            }
-                                            .into()
+                                            expr: if_block.clone().into()
                                         }]
                                     }
                                 }
@@ -1721,6 +1741,55 @@ mod tests {
                 }
             ))
         );
+
+        assert_eq!(
+            expr(false).parse(
+                r#"if (d == 0) {
+                    n = 0
+                } else {
+                    n = n + d
+                }"#
+            ),
+            Some(("", if_block.clone().into()))
+        );
+
+        assert_eq!(
+            expr(false).parse(
+                r#"if (d == 0) {
+                    n = 0
+                } else if (d == 0) {
+                    n = 0
+                } else {
+                    n = n + d
+                }"#
+            ),
+            Some((
+                "",
+                Expr::If {
+                    pattern: None,
+                    cond: Expr::BinaryExpr {
+                        left: Expr::Variable(id("d")).into(),
+                        op: "==".into(),
+                        right: Expr::Numeric(Numeric::Int(0)).into(),
+                    }
+                    .into(),
+                    then: Block {
+                        items: vec![],
+                        stmts: vec![Stmt::Assign {
+                            pattern: AssignPattern::Id(id("n")),
+                            expr: Expr::Numeric(Numeric::Int(0)).into(),
+                        }],
+                    },
+                    els: Some(Block {
+                        items: vec![],
+                        stmts: vec![Stmt::Expr {
+                            expr: if_block.clone().into()
+                        }],
+                    }),
+                }
+            ))
+        );
+
         assert_eq!(
             block_contents.parse(
                 "let h= 7
