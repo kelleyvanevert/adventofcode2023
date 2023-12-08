@@ -96,10 +96,10 @@ fn bonus(input: str) {
   }
 }
 
-//print("Example solution: {solve(example_input)}")
+print("Example solution: {solve(example_input)}")
 
 // ±1.5s
-//print("Solution: {solve(stdin)}")
+print("Solution: {solve(stdin)}")
 
 print("Example bonus: {bonus(bonus_example_input)}")
 
