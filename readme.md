@@ -324,3 +324,26 @@ Because now the branch could just as well be an anonymous function passed to `su
     bla
   }
   ```
+
+A technical problem I was running into while implementing this "constrained" mode version of parsers, was that Rust's type system started faltering on figuring out the implicit return types of my parametrized parser functions, because of circularity etc.
+
+```
+fn expr_level<'a>(constrained: bool) -> impl Parser<&'a str, Output = Expr> {
+  ...
+}
+```
+
+After quite a while of struggling with this (and almost just ditching my own parser combinators and moving back to `nom` because I just didn't know what to do), I remembered _"the monad way"_ ✨ haha, and added the "constrainedness" mode to the "input state" of the parsers, just like `nom_locate` adds line/col info to the input state:
+
+```
+struct State<'a> {
+  input: &'a str,
+  constrained: bool,
+}
+
+fn expr_level(state: State) -> ParseResult<State, Expr> {
+  ...
+}
+```
+
+Now everything works smoothly again! :) And I can add line/col info like `nom_locate` does as well, sometime later.
