@@ -278,3 +278,49 @@ Added to AL:
 - `!=` implemented
 - list built-ins: `reverse(list)`, `any(list, fn)`
 - `else if` syntax (which isn't free in our case, because both branches need to be blocks, and cannot be single expressions like in some other languages)
+
+**_UPDATE_**
+
+I resolved the syntax problem now, by only using semicolons for both postfix and infix notation function calls. There's not much ambiguity between the two any way, either an argument follows, or it doesn't. The only reason I had the different syntax in the first place, was just because it kinda seemed cute and helpful, but, it's not such a big deal. This frees up single dot syntax for property access.
+
+We do have one remaining syntax ambiguity left though, namely using expressions in control structure conditions, without parentheses, like so:
+
+```
+if nums :sum {
+  bla
+}
+```
+
+Because now the branch could just as well be an anonymous function passed to `sum`. I just resolved this following the same pattern of "constrained expressions" I had already started using. The condition expression is a constrained expression, which means it won't consume such anonymous functions, without param lists. And what if you want to use an anonymous function then? You have a few options:
+
+- Add parentheses around the whole condition expression
+
+  ```
+  if (nums :sum { bla }) {
+    bla
+  }
+  ```
+
+- Add parentheses around the anonymous function you want to use
+
+  ```
+  if nums :sum ({ bla }) {
+    bla
+  }
+  ```
+
+- Add a parameter list
+
+  ```
+  if nums :sum || { bla } {
+    bla
+  }
+  ```
+
+  ..which is very common anyway:
+
+  ```
+  if nums :find |n| { n > 0 } {
+    bla
+  }
+  ```
