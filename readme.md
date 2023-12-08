@@ -293,7 +293,7 @@ if nums :sum {
 
 Because now the branch could just as well be an anonymous function passed to `sum`. I just resolved this following the same pattern of "constrained expressions" I had already started using. The condition expression is a constrained expression, which means it won't consume such anonymous functions, without param lists. And what if you want to use an anonymous function then? You have a few options:
 
-- Add parentheses around the whole condition expression
+- Add parentheses around the whole condition expression (parenthesized expressions are no longer constrained)
 
   ```
   if (nums :sum { bla }) {
