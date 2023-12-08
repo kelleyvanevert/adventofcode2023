@@ -10,7 +10,7 @@ use crate::{
         StrLiteralPiece, Type,
     },
     stdlib::implement_stdlib,
-    value::{AlRegex, Numeric, RuntimeError},
+    value::{AlRegex, EvalOther, EvaluationResult, Numeric, RuntimeError},
 };
 
 #[derive(Debug, Clone)]
@@ -77,7 +77,7 @@ impl std::hash::Hash for FnSig {
 #[derive(Debug, Clone, PartialEq)]
 pub enum FnBody {
     Code(Block),
-    Builtin(fn(&mut Runtime, usize) -> Result<Value, RuntimeError>),
+    Builtin(fn(&mut Runtime, usize) -> EvaluationResult<Value>),
 }
 
 impl std::hash::Hash for FnBody {
@@ -176,96 +176,68 @@ impl Display for Value {
 }
 
 impl Value {
-    pub fn negate(&self) -> Result<Value, RuntimeError> {
+    pub fn negate(&self) -> EvaluationResult<Value> {
         match self {
             Value::Nil => Ok(Value::Nil),
             Value::Bool(b) => Ok(Value::Bool(!b)),
-            Value::Str(_) => Err(RuntimeError(format!("Can't negate str"))),
+            Value::Str(_) => RuntimeError(format!("Can't negate str")).into(),
             Value::Numeric(n) => Ok(Value::Numeric(n.negate()?)),
-            _ => Err(RuntimeError(format!("Can't negate {}", self.ty()))),
+            _ => RuntimeError(format!("Can't negate {}", self.ty())).into(),
         }
     }
 
-    pub fn left_shift(&self, other: Value) -> Result<Value, RuntimeError> {
+    pub fn left_shift(&self, other: Value) -> EvaluationResult<Value> {
         match (self, other) {
             (Value::Numeric(Numeric::Int(a)), Value::Numeric(Numeric::Int(b))) if b >= 0 => {
                 Ok(Value::Numeric(Numeric::Int(a << b)))
             }
-            (a, b) => Err(RuntimeError(format!(
-                "can't perform {} << {}",
-                a.ty(),
-                b.ty()
-            ))),
+            (a, b) => RuntimeError(format!("can't perform {} << {}", a.ty(), b.ty())).into(),
         }
     }
 
-    pub fn pow(&self, other: Value) -> Result<Value, RuntimeError> {
+    pub fn pow(&self, other: Value) -> EvaluationResult<Value> {
         match (self, other) {
             (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.pow(b))),
-            (a, b) => Err(RuntimeError(format!(
-                "can't perform {} + {}",
-                a.ty(),
-                b.ty()
-            ))),
+            (a, b) => RuntimeError(format!("can't perform {} + {}", a.ty(), b.ty())).into(),
         }
     }
 
-    pub fn add(&self, other: Value) -> Result<Value, RuntimeError> {
+    pub fn add(&self, other: Value) -> EvaluationResult<Value> {
         match (self, other) {
             (Value::Str(a), Value::Str(b)) => {
                 let new = Substr::from(a.to_string() + &b);
                 Ok(Value::Str(new))
             }
             (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.add(b))),
-            (a, b) => Err(RuntimeError(format!(
-                "can't perform {} + {}",
-                a.ty(),
-                b.ty()
-            ))),
+            (a, b) => RuntimeError(format!("can't perform {} + {}", a.ty(), b.ty())).into(),
         }
     }
 
-    pub fn sub(&self, other: &Value) -> Result<Value, RuntimeError> {
+    pub fn sub(&self, other: &Value) -> EvaluationResult<Value> {
         match (self, other) {
             (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.sub(b))),
-            (a, b) => Err(RuntimeError(format!(
-                "can't perform {} + {}",
-                a.ty(),
-                b.ty()
-            ))),
+            (a, b) => RuntimeError(format!("can't perform {} + {}", a.ty(), b.ty())).into(),
         }
     }
 
-    pub fn mul(&self, other: Value) -> Result<Value, RuntimeError> {
+    pub fn mul(&self, other: Value) -> EvaluationResult<Value> {
         match (self, other) {
             (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.mul(b))),
-            (a, b) => Err(RuntimeError(format!(
-                "can't perform {} + {}",
-                a.ty(),
-                b.ty()
-            ))),
+            (a, b) => RuntimeError(format!("can't perform {} + {}", a.ty(), b.ty())).into(),
         }
     }
 
-    pub fn div(&self, other: Value) -> Result<Value, RuntimeError> {
+    pub fn div(&self, other: Value) -> EvaluationResult<Value> {
         match (self, other) {
             (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.div(b))),
-            (a, b) => Err(RuntimeError(format!(
-                "can't perform {} + {}",
-                a.ty(),
-                b.ty()
-            ))),
+            (a, b) => RuntimeError(format!("can't perform {} + {}", a.ty(), b.ty())).into(),
         }
     }
 
-    pub fn modulo(&self, other: Value) -> Result<Value, RuntimeError> {
+    pub fn modulo(&self, other: Value) -> EvaluationResult<Value> {
         match (self, other) {
             (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.modulo(b))),
-            (a, b) => Err(RuntimeError(format!(
-                "can't perform {} + {}",
-                a.ty(),
-                b.ty()
-            ))),
+            (a, b) => RuntimeError(format!("can't perform {} + {}", a.ty(), b.ty())).into(),
         }
     }
 
@@ -291,9 +263,9 @@ impl Value {
     }
 
     // TODO
-    pub fn auto_coerce_int(&self) -> Result<i64, RuntimeError> {
+    pub fn auto_coerce_int(&self) -> EvaluationResult<i64> {
         match self {
-            Value::Nil => Err(RuntimeError(format!("cannot coerce {} to int", self.ty()))),
+            Value::Nil => RuntimeError(format!("cannot coerce {} to int", self.ty())).into(),
             Value::Bool(b) => {
                 if *b {
                     Ok(1)
@@ -304,10 +276,10 @@ impl Value {
             Value::Str(str) => {
                 return str
                     .parse::<i64>()
-                    .map_err(|_| RuntimeError(format!("cannot coerce '{}' to int", str)));
+                    .map_err(|_| RuntimeError(format!("cannot coerce '{}' to int", str)).into());
             }
             Value::Numeric(n) => n.get_int(),
-            _ => Err(RuntimeError(format!("cannot coerce {} to int", self.ty()))),
+            _ => RuntimeError(format!("cannot coerce {} to int", self.ty())).into(),
         }
     }
 
@@ -325,14 +297,7 @@ impl Value {
         }
     }
 
-    pub fn auto_coerce_bool(&self) -> Result<bool, RuntimeError> {
-        match self {
-            Value::Bool(b) => Ok(*b),
-            _ => Err(RuntimeError(format!("cannot coerce {}", self.ty()))),
-        }
-    }
-
-    pub fn truthy(&self) -> Result<bool, RuntimeError> {
+    pub fn truthy(&self) -> EvaluationResult<bool> {
         match self {
             Value::Nil => Ok(false),
             Value::Bool(b) => Ok(*b),
@@ -340,10 +305,7 @@ impl Value {
             Value::Tuple(_) => Ok(true),
             Value::Numeric(n) => Ok(n != &Numeric::Int(0) && n != &Numeric::Double(0.0)),
             Value::Str(str) => Ok(str.len() > 0),
-            _ => Err(RuntimeError(format!(
-                "cannot check truthiness of {}",
-                self.ty()
-            ))),
+            _ => RuntimeError(format!("cannot check truthiness of {}", self.ty())).into(),
         }
     }
 }
@@ -395,13 +357,9 @@ impl Runtime {
         );
     }
 
-    pub fn lookup(
-        &self,
-        scope_id: usize,
-        id: &Identifier,
-    ) -> Result<(usize, &Value), RuntimeError> {
+    pub fn lookup(&self, scope_id: usize, id: &Identifier) -> EvaluationResult<(usize, &Value)> {
         let Some(scope) = self.scopes.get(scope_id) else {
-            return Err(RuntimeError("weird: scope does not exist".into()));
+            return RuntimeError("weird: scope does not exist".into()).into();
         };
 
         if let Some(value) = scope.values.get(id) {
@@ -411,42 +369,36 @@ impl Runtime {
         if let Some(parent_scope_id) = scope.parent_scope {
             match self.lookup(parent_scope_id, id) {
                 Ok(res) => Ok(res),
-                Err(_) => Err(RuntimeError(format!(
+                Err(_) => RuntimeError(format!(
                     "variable `{id}` does not exist in scope tree: {}",
                     self.debug_scope(scope_id)
-                ))),
+                ))
+                .into(),
             }
         } else {
-            Err(RuntimeError(format!(
+            RuntimeError(format!(
                 "variable `{id}` does not exist in scope tree: {}",
                 self.debug_scope(scope_id)
-            )))
+            ))
+            .into()
         }
     }
 
-    pub fn execute_block(
-        &mut self,
-        scope: usize,
-        block: &Block,
-    ) -> Result<(Value, Option<Value>), RuntimeError> {
+    pub fn execute_block(&mut self, scope: usize, block: &Block) -> EvaluationResult<Value> {
         let mut result = Value::Nil;
-        let mut ret = None;
 
         for item in &block.items {
             self.define(scope, &item)?;
         }
 
         for stmt in &block.stmts {
-            (result, ret) = self.execute(scope, &stmt)?;
-            if ret.is_some() {
-                return Ok((Value::Nil, ret));
-            }
+            result = self.execute(scope, &stmt)?;
         }
 
-        Ok((result, None))
+        Ok(result)
     }
 
-    pub fn define(&mut self, scope: usize, item: &Item) -> Result<(), RuntimeError> {
+    pub fn define(&mut self, scope: usize, item: &Item) -> EvaluationResult<()> {
         match item {
             Item::NamedFn { name, params, body } => {
                 self.scopes[scope].values.insert(
@@ -471,7 +423,7 @@ impl Runtime {
         scope: usize,
         assignable: Assignable,
         value: Value,
-    ) -> Result<Option<Value>, RuntimeError> {
+    ) -> EvaluationResult<Option<Value>> {
         match assignable {
             Assignable::Loc { scope, id, indexes } => {
                 if indexes.len() == 0 {
@@ -488,27 +440,30 @@ impl Runtime {
                     match location_value {
                         Value::List(t, list) => {
                             let Ok(i) = index_value.auto_coerce_int() else {
-                                return Err(RuntimeError(format!(
+                                return RuntimeError(format!(
                                     "list index must be int, is: {}",
                                     index_value.ty(),
-                                )));
+                                ))
+                                .into();
                             };
 
                             if i < 0 {
-                                return Err(RuntimeError(format!(
+                                return RuntimeError(format!(
                                     "list index must be positive int, is: {}",
                                     i,
-                                )));
+                                ))
+                                .into();
                             }
 
                             let i = i as usize;
 
                             if !(*t >= value.ty()) {
-                                return Err(RuntimeError(format!(
+                                return RuntimeError(format!(
                                     "cannot insert value of type {} into list of type {}",
                                     value.ty(),
                                     Type::List(t.clone().into())
-                                )));
+                                ))
+                                .into();
                             }
 
                             if list.len() < i + 1 {
@@ -519,17 +474,19 @@ impl Runtime {
                         }
                         Value::Tuple(list) => {
                             let Ok(i) = index_value.auto_coerce_int() else {
-                                return Err(RuntimeError(format!(
+                                return RuntimeError(format!(
                                     "tuple index must be int, is: {}",
                                     index_value.ty(),
-                                )));
+                                ))
+                                .into();
                             };
 
                             if i < 0 {
-                                return Err(RuntimeError(format!(
+                                return RuntimeError(format!(
                                     "tuple index must be positive int, is: {}",
                                     i,
-                                )));
+                                ))
+                                .into();
                             }
 
                             let i = i as usize;
@@ -544,10 +501,11 @@ impl Runtime {
                             location_value = dict.0.entry(index_value).or_insert(Value::Nil);
                         }
                         _ => {
-                            return Err(RuntimeError(format!(
+                            return RuntimeError(format!(
                                 "cannot assign into value of type: {}",
                                 value.ty()
-                            )))
+                            ))
+                            .into()
                         }
                     }
                 }
@@ -559,10 +517,11 @@ impl Runtime {
             }
             Assignable::List { elements } => {
                 let Value::List(_, items) = value else {
-                    return Err(RuntimeError(format!(
+                    return RuntimeError(format!(
                         "cannot assign into list pattern: {}",
                         value.ty()
-                    )));
+                    ))
+                    .into();
                 };
 
                 for (pattern, value) in elements
@@ -576,10 +535,11 @@ impl Runtime {
             }
             Assignable::Tuple { elements } => {
                 let Value::Tuple(items) = value else {
-                    return Err(RuntimeError(format!(
+                    return RuntimeError(format!(
                         "cannot assign into tuple pattern: {}",
                         value.ty()
-                    )));
+                    ))
+                    .into();
                 };
 
                 for (pattern, value) in elements
@@ -599,22 +559,24 @@ impl Runtime {
         scope: usize,
         pattern: &DeclarePattern,
         value: Value,
-    ) -> Result<(), RuntimeError> {
+    ) -> EvaluationResult<()> {
         match pattern {
             DeclarePattern::Id(id, _) => {
                 self.scopes[scope].values.insert(id.clone(), value);
             }
             DeclarePattern::List { elements, rest } => {
                 let Value::List(item_type, mut items) = value else {
-                    return Err(RuntimeError(format!(
-                        "cannot assign to list pattern: {}",
-                        value.ty()
-                    )));
+                    return RuntimeError(format!("cannot assign to list pattern: {}", value.ty()))
+                        .into();
                 };
 
-                let assign_rest_later = rest
-                    .clone()
-                    .try_map(|(id, t)| Ok((id, t, items.split_off(elements.len()))))?;
+                let assign_rest_later = rest.clone().try_map(|(id, t)| {
+                    Ok::<(Identifier, Option<Type>, Vec<Value>), EvalOther>((
+                        id,
+                        t,
+                        items.split_off(elements.len()),
+                    ))
+                })?;
 
                 for (pattern, value) in elements
                     .into_iter()
@@ -633,15 +595,17 @@ impl Runtime {
             }
             DeclarePattern::Tuple { elements, rest } => {
                 let Value::Tuple(mut items) = value else {
-                    return Err(RuntimeError(format!(
-                        "cannot assign to tiple pattern: {}",
-                        value.ty()
-                    )));
+                    return RuntimeError(format!("cannot assign to tiple pattern: {}", value.ty()))
+                        .into();
                 };
 
-                let assign_rest_later = rest
-                    .clone()
-                    .try_map(|(id, t)| Ok((id, t, items.split_off(elements.len()))))?;
+                let assign_rest_later = rest.clone().try_map(|(id, t)| {
+                    Ok::<(Identifier, Option<Type>, Vec<Value>), EvalOther>((
+                        id,
+                        t,
+                        items.split_off(elements.len()),
+                    ))
+                })?;
 
                 for (pattern, value) in elements
                     .into_iter()
@@ -659,50 +623,40 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn execute(
-        &mut self,
-        scope: usize,
-        stmt: &Stmt,
-    ) -> Result<(Value, Option<Value>), RuntimeError> {
+    pub fn execute(&mut self, scope: usize, stmt: &Stmt) -> EvaluationResult<Value> {
         match stmt {
-            Stmt::Return { expr } => {
-                let (value, ret) = self.evaluate(scope, expr)?;
-                if let Some(return_value) = ret {
-                    return Ok((Value::Nil, Some(return_value)));
-                }
+            Stmt::Break { expr } => {
+                let value = expr
+                    .clone()
+                    .try_map(|expr| self.evaluate(scope, &expr))?
+                    .unwrap_or(Value::Nil);
 
-                Ok((Value::Nil, Some(value)))
+                Err(EvalOther::Break(value))
+            }
+            Stmt::Return { expr } => {
+                let value = expr
+                    .clone()
+                    .try_map(|expr| self.evaluate(scope, &expr))?
+                    .unwrap_or(Value::Nil);
+
+                Err(EvalOther::Return(value))
             }
             Stmt::Expr { expr } => self.evaluate(scope, expr),
             Stmt::Declare { pattern, expr } => {
-                let (value, ret) = self.evaluate(scope, expr)?;
-                if let Some(return_value) = ret {
-                    return Ok((Value::Nil, Some(return_value)));
-                }
+                let value = self.evaluate(scope, expr)?;
 
                 self.declare(scope, pattern, value)?;
 
-                Ok((Value::Nil, None))
+                Ok(Value::Nil)
             }
             Stmt::Assign { pattern, expr } => {
-                let (value, ret) = self.evaluate(scope, expr)?;
-                if let Some(return_value) = ret {
-                    return Ok((Value::Nil, Some(return_value)));
-                }
+                let value = self.evaluate(scope, expr)?;
 
-                let assignable = match self.evaluate_assignable(scope, &pattern)? {
-                    Either::Left(a) => a,
-                    Either::Right(return_value) => {
-                        return Ok((Value::Nil, Some(return_value)));
-                    }
-                };
+                let assignable = self.evaluate_assignable(scope, &pattern)?;
 
-                let ret = self.assign(scope, assignable, value)?;
-                if let Some(return_value) = ret {
-                    return Ok((Value::Nil, Some(return_value)));
-                }
+                let _ = self.assign(scope, assignable, value)?;
 
-                Ok((Value::Nil, None))
+                Ok(Value::Nil)
             }
         }
     }
@@ -756,7 +710,7 @@ impl Runtime {
         &mut self,
         def: FnDef,
         args: Vec<(Option<Identifier>, Value)>,
-    ) -> Result<Value, RuntimeError> {
+    ) -> EvaluationResult<Value> {
         let FnDef {
             name,
             parent_scope,
@@ -769,13 +723,14 @@ impl Runtime {
             .collect::<Vec<_>>();
 
         let FnSig { params, body } = if matching_signatures.len() == 0 {
-            return Err(RuntimeError(format!(
+            return RuntimeError(format!(
                 "could not find matching signature for {}({:?})",
                 name.map(|n| n.0).unwrap_or("<anonymous>".into()),
                 args.iter()
                     .map(|arg| format!("{}", arg.1.ty()))
                     .collect::<Vec<_>>()
-            )));
+            ))
+            .into();
         } else if matching_signatures.len() == 1 {
             matching_signatures.swap_remove(0)
         } else {
@@ -804,9 +759,10 @@ impl Runtime {
                         self.scopes[execution_scope].values.insert(name, arg_value);
                     }
                     None => {
-                        return Err(RuntimeError(format!(
+                        return RuntimeError(format!(
                             "cannot pass named arg {name} (no param with that name)"
-                        )));
+                        ))
+                        .into();
                     }
                 }
             } else if let Some(pattern) = params_remaining.get(0).cloned() {
@@ -815,94 +771,75 @@ impl Runtime {
                 self.declare(execution_scope, &pattern, arg_value)?;
             } else {
                 // no params left
-                return Err(RuntimeError(format!("no param to pass arg to")));
+                return RuntimeError(format!("no param to pass arg to")).into();
             }
         }
 
         if params_remaining.len() > 0 {
             // unassigned params
-            return Err(RuntimeError(format!("unassigned params left")));
+            return RuntimeError(format!("unassigned params left")).into();
         }
 
-        Ok(match body {
-            FnBody::Code(block) => {
-                let (block_eval_result, ret) = self.execute_block(execution_scope, &block)?;
-                match ret {
-                    Some(return_value) => return_value,
-                    None => block_eval_result,
-                }
-            }
-            FnBody::Builtin(f) => f(self, execution_scope)?,
-        })
+        match body {
+            FnBody::Code(block) => match self.execute_block(execution_scope, &block) {
+                Ok(value) => Ok(value),
+                Err(EvalOther::Return(return_value)) => Ok(return_value),
+                other => other,
+            },
+            FnBody::Builtin(f) => f(self, execution_scope),
+        }
     }
 
     pub fn evaluate_assignable(
         &mut self,
         eval_scope: usize,
         pattern: &AssignPattern,
-    ) -> Result<Either<Assignable, Value>, RuntimeError> {
+    ) -> EvaluationResult<Assignable> {
         match pattern {
             AssignPattern::Id(id) => {
                 let (def_scope, _) = self.lookup(eval_scope, id)?;
-                Ok(Either::Left(Assignable::Loc {
+                Ok(Assignable::Loc {
                     scope: def_scope,
                     id: id.clone(),
                     indexes: vec![],
-                }))
+                })
             }
             AssignPattern::Index(pattern, index_expr) => {
                 match self.evaluate_assignable(eval_scope, &pattern)? {
-                    Either::Right(return_value) => Ok(Either::Right(return_value)),
-                    Either::Left(Assignable::Loc {
+                    Assignable::Loc {
                         scope,
                         id,
                         mut indexes,
-                    }) => {
-                        let (result, ret) = self.evaluate(eval_scope, index_expr)?;
-                        if let Some(return_value) = ret {
-                            return Ok(Either::Right(return_value));
-                        }
+                    } => {
+                        let result = self.evaluate(eval_scope, index_expr)?;
 
                         indexes.push(result);
 
-                        Ok(Either::Left(Assignable::Loc { scope, id, indexes }))
+                        Ok(Assignable::Loc { scope, id, indexes })
                     }
-                    _ => Err(RuntimeError(format!(
+                    _ => RuntimeError(format!(
                         "cannot index into list or tuple assignable pattern"
-                    ))),
+                    ))
+                    .into(),
                 }
             }
             AssignPattern::List { elements } => {
                 let mut assignable_elements = Vec::with_capacity(elements.len());
                 for pattern in elements {
-                    match self.evaluate_assignable(eval_scope, pattern)? {
-                        Either::Right(return_value) => {
-                            return Ok(Either::Right(return_value));
-                        }
-                        Either::Left(assignable) => {
-                            assignable_elements.push(assignable);
-                        }
-                    }
+                    assignable_elements.push(self.evaluate_assignable(eval_scope, pattern)?);
                 }
-                Ok(Either::Left(Assignable::List {
+                Ok(Assignable::List {
                     elements: assignable_elements,
-                }))
+                })
             }
             AssignPattern::Tuple { elements } => {
                 let mut assignable_elements = Vec::with_capacity(elements.len());
                 for pattern in elements {
-                    match self.evaluate_assignable(eval_scope, pattern)? {
-                        Either::Right(return_value) => {
-                            return Ok(Either::Right(return_value));
-                        }
-                        Either::Left(assignable) => {
-                            assignable_elements.push(assignable);
-                        }
-                    }
+                    assignable_elements.push(self.evaluate_assignable(eval_scope, pattern)?);
                 }
-                Ok(Either::Left(Assignable::Tuple {
+                Ok(Assignable::Tuple {
                     elements: assignable_elements,
-                }))
+                })
             }
         }
     }
@@ -927,37 +864,24 @@ impl Runtime {
         }
     }
 
-    pub fn evaluate(
-        &mut self,
-        scope: usize,
-        expr: &Expr,
-    ) -> Result<(Value, Option<Value>), RuntimeError> {
+    pub fn evaluate(&mut self, scope: usize, expr: &Expr) -> EvaluationResult<Value> {
         match expr {
-            Expr::Bool(b) => Ok((Value::Bool(*b), None)),
-            Expr::NilLiteral => Ok((Value::Nil, None)),
+            Expr::Bool(b) => Ok(Value::Bool(*b)),
+            Expr::NilLiteral => Ok(Value::Nil),
             Expr::DictLiteral { elements } => {
                 let mut dict = Dict::new();
                 for (key, value_expr) in elements {
                     let key_value = match key {
                         Either::Left(name) => Value::Str(name.0.to_string().into()),
-                        Either::Right(key_expr) => {
-                            let (val, ret) = self.evaluate(scope, key_expr)?;
-                            if ret.is_some() {
-                                return Ok((Value::Nil, ret));
-                            }
-                            val
-                        }
+                        Either::Right(key_expr) => self.evaluate(scope, key_expr)?,
                     };
 
-                    let (expr_value, ret) = self.evaluate(scope, value_expr)?;
-                    if ret.is_some() {
-                        return Ok((Value::Nil, ret));
-                    }
+                    let expr_value = self.evaluate(scope, value_expr)?;
 
                     dict.0.insert(key_value, expr_value);
                 }
 
-                Ok((Value::Dict(dict), None))
+                Ok(Value::Dict(dict))
             }
             Expr::StrLiteral { pieces } => {
                 let mut build = "".to_string();
@@ -968,261 +892,187 @@ impl Runtime {
                             build += fragment;
                         }
                         StrLiteralPiece::Interpolation(expr) => {
-                            let (value, ret) = self.evaluate(scope, expr)?;
-                            if let Some(return_value) = ret {
-                                return Ok((Value::Nil, Some(return_value)));
-                            }
+                            let value = self.evaluate(scope, expr)?;
                             build += &format!("{}", value);
                             // build += &value.auto_coerce_str();
                         }
                     }
                 }
 
-                Ok((Value::Str(Substr::from(build)), None))
+                Ok(Value::Str(Substr::from(build)))
             }
-            Expr::Numeric(num) => Ok((Value::Numeric(num.clone()), None)),
-            Expr::RegexLiteral { regex } => Ok((Value::Regex(regex.clone()), None)),
+            Expr::Numeric(num) => Ok(Value::Numeric(num.clone())),
+            Expr::RegexLiteral { regex } => Ok(Value::Regex(regex.clone())),
             Expr::Variable(id) => {
                 let (_, value) = self.lookup(scope, id)?;
-                Ok((value.clone(), None))
+                Ok(value.clone())
             }
             Expr::UnaryExpr { expr, op } => {
-                let (value, ret) = self.evaluate(scope, expr)?;
-                if let Some(return_value) = ret {
-                    return Ok((Value::Nil, Some(return_value)));
-                }
+                let value = self.evaluate(scope, expr)?;
                 match op.as_str() {
-                    "!" => Ok((value.negate()?, None)),
-                    _ => Err(RuntimeError(format!("Unknown unary operation: {op}"))),
+                    "!" => Ok(value.negate()?),
+                    _ => RuntimeError(format!("Unknown unary operation: {op}")).into(),
                 }
             }
             Expr::BinaryExpr { left, op, right } => {
-                let (left_value, ret) = self.evaluate(scope, left)?;
-                if let Some(return_value) = ret {
-                    return Ok((Value::Nil, Some(return_value)));
-                }
+                let left_value = self.evaluate(scope, left)?;
+
                 match op.as_str() {
                     "^" => {
-                        let (right_value, ret) = self.evaluate(scope, right)?;
-                        if let Some(return_value) = ret {
-                            return Ok((Value::Nil, Some(return_value)));
-                        }
-                        Ok((left_value.pow(right_value)?, None))
+                        let right_value = self.evaluate(scope, right)?;
+                        Ok(left_value.pow(right_value)?)
                     }
                     "<<" => {
-                        let (right_value, ret) = self.evaluate(scope, right)?;
-                        if let Some(return_value) = ret {
-                            return Ok((Value::Nil, Some(return_value)));
-                        }
-                        Ok((left_value.left_shift(right_value)?, None))
+                        let right_value = self.evaluate(scope, right)?;
+                        Ok(left_value.left_shift(right_value)?)
                     }
                     "+" => {
-                        let (right_value, ret) = self.evaluate(scope, right)?;
-                        if let Some(return_value) = ret {
-                            return Ok((Value::Nil, Some(return_value)));
-                        }
-                        Ok((left_value.add(right_value)?, None))
+                        let right_value = self.evaluate(scope, right)?;
+                        Ok(left_value.add(right_value)?)
                     }
                     "-" => {
-                        let (right_value, ret) = self.evaluate(scope, right)?;
-                        if let Some(return_value) = ret {
-                            return Ok((Value::Nil, Some(return_value)));
-                        }
-                        Ok((left_value.sub(&right_value)?, None))
+                        let right_value = self.evaluate(scope, right)?;
+                        Ok(left_value.sub(&right_value)?)
                     }
                     "*" => {
-                        let (right_value, ret) = self.evaluate(scope, right)?;
-                        if let Some(return_value) = ret {
-                            return Ok((Value::Nil, Some(return_value)));
-                        }
-                        Ok((left_value.mul(right_value)?, None))
+                        let right_value = self.evaluate(scope, right)?;
+                        Ok(left_value.mul(right_value)?)
                     }
                     "/" => {
-                        let (right_value, ret) = self.evaluate(scope, right)?;
-                        if let Some(return_value) = ret {
-                            return Ok((Value::Nil, Some(return_value)));
-                        }
-                        Ok((left_value.div(right_value)?, None))
+                        let right_value = self.evaluate(scope, right)?;
+                        Ok(left_value.div(right_value)?)
                     }
                     "%" => {
-                        let (right_value, ret) = self.evaluate(scope, right)?;
-                        if let Some(return_value) = ret {
-                            return Ok((Value::Nil, Some(return_value)));
-                        }
-                        Ok((left_value.modulo(right_value)?, None))
+                        let right_value = self.evaluate(scope, right)?;
+                        Ok(left_value.modulo(right_value)?)
                     }
                     "<" => {
-                        let (right_value, ret) = self.evaluate(scope, right)?;
-                        if let Some(return_value) = ret {
-                            return Ok((Value::Nil, Some(return_value)));
-                        }
+                        let right_value = self.evaluate(scope, right)?;
                         match left_value.partial_cmp(&right_value) {
-                            None => Err(RuntimeError(format!("cannot compare"))),
-                            Some(ord) => Ok((Value::Bool(ord == Ordering::Less), None)),
+                            None => RuntimeError(format!("cannot compare")).into(),
+                            Some(ord) => Ok(Value::Bool(ord == Ordering::Less)),
                         }
                     }
                     ">" => {
-                        let (right_value, ret) = self.evaluate(scope, right)?;
-                        if let Some(return_value) = ret {
-                            return Ok((Value::Nil, Some(return_value)));
-                        }
+                        let right_value = self.evaluate(scope, right)?;
                         match left_value.partial_cmp(&right_value) {
-                            None => Err(RuntimeError(format!("cannot compare"))),
-                            Some(ord) => Ok((Value::Bool(ord == Ordering::Greater), None)),
+                            None => RuntimeError(format!("cannot compare")).into(),
+                            Some(ord) => Ok(Value::Bool(ord == Ordering::Greater)),
                         }
                     }
                     "==" => {
-                        let (right_value, ret) = self.evaluate(scope, right)?;
-                        if let Some(return_value) = ret {
-                            return Ok((Value::Nil, Some(return_value)));
-                        }
+                        let right_value = self.evaluate(scope, right)?;
                         match left_value.partial_cmp(&right_value) {
-                            None => Err(RuntimeError(format!("cannot compare"))),
-                            Some(ord) => Ok((Value::Bool(ord == Ordering::Equal), None)),
+                            None => RuntimeError(format!("cannot compare")).into(),
+                            Some(ord) => Ok(Value::Bool(ord == Ordering::Equal)),
                         }
                     }
                     "!=" => {
-                        let (right_value, ret) = self.evaluate(scope, right)?;
-                        if let Some(return_value) = ret {
-                            return Ok((Value::Nil, Some(return_value)));
-                        }
+                        let right_value = self.evaluate(scope, right)?;
                         match left_value.partial_cmp(&right_value) {
-                            None => Err(RuntimeError(format!("cannot compare"))),
-                            Some(ord) => Ok((Value::Bool(ord != Ordering::Equal), None)),
+                            None => RuntimeError(format!("cannot compare")).into(),
+                            Some(ord) => Ok(Value::Bool(ord != Ordering::Equal)),
                         }
                     }
                     ">=" => {
-                        let (right_value, ret) = self.evaluate(scope, right)?;
-                        if let Some(return_value) = ret {
-                            return Ok((Value::Nil, Some(return_value)));
-                        }
+                        let right_value = self.evaluate(scope, right)?;
                         match left_value.partial_cmp(&right_value) {
-                            None => Err(RuntimeError(format!("cannot compare"))),
-                            Some(ord) => Ok((
-                                Value::Bool(ord == Ordering::Equal || ord == Ordering::Greater),
-                                None,
+                            None => RuntimeError(format!("cannot compare")).into(),
+                            Some(ord) => Ok(Value::Bool(
+                                ord == Ordering::Equal || ord == Ordering::Greater,
                             )),
                         }
                     }
                     "<=" => {
-                        let (right_value, ret) = self.evaluate(scope, right)?;
-                        if let Some(return_value) = ret {
-                            return Ok((Value::Nil, Some(return_value)));
-                        }
+                        let right_value = self.evaluate(scope, right)?;
                         match left_value.partial_cmp(&right_value) {
-                            None => Err(RuntimeError(format!("cannot compare"))),
-                            Some(ord) => Ok((
-                                Value::Bool(ord == Ordering::Equal || ord == Ordering::Less),
-                                None,
-                            )),
+                            None => RuntimeError(format!("cannot compare")).into(),
+                            Some(ord) => {
+                                Ok(Value::Bool(ord == Ordering::Equal || ord == Ordering::Less))
+                            }
                         }
                     }
                     "&&" => {
                         if !left_value.truthy()? {
                             // short-curcuit
-                            return Ok((Value::Bool(false), None));
+                            return Ok(left_value);
                         }
-                        let (right_value, ret) = self.evaluate(scope, right)?;
-                        if let Some(return_value) = ret {
-                            return Ok((Value::Nil, Some(return_value)));
-                        }
-                        Ok((right_value, None))
+                        let right_value = self.evaluate(scope, right)?;
+                        Ok(right_value)
                     }
                     "||" => {
                         if left_value.truthy()? {
                             // short-curcuit
-                            return Ok((left_value, None));
+                            return Ok(left_value);
                         }
-                        let (right_value, ret) = self.evaluate(scope, right)?;
-                        if let Some(return_value) = ret {
-                            return Ok((Value::Nil, Some(return_value)));
-                        }
-                        Ok((right_value, None))
+                        let right_value = self.evaluate(scope, right)?;
+                        Ok(right_value)
                     }
-                    _ => Err(RuntimeError(format!("Unknown binary operation: {op}"))),
+                    _ => RuntimeError(format!("Unknown binary operation: {op}")).into(),
                 }
             }
             Expr::ListLiteral { elements } => {
                 let mut ty = Type::Any;
                 let mut element_values = vec![];
                 for expr in elements {
-                    let (expr_value, ret) = self.evaluate(scope, expr)?;
-                    if ret.is_some() {
-                        return Ok((Value::Nil, ret));
-                    }
+                    let expr_value = self.evaluate(scope, expr)?;
                     if let Some(narrowed) = ty.narrow(&expr_value.ty()) {
                         ty = narrowed;
                     } else {
-                        return Err(RuntimeError("list contains distinct types".into()));
+                        return RuntimeError("list contains distinct types".into()).into();
                     }
                     element_values.push(expr_value);
                 }
 
                 let list = Value::List(ty, element_values);
-                Ok((list, None))
+                Ok(list)
             }
             Expr::TupleLiteral { elements } => {
                 let mut element_values = vec![];
                 for expr in elements {
-                    let (expr_value, ret) = self.evaluate(scope, expr)?;
-                    if ret.is_some() {
-                        return Ok((Value::Nil, ret));
-                    }
+                    let expr_value = self.evaluate(scope, expr)?;
                     element_values.push(expr_value);
                 }
 
                 let list = Value::Tuple(element_values);
-                Ok((list, None))
+                Ok(list)
             }
             Expr::Invocation { expr, args } => {
-                let (expr_value, ret) = self.evaluate(scope, expr)?;
-                if ret.is_some() {
-                    return Ok((Value::Nil, ret));
-                }
+                let expr_value = self.evaluate(scope, expr)?;
                 let Value::FnDef(def) = expr_value else {
-                    return Err(RuntimeError(format!(
+                    return RuntimeError(format!(
                         "cannot call {} ({} args)",
                         expr_value.ty(),
                         args.len()
-                    )));
+                    ))
+                    .into();
                 };
 
                 let mut evaluated_args = vec![];
                 for arg in args {
-                    let (arg_value, ret) = self.evaluate(scope, &arg.expr)?;
-                    if let Some(return_value) = ret {
-                        return Ok((Value::Nil, Some(return_value)));
-                    }
+                    let arg_value = self.evaluate(scope, &arg.expr)?;
                     evaluated_args.push((arg.name.clone(), arg_value));
                 }
 
-                Ok((self.invoke(def, evaluated_args)?, None))
+                Ok(self.invoke(def, evaluated_args)?)
             }
-            Expr::AnonymousFn { params, body } => Ok((
-                Value::FnDef(FnDef {
-                    name: None,
-                    parent_scope: scope,
-                    signatures: vec![FnSig {
-                        params: params.clone(),
-                        body: FnBody::Code(body.clone()), // TODO somehow avoid clone
-                    }],
-                }),
-                None,
-            )),
+            Expr::AnonymousFn { params, body } => Ok(Value::FnDef(FnDef {
+                name: None,
+                parent_scope: scope,
+                signatures: vec![FnSig {
+                    params: params.clone(),
+                    body: FnBody::Code(body.clone()), // TODO somehow avoid clone
+                }],
+            })),
             Expr::If {
                 pattern,
                 cond,
                 then,
                 els,
             } => {
-                let (cond_value, ret) = self.evaluate(scope, cond)?;
-                if ret.is_some() {
-                    return Ok((Value::Nil, ret));
-                }
+                let cond_value = self.evaluate(scope, cond)?;
 
-                let mut result = Value::Nil;
-                let mut ret = None;
-                if cond_value.truthy()? {
+                let result = if cond_value.truthy()? {
                     let execution_scope = self.scopes.len();
                     self.scopes.push(Scope {
                         parent_scope: Some(scope),
@@ -1233,10 +1083,7 @@ impl Runtime {
                         self.declare(execution_scope, pattern, cond_value)?;
                     }
 
-                    (result, ret) = self.execute_block(execution_scope, then)?;
-                    if ret.is_some() {
-                        return Ok((Value::Nil, ret));
-                    }
+                    self.execute_block(execution_scope, then)?
                 } else if let Some(els) = els {
                     let execution_scope = self.scopes.len();
                     self.scopes.push(Scope {
@@ -1244,81 +1091,60 @@ impl Runtime {
                         values: HashMap::new(),
                     });
 
-                    (result, ret) = self.execute_block(execution_scope, els)?;
-                    if ret.is_some() {
-                        return Ok((Value::Nil, ret));
-                    }
-                }
+                    self.execute_block(execution_scope, els)?
+                } else {
+                    Value::Nil
+                };
 
-                Ok((result, None))
+                Ok(result)
             }
             Expr::While { cond, body } => {
                 let mut result = Value::Nil;
-                let mut ret = None;
                 loop {
-                    let (cond_value, cond_ret) = self.evaluate(scope, cond)?;
-                    if let Some(return_value) = cond_ret {
-                        return Ok((Value::Nil, Some(return_value)));
-                    }
-                    if !cond_value.auto_coerce_bool()? {
-                        return Ok((result, None));
+                    let cond_value = self.evaluate(scope, cond)?;
+                    if !cond_value.truthy()? {
+                        return Ok(result);
                     }
 
-                    (result, ret) = self.execute_block(scope, body)?;
-                    if ret.is_some() {
-                        return Ok((Value::Nil, ret));
-                    }
+                    result = self.execute_block(scope, body)?;
                 }
             }
             Expr::DoWhile { cond, body } => loop {
                 loop {
                     let mut result = Value::Nil;
-                    let mut ret = None;
 
-                    (result, ret) = self.execute_block(scope, body)?;
-                    if ret.is_some() {
-                        return Ok((Value::Nil, ret));
-                    }
+                    result = self.execute_block(scope, body)?;
 
                     if let Some(cond) = cond {
-                        let (cond_value, ret) = self.evaluate(scope, cond)?;
-                        if ret.is_some() {
-                            return Ok((Value::Nil, ret));
-                        }
-                        if !cond_value.auto_coerce_bool()? {
-                            return Ok((result, None));
+                        let cond_value = self.evaluate(scope, cond)?;
+                        if !cond_value.truthy()? {
+                            return Ok(result);
                         }
                     } else {
-                        return Ok((result, None));
+                        return Ok(result);
                     }
                 }
             },
-            Expr::Loop { body } => loop {
-                loop {
-                    let (_, ret) = self.execute_block(scope, body)?;
-                    if ret.is_some() {
-                        return Ok((Value::Nil, ret));
-                    }
+            Expr::Loop { body } => Ok(loop {
+                match self.execute_block(scope, body) {
+                    Err(EvalOther::Break(value)) => break value,
+                    Err(other) => return Err(other),
+                    Ok(_) => {}
                 }
-            },
+            }),
             Expr::For {
                 pattern,
                 range,
                 body,
             } => {
-                let (range_value, range_ret) = self.evaluate(scope, range)?;
-                if range_ret.is_some() {
-                    return Ok((Value::Nil, range_ret));
-                }
+                let range_value = self.evaluate(scope, range)?;
 
                 let range = match range_value {
                     Value::List(_, values) => values,
                     Value::Tuple(values) => values,
                     _ => {
-                        return Err(RuntimeError(format!(
-                            "cannot for-loop over {}",
-                            range_value.ty()
-                        )));
+                        return RuntimeError(format!("cannot for-loop over {}", range_value.ty()))
+                            .into();
                     }
                 };
 
@@ -1331,19 +1157,16 @@ impl Runtime {
 
                     self.declare(execution_scope, pattern, item)?;
 
-                    let (_, ret) = self.execute_block(execution_scope, body)?;
-                    if ret.is_some() {
-                        return Ok((Value::Nil, ret));
-                    }
+                    let _ = self.execute_block(execution_scope, body)?;
                 }
 
-                Ok((Value::Nil, None))
+                Ok(Value::Nil)
             }
         }
     }
 }
 
-pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
+pub fn execute(doc: &Document, stdin: String) -> EvaluationResult<Value> {
     let mut runtime = Runtime::new();
 
     implement_stdlib(&mut runtime);
@@ -1352,13 +1175,7 @@ pub fn execute(doc: &Document, stdin: String) -> Result<Value, RuntimeError> {
         .values
         .insert(id("stdin"), Value::Str(Substr::from(stdin)));
 
-    let (body_eval_result, ret) = runtime.execute_block(0, &doc.body)?;
-    let result = match ret {
-        Some(return_value) => return_value,
-        None => body_eval_result,
-    };
-
-    Ok(result)
+    Ok(runtime.execute_block(0, &doc.body)?)
 }
 
 #[cfg(test)]
@@ -1387,7 +1204,7 @@ mod tests {
 
         assert_eq!(
             execute(&parse_document(r#"[0, "hello"]"#).unwrap(), "".into()),
-            Err(RuntimeError("list contains distinct types".into()))
+            RuntimeError("list contains distinct types".into()).into()
         );
     }
 

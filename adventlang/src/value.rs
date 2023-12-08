@@ -2,8 +2,31 @@ use std::{cmp::Ordering, fmt::Display};
 
 use regex::Regex;
 
+use crate::runtime::Value;
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeError(pub String);
+
+pub type EvaluationResult<T> = Result<T, EvalOther>;
+
+#[derive(Debug, PartialEq)]
+pub enum EvalOther {
+    RuntimeError(RuntimeError),
+    Break(Value),
+    Return(Value),
+}
+
+impl From<RuntimeError> for EvalOther {
+    fn from(err: RuntimeError) -> Self {
+        EvalOther::RuntimeError(err)
+    }
+}
+
+impl<T> From<RuntimeError> for Result<T, EvalOther> {
+    fn from(err: RuntimeError) -> Self {
+        Err(EvalOther::RuntimeError(err))
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct AlRegex(pub Regex);
@@ -143,12 +166,12 @@ impl Numeric {
         }
     }
 
-    pub fn get_int(&self) -> Result<i64, RuntimeError> {
+    pub fn get_int(&self) -> EvaluationResult<i64> {
         match self {
             Numeric::Int(a) => Ok(*a as i64),
-            Numeric::Double(_) => Err(RuntimeError(
-                "value is a double, cannot be converted to an int".to_string(),
-            )),
+            Numeric::Double(_) => {
+                RuntimeError("value is a double, cannot be converted to an int".to_string()).into()
+            }
         }
     }
 }

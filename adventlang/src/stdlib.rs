@@ -39,7 +39,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                 match f {
                     Value::FnDef(def) => runtime.invoke(def.clone(), vec![]),
-                    _ => Err(RuntimeError(format!("cannot run: {}", f.ty()))),
+                    _ => RuntimeError(format!("cannot run: {}", f.ty())).into(),
                 }
             }),
         }],
@@ -61,12 +61,13 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                             match list.iter().min().cloned() {
                                 Some(result) => Ok(result),
-                                None => Err(RuntimeError(
+                                None => RuntimeError(
                                     "error getting min: could not compare all elements".into(),
-                                )),
+                                )
+                                .into(),
                             }
                         }
-                        _ => Err(RuntimeError(format!("cannot get min of: {}", items.ty()))),
+                        _ => RuntimeError(format!("cannot get min of: {}", items.ty())).into(),
                     }
                 }),
             },
@@ -102,12 +103,13 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                             match list.iter().max().cloned() {
                                 Some(result) => Ok(result),
-                                None => Err(RuntimeError(
+                                None => RuntimeError(
                                     "error getting max: could not compare all elements".into(),
-                                )),
+                                )
+                                .into(),
                             }
                         }
-                        _ => Err(RuntimeError(format!("cannot get max of: {}", items.ty()))),
+                        _ => RuntimeError(format!("cannot get max of: {}", items.ty())).into(),
                     }
                 }),
             },
@@ -138,26 +140,22 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
                 let Value::List(t, list) = items else {
-                    return Err(RuntimeError(format!(
-                        "cannot get chunks of: {}",
-                        items.ty()
-                    )));
+                    return RuntimeError(format!("cannot get chunks of: {}", items.ty())).into();
                 };
 
                 let size = runtime.scopes[scope].values.get(&id("size")).unwrap();
 
                 let Value::Numeric(Numeric::Int(size)) = size else {
-                    return Err(RuntimeError(format!(
+                    return RuntimeError(format!(
                         "chunks() size must be int >= 1, is a: {}",
                         size.ty()
-                    )));
+                    ))
+                    .into();
                 };
 
                 if size < &1 {
-                    return Err(RuntimeError(format!(
-                        "chunks() size must be int >= 1, is: {}",
-                        size
-                    )));
+                    return RuntimeError(format!("chunks() size must be int >= 1, is: {}", size))
+                        .into();
                 }
 
                 Ok(Value::List(
@@ -181,19 +179,21 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
                 let Value::List(t, list) = items.clone() else {
-                    return Err(RuntimeError(format!(
+                    return RuntimeError(format!(
                         "sort_by_key() items must be a list, is a: {}",
                         items.ty()
-                    )));
+                    ))
+                    .into();
                 };
 
                 let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
 
                 let Value::FnDef(def) = cb else {
-                    return Err(RuntimeError(format!(
+                    return RuntimeError(format!(
                         "sort_by_key() cb must be a fn, is a: {}",
                         cb.ty()
-                    )));
+                    ))
+                    .into();
                 };
 
                 let def = def.clone();
@@ -235,10 +235,11 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                         Ok(Value::Tuple(list))
                     }
                     _ => {
-                        return Err(RuntimeError(format!(
+                        return RuntimeError(format!(
                             "reverse() items must be a list or tuple, is a: {}",
                             items.ty()
-                        )));
+                        ))
+                        .into();
                     }
                 }
             }),
@@ -270,11 +271,12 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                             .collect(),
                     )),
                     _ => {
-                        return Err(RuntimeError(format!(
+                        return RuntimeError(format!(
                             "cannot apply zip to these types: {}, {}",
                             xs.ty(),
                             ys.ty()
-                        )))
+                        ))
+                        .into()
                     }
                 }
             }),
@@ -291,10 +293,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let init = runtime.scopes[scope].values.get(&id("init")).unwrap();
 
                 let Value::FnDef(def) = cb else {
-                    return Err(RuntimeError(format!(
-                        "fold() cb must be a fn, is a: {}",
-                        cb.ty()
-                    )));
+                    return RuntimeError(format!("fold() cb must be a fn, is a: {}", cb.ty()))
+                        .into();
                 };
 
                 let def = def.clone();
@@ -311,12 +311,13 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                         })?)
                     }
                     _ => {
-                        return Err(RuntimeError(format!(
+                        return RuntimeError(format!(
                             "cannot apply fold to these types: {}, {}, {}",
                             items.ty(),
                             cb.ty(),
                             init.ty()
-                        )))
+                        ))
+                        .into()
                     }
                 }
             }),
@@ -331,7 +332,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
                 let Value::List(_, list) = items else {
-                    return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                    return RuntimeError(format!("cannot get max of: {}", items.ty())).into();
                 };
 
                 let list = list.clone();
@@ -339,10 +340,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
 
                 let Value::FnDef(def) = cb else {
-                    return Err(RuntimeError(format!(
-                        "cannot use map w/ cb of type: {}",
-                        cb.ty()
-                    )));
+                    return RuntimeError(format!("cannot use map w/ cb of type: {}", cb.ty()))
+                        .into();
                 };
 
                 let def = def.clone();
@@ -366,7 +365,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
                 let Value::List(_, list) = items else {
-                    return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                    return RuntimeError(format!("cannot get max of: {}", items.ty())).into();
                 };
 
                 let list = list.clone();
@@ -374,10 +373,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
 
                 let Value::FnDef(def) = cb else {
-                    return Err(RuntimeError(format!(
-                        "cannot use map w/ cb of type: {}",
-                        cb.ty()
-                    )));
+                    return RuntimeError(format!("cannot use map w/ cb of type: {}", cb.ty()))
+                        .into();
                 };
 
                 let def = def.clone();
@@ -386,10 +383,11 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 for item in list.iter() {
                     let value = runtime.invoke(def.clone(), vec![(None, item.clone())])?;
                     let Value::List(_, items) = value else {
-                        return Err(RuntimeError(format!(
+                        return RuntimeError(format!(
                             "flat_map cb should return lists, returned: {}",
                             value.ty()
-                        )));
+                        ))
+                        .into();
                     };
 
                     // TODO type-check
@@ -414,30 +412,32 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let pairs = runtime.scopes[scope].values.get(&id("pairs")).unwrap();
 
                 let Value::List(_, pairs) = pairs.clone() else {
-                    return Err(RuntimeError(format!(
+                    return RuntimeError(format!(
                         "dict() pairs must be list of tuples, is a: {}",
                         pairs.ty()
-                    )));
+                    ))
+                    .into();
                 };
 
                 let mut dict = Dict::new();
 
                 for pair in pairs {
                     let Value::Tuple(elements) = pair else {
-                        return Err(RuntimeError(format!(
+                        return RuntimeError(format!(
                             "each dict() pair must be a tuple, is a: {}",
                             pair.ty()
-                        )));
+                        ))
+                        .into();
                     };
 
                     let mut elements = elements.into_iter();
 
                     let Some(key) = elements.next() else {
-                        return Err(RuntimeError(format!("dict() pair without key")));
+                        return RuntimeError(format!("dict() pair without key")).into();
                     };
 
                     let Some(value) = elements.next() else {
-                        return Err(RuntimeError(format!("dict() pair without key")));
+                        return RuntimeError(format!("dict() pair without key")).into();
                     };
 
                     dict.0.insert(key, value);
@@ -458,10 +458,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let haystack = runtime.scopes[scope].values.get(&id("haystack")).unwrap();
 
                 let Value::List(_, haystack) = haystack else {
-                    return Err(RuntimeError(format!(
-                        "cannot get max of: {}",
-                        haystack.ty()
-                    )));
+                    return RuntimeError(format!("cannot get max of: {}", haystack.ty())).into();
                 };
 
                 Ok(Value::Bool(haystack.contains(needle)))
@@ -477,7 +474,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
                 let Value::List(_, list) = items else {
-                    return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                    return RuntimeError(format!("cannot get max of: {}", items.ty())).into();
                 };
 
                 let list = list.clone();
@@ -485,10 +482,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
 
                 let Value::FnDef(def) = cb else {
-                    return Err(RuntimeError(format!(
-                        "cannot use filter w/ cb of type: {}",
-                        cb.ty()
-                    )));
+                    return RuntimeError(format!("cannot use filter w/ cb of type: {}", cb.ty()))
+                        .into();
                 };
 
                 let def = def.clone();
@@ -497,7 +492,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 for item in list.iter() {
                     if runtime
                         .invoke(def.clone(), vec![(None, item.clone())])?
-                        .auto_coerce_bool()?
+                        .truthy()?
                     {
                         result.push(item.clone());
                     }
@@ -517,7 +512,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
                 let Value::List(_, list) = items else {
-                    return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                    return RuntimeError(format!("cannot get max of: {}", items.ty())).into();
                 };
 
                 let list = list.clone();
@@ -525,10 +520,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
 
                 let Value::FnDef(def) = cb else {
-                    return Err(RuntimeError(format!(
-                        "cannot use filter w/ cb of type: {}",
-                        cb.ty()
-                    )));
+                    return RuntimeError(format!("cannot use filter w/ cb of type: {}", cb.ty()))
+                        .into();
                 };
 
                 let def = def.clone();
@@ -560,10 +553,11 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
                 let Value::List(_, list) = items else {
-                    return Err(RuntimeError(format!(
+                    return RuntimeError(format!(
                         "any() items must be a list, is a: {}",
                         items.ty()
-                    )));
+                    ))
+                    .into();
                 };
 
                 let list = list.clone();
@@ -571,10 +565,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
 
                 let Value::FnDef(def) = cb else {
-                    return Err(RuntimeError(format!(
-                        "cannot use any() w/ cb of type: {}",
-                        cb.ty()
-                    )));
+                    return RuntimeError(format!("cannot use any() w/ cb of type: {}", cb.ty()))
+                        .into();
                 };
 
                 let def = def.clone();
@@ -592,6 +584,73 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     );
 
     runtime.builtin(
+        "all",
+        [
+            FnSig {
+                params: vec![idpat("items"), idpat("cb")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
+
+                    let Value::List(_, list) = items else {
+                        return RuntimeError(format!(
+                            "all() items must be a list, is a: {}",
+                            items.ty()
+                        ))
+                        .into();
+                    };
+
+                    let list = list.clone();
+
+                    let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
+
+                    let Value::FnDef(def) = cb else {
+                        return RuntimeError(format!(
+                            "cannot use all() w/ cb of type: {}",
+                            cb.ty()
+                        ))
+                        .into();
+                    };
+
+                    let def = def.clone();
+
+                    for item in list {
+                        let item = runtime.invoke(def.clone(), vec![(None, item)])?;
+                        if !item.truthy()? {
+                            return Ok(Value::Bool(false));
+                        }
+                    }
+
+                    Ok(Value::Bool(true))
+                }),
+            },
+            FnSig {
+                params: vec![idpat("items")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
+
+                    let Value::List(_, list) = items else {
+                        return RuntimeError(format!(
+                            "all() items must be a list, is a: {}",
+                            items.ty()
+                        ))
+                        .into();
+                    };
+
+                    let list = list.clone();
+
+                    for item in list {
+                        if !item.truthy()? {
+                            return Ok(Value::Bool(false));
+                        }
+                    }
+
+                    Ok(Value::Bool(true))
+                }),
+            },
+        ],
+    );
+
+    runtime.builtin(
         "find_map",
         [FnSig {
             params: vec![idpat("items"), idpat("cb")],
@@ -599,7 +658,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
                 let Value::List(_, list) = items else {
-                    return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                    return RuntimeError(format!("cannot get max of: {}", items.ty())).into();
                 };
 
                 let list = list.clone();
@@ -607,10 +666,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
 
                 let Value::FnDef(def) = cb else {
-                    return Err(RuntimeError(format!(
-                        "cannot use filter w/ cb of type: {}",
-                        cb.ty()
-                    )));
+                    return RuntimeError(format!("cannot use filter w/ cb of type: {}", cb.ty()))
+                        .into();
                 };
 
                 let def = def.clone();
@@ -635,7 +692,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
                 let Value::List(_, list) = items else {
-                    return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                    return RuntimeError(format!("cannot get max of: {}", items.ty())).into();
                 };
 
                 let list = list.clone();
@@ -643,10 +700,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
 
                 let Value::FnDef(def) = cb else {
-                    return Err(RuntimeError(format!(
-                        "cannot use filter w/ cb of type: {}",
-                        cb.ty()
-                    )));
+                    return RuntimeError(format!("cannot use filter w/ cb of type: {}", cb.ty()))
+                        .into();
                 };
 
                 let def = def.clone();
@@ -671,10 +726,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let start = runtime.scopes[scope].values.get(&id("start")).unwrap();
 
                 let Value::Numeric(start) = start else {
-                    return Err(RuntimeError(format!(
-                        "range() start must be int, is: {}",
-                        start.ty()
-                    )));
+                    return RuntimeError(format!("range() start must be int, is: {}", start.ty()))
+                        .into();
                 };
 
                 let start = start.get_int()?;
@@ -682,10 +735,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let end = runtime.scopes[scope].values.get(&id("end")).unwrap();
 
                 let Value::Numeric(end) = end else {
-                    return Err(RuntimeError(format!(
-                        "range() end must be int, is: {}",
-                        end.ty()
-                    )));
+                    return RuntimeError(format!("range() end must be int, is: {}", end.ty()))
+                        .into();
                 };
 
                 let end = end.get_int()?;
@@ -740,7 +791,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                             .collect::<Vec<_>>(),
                     ),
                     _ => {
-                        return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                        return RuntimeError(format!("cannot get max of: {}", items.ty())).into();
                     }
                 })
             }),
@@ -758,7 +809,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     Value::List(_, list) => list,
                     Value::Tuple(list) => list,
                     _ => {
-                        return Err(RuntimeError(format!("cannot get max of: {}", items.ty())));
+                        return RuntimeError(format!("cannot get max of: {}", items.ty())).into();
                     }
                 };
 
@@ -784,19 +835,21 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
                     let Value::Str(text) = text else {
-                        return Err(RuntimeError(format!(
+                        return RuntimeError(format!(
                             "split() text must be a string, is a: {}",
                             text.ty()
-                        )));
+                        ))
+                        .into();
                     };
 
                     let sep = runtime.scopes[scope].values.get(&id("sep")).unwrap();
 
                     let Value::Str(sep) = sep else {
-                        return Err(RuntimeError(format!(
+                        return RuntimeError(format!(
                             "split() sep must be a string, is a: {}",
                             sep.ty()
-                        )));
+                        ))
+                        .into();
                     };
 
                     let result = text
@@ -816,19 +869,21 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
                     let Value::Str(text) = text else {
-                        return Err(RuntimeError(format!(
+                        return RuntimeError(format!(
                             "split() text must be a string, is a: {}",
                             text.ty()
-                        )));
+                        ))
+                        .into();
                     };
 
                     let sep = runtime.scopes[scope].values.get(&id("sep")).unwrap();
 
                     let Value::Regex(sep) = sep else {
-                        return Err(RuntimeError(format!(
+                        return RuntimeError(format!(
                             "split() setp must be a regex, is a: {}",
                             sep.ty()
-                        )));
+                        ))
+                        .into();
                     };
 
                     let result = sep
@@ -851,10 +906,11 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
                 let Value::Str(text) = text else {
-                    return Err(RuntimeError(format!(
+                    return RuntimeError(format!(
                         "lines() text must be a string, is a: {}",
                         text.ty()
-                    )));
+                    ))
+                    .into();
                 };
 
                 let result = text
@@ -875,19 +931,21 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
                 let Value::Str(text) = text else {
-                    return Err(RuntimeError(format!(
+                    return RuntimeError(format!(
                         "match() text must be a string, is a: {}",
                         text.ty()
-                    )));
+                    ))
+                    .into();
                 };
 
                 let regex = runtime.scopes[scope].values.get(&id("regex")).unwrap();
 
                 let Value::Regex(regex) = regex else {
-                    return Err(RuntimeError(format!(
+                    return RuntimeError(format!(
                         "match() regex must be a regex, is a: {}",
                         regex.ty()
-                    )));
+                    ))
+                    .into();
                 };
 
                 match regex.0.captures(text) {
@@ -912,19 +970,21 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
                 let Value::Str(text) = text else {
-                    return Err(RuntimeError(format!(
+                    return RuntimeError(format!(
                         "match() text must be a string, is a: {}",
                         text.ty()
-                    )));
+                    ))
+                    .into();
                 };
 
                 let regex = runtime.scopes[scope].values.get(&id("regex")).unwrap();
 
                 let Value::Regex(regex) = regex else {
-                    return Err(RuntimeError(format!(
+                    return RuntimeError(format!(
                         "match() regex must be a regex, is a: {}",
                         regex.ty()
-                    )));
+                    ))
+                    .into();
                 };
 
                 Ok(Value::List(
@@ -953,19 +1013,21 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
                 let Value::Str(text) = text else {
-                    return Err(RuntimeError(format!(
+                    return RuntimeError(format!(
                         "starts_with() text must be a string, is a: {}",
                         text.ty()
-                    )));
+                    ))
+                    .into();
                 };
 
                 let substr = runtime.scopes[scope].values.get(&id("substr")).unwrap();
 
                 let Value::Str(substr) = substr else {
-                    return Err(RuntimeError(format!(
+                    return RuntimeError(format!(
                         "starts_with() substr must be a string, is a: {}",
                         substr.ty()
-                    )));
+                    ))
+                    .into();
                 };
 
                 Ok(Value::Bool(text.starts_with(substr.as_str())))
@@ -981,31 +1043,34 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
                 let Value::Str(text) = text else {
-                    return Err(RuntimeError(format!(
+                    return RuntimeError(format!(
                         "replace() text must be a string, is a: {}",
                         text.ty()
-                    )));
+                    ))
+                    .into();
                 };
 
                 let def = runtime.scopes[scope].values.get(&id("def")).unwrap();
 
                 let Value::Tuple(def) = def else {
-                    return Err(RuntimeError(format!(
+                    return RuntimeError(format!(
                         "replace() def must be a tuple, is a: {}",
                         def.ty()
-                    )));
+                    ))
+                    .into();
                 };
 
                 if def.len() != 2 {
-                    return Err(RuntimeError(format!(
+                    return RuntimeError(format!(
                         "replace() def must be a tuple with two elements"
-                    )));
+                    ))
+                    .into();
                 }
 
                 let replace = def.get(1).unwrap();
 
                 let Value::Str(replace) = replace else {
-                    return Err(RuntimeError(format!("replace() def[1] must be a string")));
+                    return RuntimeError(format!("replace() def[1] must be a string")).into();
                 };
 
                 let find = def.get(0).unwrap();
@@ -1016,10 +1081,11 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                         find.0.replace_all(&text, replace.to_string()).into(),
                     )),
                     _ => {
-                        return Err(RuntimeError(format!(
+                        return RuntimeError(format!(
                             "replace() def[0] must be a string or regex, is a: {}",
                             find.ty()
-                        )));
+                        ))
+                        .into();
                     }
                 }
             }),
@@ -1038,25 +1104,24 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     let list = runtime.scopes[scope].values.get(&id("list")).unwrap();
 
                     let Value::List(t, list) = list else {
-                        return Err(RuntimeError(format!(
+                        return RuntimeError(format!(
                             "slice() list must be a list, is a: {}",
                             list.ty()
-                        )));
+                        ))
+                        .into();
                     };
 
                     let i = runtime.scopes[scope].values.get(&id("i")).unwrap();
 
                     let Value::Numeric(i) = i else {
-                        return Err(RuntimeError(format!(
-                            "slice() i must be an int, is a: {}",
-                            i.ty()
-                        )));
+                        return RuntimeError(format!("slice() i must be an int, is a: {}", i.ty()))
+                            .into();
                     };
 
                     let i = i.get_int()?;
 
                     if i < 0 {
-                        return Err(RuntimeError(format!("slice() i must be a positive int")));
+                        return RuntimeError(format!("slice() i must be a positive int")).into();
                     }
 
                     Ok(Value::List(
@@ -1074,25 +1139,24 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
                     let Value::Str(text) = text else {
-                        return Err(RuntimeError(format!(
+                        return RuntimeError(format!(
                             "slice() text must be a string, is a: {}",
                             text.ty()
-                        )));
+                        ))
+                        .into();
                     };
 
                     let i = runtime.scopes[scope].values.get(&id("i")).unwrap();
 
                     let Value::Numeric(i) = i else {
-                        return Err(RuntimeError(format!(
-                            "slice() i must be an int, is a: {}",
-                            i.ty()
-                        )));
+                        return RuntimeError(format!("slice() i must be an int, is a: {}", i.ty()))
+                            .into();
                     };
 
                     let i = i.get_int()?;
 
                     if i < 0 {
-                        return Err(RuntimeError(format!("slice() i must be a positive int")));
+                        return RuntimeError(format!("slice() i must be a positive int")).into();
                     }
 
                     Ok(Value::Str(text.substr((i as usize)..)))
@@ -1107,47 +1171,45 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
                     let Value::Str(text) = text else {
-                        return Err(RuntimeError(format!(
+                        return RuntimeError(format!(
                             "slice() text must be a string, is a: {}",
                             text.ty()
-                        )));
+                        ))
+                        .into();
                     };
 
                     let range = runtime.scopes[scope].values.get(&id("range")).unwrap();
 
                     let Value::Tuple(range) = range else {
-                        return Err(RuntimeError(format!(
+                        return RuntimeError(format!(
                             "slice() range must be an (int, int) range, is a: {}",
                             range.ty()
-                        )));
+                        ))
+                        .into();
                     };
 
                     let Some(Value::Numeric(start)) = range.get(0) else {
-                        return Err(RuntimeError(format!(
-                            "slice() range must be an (int, int) range"
-                        )));
+                        return RuntimeError(format!("slice() range must be an (int, int) range"))
+                            .into();
                     };
 
                     let start = start.get_int()?;
 
                     if start < 0 {
-                        return Err(RuntimeError(format!(
-                            "slice() range must be an (int, int) range"
-                        )));
+                        return RuntimeError(format!("slice() range must be an (int, int) range"))
+                            .into();
                     }
 
                     let Some(Value::Numeric(end)) = range.get(1) else {
-                        return Err(RuntimeError(format!(
-                            "slice() range must be an (int, int) range"
-                        )));
+                        return RuntimeError(format!("slice() range must be an (int, int) range"))
+                            .into();
                     };
 
                     let end = end.get_int()?;
 
                     if end < 0 {
-                        return Err(RuntimeError(format!(
-                            "slice() range must be an (int, int) range"
-                        )));
+                        return RuntimeError(format!("slice() range must be an (int, int) range"))
+                            .into();
                     }
 
                     Ok(Value::Str(
@@ -1160,81 +1222,156 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "index",
-        [FnSig {
-            params: vec![idpat("list"), idpat("i")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let list = runtime.scopes[scope].values.get(&id("list")).unwrap();
+        [
+            FnSig {
+                params: vec![
+                    DeclarePattern::Id(id("dict"), Some(Type::Dict)),
+                    idpat("key"),
+                ],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let dict = runtime.scopes[scope].values.get(&id("dict")).unwrap();
 
-                let list = match list {
-                    Value::Dict(dict) => {
-                        let key = runtime.scopes[scope].values.get(&id("i")).unwrap();
-                        return match dict.0.get(key) {
-                            Some(value) => Ok(value.clone()),
-                            None => Ok(Value::Nil),
-                        };
-                    }
-                    Value::List(_, list) => list,
-                    Value::Tuple(list) => list,
-                    _ => {
-                        return Err(RuntimeError(format!(
-                            "index() list must be a list or tuple, is a: {}",
+                    let Value::Dict(dict) = dict else {
+                        return RuntimeError(format!(
+                            "index() dict must be a dict, is a: {}",
+                            dict.ty()
+                        ))
+                        .into();
+                    };
+
+                    let key = runtime.scopes[scope].values.get(&id("key")).unwrap();
+
+                    let result = dict.0.get(key).cloned().unwrap_or(Value::Nil);
+
+                    Ok(result)
+                }),
+            },
+            FnSig {
+                params: vec![
+                    DeclarePattern::Id(id("list"), Some(Type::List(Type::Any.into()))),
+                    idpat("i"),
+                ],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let list = runtime.scopes[scope].values.get(&id("list")).unwrap();
+
+                    let Value::List(_, list) = list else {
+                        return RuntimeError(format!(
+                            "index() list must be a list, is a: {}",
                             list.ty()
-                        )));
+                        ))
+                        .into();
+                    };
+
+                    let i = runtime.scopes[scope].values.get(&id("i")).unwrap();
+
+                    let Value::Numeric(i) = i else {
+                        return RuntimeError(format!("index() i must be an int, is a: {}", i.ty()))
+                            .into();
+                    };
+
+                    let i = i.get_int()?;
+
+                    let el = match i {
+                        i if i >= 0 => list.get(i as usize).cloned(),
+                        i if list.len() as i64 + i >= 0 => {
+                            list.get((list.len() as i64 + i) as usize).cloned()
+                        }
+                        _ => None,
+                    };
+
+                    Ok(el.unwrap_or(Value::Nil))
+                }),
+            },
+            FnSig {
+                params: vec![
+                    DeclarePattern::Id(id("list"), Some(Type::Tuple)),
+                    idpat("i"),
+                ],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let list = runtime.scopes[scope].values.get(&id("list")).unwrap();
+
+                    let Value::Tuple(list) = list else {
+                        return RuntimeError(format!(
+                            "index() list must be a tuple, is a: {}",
+                            list.ty()
+                        ))
+                        .into();
+                    };
+
+                    let i = runtime.scopes[scope].values.get(&id("i")).unwrap();
+
+                    let Value::Numeric(i) = i else {
+                        return RuntimeError(format!("index() i must be an int, is a: {}", i.ty()))
+                            .into();
+                    };
+
+                    let i = i.get_int()?;
+
+                    let el = match i {
+                        i if i >= 0 => list.get(i as usize).cloned(),
+                        i if list.len() as i64 + i >= 0 => {
+                            list.get((list.len() as i64 + i) as usize).cloned()
+                        }
+                        _ => None,
+                    };
+
+                    Ok(el.unwrap_or(Value::Nil))
+                }),
+            },
+            FnSig {
+                params: vec![DeclarePattern::Id(id("text"), Some(Type::Str)), idpat("i")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
+
+                    let Value::Str(text) = text else {
+                        return RuntimeError(format!(
+                            "index() list must be a str, is a: {}",
+                            text.ty()
+                        ))
+                        .into();
+                    };
+
+                    let i = runtime.scopes[scope].values.get(&id("i")).unwrap();
+
+                    let Value::Numeric(i) = i else {
+                        return RuntimeError(format!("index() i must be an int, is a: {}", i.ty()))
+                            .into();
+                    };
+
+                    let i = i.get_int()?;
+
+                    let result = match i {
+                        i if i >= 0 => {
+                            let i = i as usize;
+                            text.get(i..(i + 1))
+                        }
+                        i if text.len() as i64 + i >= 0 => {
+                            let i = (text.len() as i64 + i) as usize;
+                            text.get(i..(i + 1))
+                        }
+                        _ => None,
                     }
-                };
+                    .map(|substr| Value::Str(text.substr_from(substr)))
+                    .unwrap_or(Value::Nil);
 
-                let i = runtime.scopes[scope].values.get(&id("i")).unwrap();
-
-                let Value::Numeric(i) = i else {
-                    return Err(RuntimeError(format!(
-                        "index() i must be an int, is a: {}",
-                        i.ty()
-                    )));
-                };
-
-                let i = i.get_int()?;
-
-                let el = match i {
-                    i if i >= 0 => list.get(i as usize),
-                    _ => list.get((list.len() as i64 + i) as usize),
-                };
-
-                Ok(el.cloned().unwrap_or(Value::Nil))
-            }),
-        }],
+                    Ok(result)
+                }),
+            },
+        ],
     );
 
     runtime.builtin(
-        "insert",
+        "clone",
         [FnSig {
-            params: vec![idpat("dict"), idpat("key"), idpat("value")],
+            params: vec![idpat("data")],
             body: FnBody::Builtin(|runtime, scope| {
-                let key = runtime.scopes[scope]
+                let data = runtime.scopes[scope]
                     .values
-                    .get(&id("key"))
+                    .get(&id("data"))
                     .unwrap()
                     .clone();
 
-                let value = runtime.scopes[scope]
-                    .values
-                    .get(&id("value"))
-                    .unwrap()
-                    .clone();
-
-                let dict = runtime.scopes[scope].values.get_mut(&id("dict")).unwrap();
-
-                let Value::Dict(dict) = dict else {
-                    return Err(RuntimeError(format!(
-                        "assign() dict must be a dict, is a: {}",
-                        dict.ty()
-                    )));
-                };
-
-                println!("found dict, inserting now");
-
-                dict.0.insert(key, value);
-
-                Ok(Value::Nil)
+                Ok(data)
             }),
         }],
     );
@@ -1247,10 +1384,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
                 let Value::Str(text) = text else {
-                    return Err(RuntimeError(format!(
-                        "trim[#1] must be a string, is a: {}",
-                        text.ty()
-                    )));
+                    return RuntimeError(format!("trim[#1] must be a string, is a: {}", text.ty()))
+                        .into();
                 };
 
                 // TODO // substr_from
@@ -1271,7 +1406,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     Value::List(_, list) => list.len(),
                     Value::Tuple(tuple) => tuple.len(),
                     _ => {
-                        return Err(RuntimeError(format!("cannot get len of: {}", data.ty())));
+                        return RuntimeError(format!("cannot get len of: {}", data.ty())).into();
                     }
                 };
 
@@ -1288,10 +1423,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let text = runtime.scopes[scope].values.get(&id("text")).unwrap();
 
                 let Value::Str(text) = text else {
-                    return Err(RuntimeError(format!(
-                        "trim[#1] must be a string, is a: {}",
-                        text.ty()
-                    )));
+                    return RuntimeError(format!("trim[#1] must be a string, is a: {}", text.ty()))
+                        .into();
                 };
 
                 Ok(Value::List(
@@ -1326,10 +1459,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let num = runtime.scopes[scope].values.get(&id("num")).unwrap();
 
                 let Value::Numeric(num) = num else {
-                    return Err(RuntimeError(format!(
-                        "sqrt() num should be a num, is a: {}",
-                        num.ty()
-                    )));
+                    return RuntimeError(format!("sqrt() num should be a num, is a: {}", num.ty()))
+                        .into();
                 };
 
                 Ok(Value::Numeric(Numeric::Double(num.get_double().sqrt())))
@@ -1345,10 +1476,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let num = runtime.scopes[scope].values.get(&id("num")).unwrap();
 
                 let Value::Numeric(num) = num else {
-                    return Err(RuntimeError(format!(
-                        "ceil() num should be a num, is a: {}",
-                        num.ty()
-                    )));
+                    return RuntimeError(format!("ceil() num should be a num, is a: {}", num.ty()))
+                        .into();
                 };
 
                 Ok(Value::Numeric(Numeric::Double(num.get_double().ceil())))
@@ -1364,10 +1493,11 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let num = runtime.scopes[scope].values.get(&id("num")).unwrap();
 
                 let Value::Numeric(num) = num else {
-                    return Err(RuntimeError(format!(
+                    return RuntimeError(format!(
                         "floor() num should be a num, is a: {}",
                         num.ty()
-                    )));
+                    ))
+                    .into();
                 };
 
                 Ok(Value::Numeric(Numeric::Double(num.get_double().floor())))
@@ -1383,10 +1513,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let num = runtime.scopes[scope].values.get(&id("num")).unwrap();
 
                 let Value::Numeric(num) = num else {
-                    return Err(RuntimeError(format!(
-                        "abs() num should be a num, is a: {}",
-                        num.ty()
-                    )));
+                    return RuntimeError(format!("abs() num should be a num, is a: {}", num.ty()))
+                        .into();
                 };
 
                 match num {
@@ -1405,10 +1533,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let num = runtime.scopes[scope].values.get(&id("num")).unwrap();
 
                 let Value::Numeric(num) = num else {
-                    return Err(RuntimeError(format!(
-                        "abs() num should be a num, is a: {}",
-                        num.ty()
-                    )));
+                    return RuntimeError(format!("abs() num should be a num, is a: {}", num.ty()))
+                        .into();
                 };
 
                 match num {

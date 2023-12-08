@@ -350,6 +350,15 @@ Now everything works smoothly again! :) And I can add line/col info like `nom_lo
 
 ## Day 8
 
+Today was fun :)
+
+What was kind of weird about the puzzle though (in the bonus part), is that he doesn't explicitly say that after an ghost starting at an "A" ends up at a "Z", that ghost will keep looping from that point, back to the same "Z", in the same amount of time. This does greatly simplify the code of course, but, I started out trying to figure it out more generally. I had a structure for each ghost, their "reach", and any time they'd land on a "Z" _that they had already seen before_, then from that point I'd definitely know they're looping. (And they might even be looping between a few different Z's for all I know.) The maths of it .. was going to be tricky, and indeed a bit too tricky for a day 8 challenge .. But then, it turned out, he wasn't going to use that full generality anyway :P So now the puzzle feels "a bit off", because he didn't describe it ither. Oh well, I had fun!
+
 Added:
 
-- `dict(pairs)`
+- `dict(pairs)` to build a dictionary from a list of (key, value) pair tuples
+- `clone` -- actually implicit at the moment, but .. I'm not sure if I like that or if it will stay that way, so I figured I'd make it explicit
+- `all(list, fn)` -- counterpart of `any(list, fn)`
+- `break <expr>` control flow
+  - and in order to add this, I finally went ahead and refactored all the return-handling in the runtime evaluation functions to be more DRY using the `Result<Value, ..>` "error" type to also include the break and return control flows: `EvaluationResult = Result<Value, EvalOther>`, where `enum EvalOther { Return, Break, RuntimeError }`
+    - conceptually, I'm not 100% sure if this is super beautiful. Why count the return and break as "errors" as well? I'd say they are more like normal results than the runtime error. I think the clue is that `Result`'s `Ok` and `Err` are just slighly misnamed, because they're not _always_ the "expected result" and "unexpected result", and technically their affordances just mean _"the type of result that I want to talk about usually"_ and _"the other type of result, that .. doesn't often happen that often and I'd like to omit where possible"_. And in that case, yes, indeed, `Break` and `Return` are in the second camp, so, sure, I'll put them in `Err`.

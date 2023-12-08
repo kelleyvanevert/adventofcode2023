@@ -338,8 +338,11 @@ pub enum Item {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
+    Break {
+        expr: Option<Expr>,
+    },
     Return {
-        expr: Box<Expr>,
+        expr: Option<Expr>,
     },
     Declare {
         pattern: DeclarePattern,

@@ -825,9 +825,20 @@ fn parameter_list(mut s: State) -> ParseResult<State, Vec<DeclarePattern>> {
     Some((s, vec![]))
 }
 
+fn break_stmt(s: State) -> ParseResult<State, Stmt> {
+    map(
+        seq((
+            tag("break"),
+            optional(preceded(slws1, constrained(false, expr))),
+        )),
+        |(_, expr)| Stmt::Break { expr: expr.into() },
+    )
+    .parse(s)
+}
+
 fn return_stmt(s: State) -> ParseResult<State, Stmt> {
     map(
-        seq((tag("return"), ws1, constrained(false, expr))),
+        seq((tag("return"), slws1, constrained(false, expr))),
         |(_, _, expr)| Stmt::Return { expr: expr.into() },
     )
     .parse(s)
@@ -1037,6 +1048,7 @@ fn assign_stmt(s: State) -> ParseResult<State, Stmt> {
 
 fn stmt(s: State) -> ParseResult<State, Stmt> {
     alt((
+        break_stmt,
         return_stmt,
         declare_stmt,
         assign_stmt,

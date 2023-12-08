@@ -6,7 +6,7 @@ use std::{
     time::Instant,
 };
 
-use adventlang::{parse::parse_document, runtime::execute};
+use adventlang::{parse::parse_document, runtime::execute, value::EvalOther};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -62,7 +62,7 @@ fn main() {
             if timings {
                 eprintln!("Executed in {:?}", t0.elapsed());
             }
-            if let Err(runtime_err) = result {
+            if let Err(EvalOther::RuntimeError(runtime_err)) = result {
                 eprintln!("Runtime error: {}", runtime_err.0);
                 exit(3);
             }
