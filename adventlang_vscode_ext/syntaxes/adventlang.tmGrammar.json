@@ -13,6 +13,9 @@
           "include": "#return-stmt"
         },
         {
+          "include": "#break-stmt"
+        },
+        {
           "include": "#string"
         },
         {
@@ -29,6 +32,10 @@
     "return-stmt": {
       "name": "keyword.control.flow.ts",
       "match": "(?<!\\.|\\$)\\b(return)\\b(?!\\$)"
+    },
+    "break-stmt": {
+      "name": "keyword.control.flow.ts",
+      "match": "(?<!\\.|\\$)\\b(break)\\b(?!\\$)"
     },
     "declaration": {
       "name": "meta.declaration.al",
@@ -205,7 +212,7 @@
     },
     "type-primitive": {
       "name": "support.type.primitive.al",
-      "match": "(?<!\\.|\\$)\\b(str|num|int|double|bool|any|list|tuple|regex)\\b(?!\\$)"
+      "match": "(?<!\\.|\\$)\\b(str|num|int|double|bool|nil|any|list|tuple|regex)\\b(?!\\$)"
     },
     "function-call-without-args": {
       "begin": "([_$[:alpha:]][_$[:alnum:]]*)\\s*(?=\\()",
@@ -320,7 +327,7 @@
     },
     "keyword": {
       "name": "keyword.other.al",
-      "match": "\\b(fn|let|if|else|do|while|for|in|loop|return)\\b"
+      "match": "\\b(fn|let|if|else|do|while|for|in|loop|return|return)\\b"
     },
     "comment": {
       "patterns": [
