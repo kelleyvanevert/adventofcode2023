@@ -347,3 +347,9 @@ fn expr_level(state: State) -> ParseResult<State, Expr> {
 ```
 
 Now everything works smoothly again! :) And I can add line/col info like `nom_locate` does as well, sometime later.
+
+## Day 8
+
+Added:
+
+- `dict(pairs)`

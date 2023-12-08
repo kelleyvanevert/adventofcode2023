@@ -1,6 +1,6 @@
 use crate::{
     ast::{DeclarePattern, Identifier, Type},
-    runtime::{FnBody, FnSig, Runtime, Value},
+    runtime::{Dict, FnBody, FnSig, Runtime, Value},
     value::{Numeric, RuntimeError},
 };
 
@@ -399,6 +399,51 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                 // TODO type
                 Ok(Value::List(Type::Any, result))
+            }),
+        }],
+    );
+
+    runtime.builtin(
+        "dict",
+        [FnSig {
+            params: vec![DeclarePattern::Id(
+                id("pairs"),
+                Some(Type::List(Type::Any.into())),
+            )],
+            body: FnBody::Builtin(|runtime, scope| {
+                let pairs = runtime.scopes[scope].values.get(&id("pairs")).unwrap();
+
+                let Value::List(_, pairs) = pairs.clone() else {
+                    return Err(RuntimeError(format!(
+                        "dict() pairs must be list of tuples, is a: {}",
+                        pairs.ty()
+                    )));
+                };
+
+                let mut dict = Dict::new();
+
+                for pair in pairs {
+                    let Value::Tuple(elements) = pair else {
+                        return Err(RuntimeError(format!(
+                            "each dict() pair must be a tuple, is a: {}",
+                            pair.ty()
+                        )));
+                    };
+
+                    let mut elements = elements.into_iter();
+
+                    let Some(key) = elements.next() else {
+                        return Err(RuntimeError(format!("dict() pair without key")));
+                    };
+
+                    let Some(value) = elements.next() else {
+                        return Err(RuntimeError(format!("dict() pair without key")));
+                    };
+
+                    dict.0.insert(key, value);
+                }
+
+                Ok(Value::Dict(dict))
             }),
         }],
     );

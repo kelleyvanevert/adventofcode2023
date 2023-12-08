@@ -709,7 +709,7 @@ impl Runtime {
 
     // TODO
     pub fn matches_signature(
-        _name: &Option<Identifier>,
+        name: &Option<Identifier>,
         sig: &FnSig,
         args: &Vec<(Option<Identifier>, Value)>,
     ) -> bool {
@@ -717,26 +717,30 @@ impl Runtime {
             false
         } else {
             // TODO: find arg that does not fit
-            for (pat, (_, value)) in sig.params.iter().zip(args) {
+            for (pat, (_, arg)) in sig.params.iter().zip(args) {
                 // if name == &Some(Identifier("slice".into())) {
                 //     println!("fits? pattern {:?} value {:?}", pat, value);
                 // }
                 match pat {
                     DeclarePattern::List { .. } => {
-                        if !(Type::List(Type::Any.into()) >= value.ty()) {
-                            // println!("does not match sig: list");
+                        if !(Type::List(Type::Any.into()) >= arg.ty()) {
+                            // println!("[{name:?}] does not match sig: list");
                             return false;
                         }
                     }
                     DeclarePattern::Tuple { .. } => {
-                        if !(Type::Tuple >= value.ty()) {
-                            // println!("does not match sig: tuple");
+                        if !(Type::Tuple >= arg.ty()) {
+                            // println!("[{name:?}] does not match sig: tuple");
                             return false;
                         }
                     }
-                    DeclarePattern::Id(_, Some(t)) => {
-                        if !(*t >= value.ty()) {
-                            // println!("does not match sig: type");
+                    DeclarePattern::Id(_, Some(param_type)) => {
+                        if !(*param_type >= arg.ty()) {
+                            // println!(
+                            //     "[{name:?}] does not match sig: type, because NOT {} >= {}",
+                            //     param_type,
+                            //     arg.ty()
+                            // );
                             return false;
                         }
                     }
