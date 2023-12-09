@@ -457,14 +457,14 @@ impl Runtime {
 
                             let i = i as usize;
 
-                            if !(*t >= value.ty()) {
-                                return RuntimeError(format!(
-                                    "cannot insert value of type {} into list of type {}",
-                                    value.ty(),
-                                    Type::List(t.clone().into())
-                                ))
-                                .into();
-                            }
+                            // if !(*t >= value.ty()) {
+                            //     return RuntimeError(format!(
+                            //         "cannot insert value of type {} into list of type {}",
+                            //         value.ty(),
+                            //         Type::List(t.clone().into())
+                            //     ))
+                            //     .into();
+                            // }
 
                             if list.len() < i + 1 {
                                 list.resize(i + 1, Value::Nil);

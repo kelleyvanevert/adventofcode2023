@@ -547,40 +547,69 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "any",
-        [FnSig {
-            params: vec![idpat("items"), idpat("cb")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
+        [
+            FnSig {
+                params: vec![idpat("items"), idpat("cb")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
 
-                let Value::List(_, list) = items else {
-                    return RuntimeError(format!(
-                        "any() items must be a list, is a: {}",
-                        items.ty()
-                    ))
-                    .into();
-                };
-
-                let list = list.clone();
-
-                let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
-
-                let Value::FnDef(def) = cb else {
-                    return RuntimeError(format!("cannot use any() w/ cb of type: {}", cb.ty()))
+                    let Value::List(_, list) = items else {
+                        return RuntimeError(format!(
+                            "any() items must be a list, is a: {}",
+                            items.ty()
+                        ))
                         .into();
-                };
+                    };
 
-                let def = def.clone();
+                    let list = list.clone();
 
-                for item in list {
-                    let item = runtime.invoke(def.clone(), vec![(None, item)])?;
-                    if item.truthy()? {
-                        return Ok(Value::Bool(true));
+                    let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
+
+                    let Value::FnDef(def) = cb else {
+                        return RuntimeError(format!(
+                            "cannot use any() w/ cb of type: {}",
+                            cb.ty()
+                        ))
+                        .into();
+                    };
+
+                    let def = def.clone();
+
+                    for item in list {
+                        let item = runtime.invoke(def.clone(), vec![(None, item)])?;
+                        if item.truthy()? {
+                            return Ok(Value::Bool(true));
+                        }
                     }
-                }
 
-                Ok(Value::Bool(false))
-            }),
-        }],
+                    Ok(Value::Bool(false))
+                }),
+            },
+            FnSig {
+                params: vec![idpat("items")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
+
+                    let Value::List(_, list) = items else {
+                        return RuntimeError(format!(
+                            "any() items must be a list, is a: {}",
+                            items.ty()
+                        ))
+                        .into();
+                    };
+
+                    let list = list.clone();
+
+                    for item in list {
+                        if item.truthy()? {
+                            return Ok(Value::Bool(true));
+                        }
+                    }
+
+                    Ok(Value::Bool(false))
+                }),
+            },
+        ],
     );
 
     runtime.builtin(
