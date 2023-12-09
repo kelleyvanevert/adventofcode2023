@@ -362,3 +362,27 @@ Added:
 - `break <expr>` control flow
   - and in order to add this, I finally went ahead and refactored all the return-handling in the runtime evaluation functions to be more DRY using the `Result<Value, ..>` "error" type to also include the break and return control flows: `EvaluationResult = Result<Value, EvalOther>`, where `enum EvalOther { Return, Break, RuntimeError }`
     - conceptually, I'm not 100% sure if this is super beautiful. Why count the return and break as "errors" as well? I'd say they are more like normal results than the runtime error. I think the clue is that `Result`'s `Ok` and `Err` are just slighly misnamed, because they're not _always_ the "expected result" and "unexpected result", and technically their affordances just mean _"the type of result that I want to talk about usually"_ and _"the other type of result, that .. doesn't often happen that often and I'd like to omit where possible"_. And in that case, yes, indeed, `Break` and `Return` are in the second camp, so, sure, I'll put them in `Err`.
+
+## Day 9
+
+Wow, ok, today's challenge was super simple and cute XD
+
+And I didn't really have to add any new features to AL (except for commenting out a buggy type check and adding a new convenience signature for `any(list)`).
+
+There's two things that have been on my mind though / I've been hacking on, that I still need to talk about. But I'm just noting them here for now, and will discuss them later, because today is filled with other activities :P no time
+
+- **Type checking problems related to `any`**
+
+  I think I underestimated the `any` type.
+
+  - Set-theoretically, I implemented it as "all types", i.e. the `any` set it _larger_ than all other type sets. That means that in Rust's `PartialOrd` implementation for `Type`, `Type::Any >= t` for all other types `t`.
+  - But, I also want to be able to pass a variable `x` of type `any` to a function that accepts only integers, like in TypeScript. But .. what? That doesn't work. Is TypeScript fooling us? I think I might've underestimated what TypeScript does to make their `any` work .. maybe it even means different types in different (syntactical) contexts.. ?
+  - (Today I also ran into a version of this problem, which I recognized from earlier this week, and just commented out the relevant type-checking line before continuing..)
+
+  To be continued..
+
+- **Struggling to implement reference types**
+
+  If you assign a variable holding a list to another variable, it currently copies over the list. I'm .. not super sure I want this behaviour. Anyhow, I'm _not able to not have this behaviour_ at the moment, because of the way I set up the memory of the interpreter. It doesn't have a _heap_, or maybe more precisely said, it doesn't have any way of _shared_ access/reference to memory/data, in whatever way that could be implemented. I made a few small stabs at implementing shared access (using Arcs, no heap), and yesterday spent a few hours trying to implement a heap, but I keep running into technical detail problems. Like, when implementing a heap naively, the (assignable) "locations" of values become very unwieldy and ugly. But when I try to "flatten" the whole thing into an "arena", I still have difficulties making the compiler believe everything is fine..
+
+  To be continued..
