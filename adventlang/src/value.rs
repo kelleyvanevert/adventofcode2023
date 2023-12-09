@@ -2,8 +2,6 @@ use std::{cmp::Ordering, fmt::Display};
 
 use regex::Regex;
 
-use crate::runtime::Value;
-
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeError(pub String);
 
@@ -12,8 +10,8 @@ pub type EvaluationResult<T> = Result<T, EvalOther>;
 #[derive(Debug, PartialEq)]
 pub enum EvalOther {
     RuntimeError(RuntimeError),
-    Break(Value),
-    Return(Value),
+    Break(usize),
+    Return(usize),
 }
 
 impl From<RuntimeError> for EvalOther {
@@ -105,16 +103,16 @@ impl Numeric {
         }
     }
 
-    pub fn pow(&self, other: Numeric) -> Numeric {
+    pub fn pow(&self, other: &Numeric) -> Numeric {
         match (self, other) {
             (Numeric::Double(a), b) => Numeric::Double(a.powf(b.get_double())),
-            (a, Numeric::Double(b)) => Numeric::Double(a.get_double().powf(b)),
+            (a, Numeric::Double(b)) => Numeric::Double(a.get_double().powf(*b)),
 
-            (Numeric::Int(a), Numeric::Int(b)) => Numeric::Int(a.pow(b as u32)),
+            (Numeric::Int(a), Numeric::Int(b)) => Numeric::Int(a.pow(*b as u32)),
         }
     }
 
-    pub fn add(&self, other: Numeric) -> Numeric {
+    pub fn add(&self, other: &Numeric) -> Numeric {
         match (self, other) {
             (Numeric::Double(a), b) => Numeric::Double(a + b.get_double()),
             (a, Numeric::Double(b)) => Numeric::Double(a.get_double() + b),
@@ -132,7 +130,7 @@ impl Numeric {
         }
     }
 
-    pub fn mul(&self, other: Numeric) -> Numeric {
+    pub fn mul(&self, other: &Numeric) -> Numeric {
         match (self, other) {
             (Numeric::Double(a), b) => Numeric::Double(a * b.get_double()),
             (a, Numeric::Double(b)) => Numeric::Double(a.get_double() * b),
@@ -141,7 +139,7 @@ impl Numeric {
         }
     }
 
-    pub fn div(&self, other: Numeric) -> Numeric {
+    pub fn div(&self, other: &Numeric) -> Numeric {
         match (self, other) {
             (Numeric::Double(a), b) => Numeric::Double(a / b.get_double()),
             (a, Numeric::Double(b)) => Numeric::Double(a.get_double() / b),
@@ -150,7 +148,7 @@ impl Numeric {
         }
     }
 
-    pub fn modulo(&self, other: Numeric) -> Numeric {
+    pub fn modulo(&self, other: &Numeric) -> Numeric {
         match (self, other) {
             (Numeric::Double(a), b) => Numeric::Double(a % b.get_double()),
             (a, Numeric::Double(b)) => Numeric::Double(a.get_double() % b),
