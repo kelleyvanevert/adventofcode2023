@@ -527,7 +527,7 @@ fn invocation_args(s: State) -> ParseResult<State, Vec<Argument>> {
     }
 }
 
-fn expr_index_stack(s: State) -> ParseResult<State, Expr> {
+fn expr_index_or_method_stack(s: State) -> ParseResult<State, Expr> {
     map(
         seq((
             expr_leaf,
@@ -582,7 +582,10 @@ fn expr_index_stack(s: State) -> ParseResult<State, Expr> {
 
 fn expr_call_stack(s: State) -> ParseResult<State, Expr> {
     map(
-        seq((expr_index_stack, many0(preceded(slws0, invocation_args)))),
+        seq((
+            expr_index_or_method_stack,
+            many0(preceded(slws0, invocation_args)),
+        )),
         |(mut expr, invocations)| {
             for args in invocations {
                 expr = Expr::Invocation {
