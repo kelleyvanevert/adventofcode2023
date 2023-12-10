@@ -15,8 +15,8 @@ use crate::{
     value::{AlRegex, EvalOther, EvaluationResult, Numeric, RuntimeError},
 };
 
-#[derive(Debug, Clone)]
-pub struct Dict(pub HashMap<Value, usize>);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Dict(pub Vec<(usize, usize)>);
 
 impl std::hash::Hash for Dict {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -24,18 +24,9 @@ impl std::hash::Hash for Dict {
     }
 }
 
-impl PartialEq for Dict {
-    fn eq(&self, other: &Self) -> bool {
-        // TODO structural equality comparison ??
-        false
-    }
-}
-
-impl Eq for Dict {}
-
 impl Dict {
     pub fn new() -> Dict {
-        Self(HashMap::new())
+        Self(vec![])
     }
 }
 
@@ -115,28 +106,28 @@ pub enum Value {
     Dict(Dict),
 }
 
-impl Ord for Value {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match self.partial_cmp(other) {
-            Some(ord) => ord,
-            None => panic!("cannot compare {} with {}", self.ty(), other.ty()),
-        }
-    }
-}
+// impl Ord for Value {
+//     fn cmp(&self, other: &Self) -> Ordering {
+//         match self.partial_cmp(other) {
+//             Some(ord) => ord,
+//             None => panic!("cannot compare {} with {}", self.ty(), other.ty()),
+//         }
+//     }
+// }
 
-impl PartialOrd for Value {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match (self, other) {
-            (Value::Nil, Value::Nil) => Some(Ordering::Equal),
-            (Value::Bool(a), Value::Bool(b)) => Some(a.cmp(b)),
-            (Value::Str(a), Value::Str(b)) => Some(a.cmp(b)),
-            (Value::Numeric(a), Value::Numeric(b)) => Some(a.cmp(b)),
-            (Value::Regex(a), Value::Regex(b)) => Some(a.cmp(b)),
+// impl PartialOrd for Value {
+//     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+//         match (self, other) {
+//             (Value::Nil, Value::Nil) => Some(Ordering::Equal),
+//             (Value::Bool(a), Value::Bool(b)) => Some(a.cmp(b)),
+//             (Value::Str(a), Value::Str(b)) => Some(a.cmp(b)),
+//             (Value::Numeric(a), Value::Numeric(b)) => Some(a.cmp(b)),
+//             (Value::Regex(a), Value::Regex(b)) => Some(a.cmp(b)),
 
-            _ => None,
-        }
-    }
-}
+//             _ => None,
+//         }
+//     }
+// }
 
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -362,18 +353,6 @@ pub struct Runtime {
     pub arena: Vec<N>,
 }
 
-pub fn nil() -> usize {
-    1
-}
-
-pub fn bool(b: bool) -> usize {
-    if b {
-        2
-    } else {
-        3
-    }
-}
-
 impl Runtime {
     pub fn new() -> Runtime {
         Runtime {
@@ -461,19 +440,21 @@ impl Runtime {
                         .collect::<Result<Vec<_>, _>>()?,
                 )),
                 Value::Dict(dict) => {
-                    let pairs = dict
-                        .0
-                        .iter()
-                        .map(|(key, value_loc)| {
-                            let Value::Str(key) = key else {
-                                return Err("cannot externalize non-str dict key".into());
-                            };
+                    return Err("cannot externalize dict".into());
 
-                            Ok((key.to_string(), self.get_value_ext(*value_loc)?))
-                        })
-                        .collect::<Result<Vec<_>, String>>()?;
+                    // let pairs = dict
+                    //     .0
+                    //     .iter()
+                    //     .map(|(key, value_loc)| {
+                    //         let Value::Str(key) = key else {
+                    //             return Err("cannot externalize non-str dict key".into());
+                    //         };
 
-                    Ok(Ev::Dict(HashMap::from_iter(pairs.into_iter())))
+                    //         Ok((key.to_string(), self.get_value_ext(*value_loc)?))
+                    //     })
+                    //     .collect::<Result<Vec<_>, String>>()?;
+
+                    // Ok(Ev::Dict(HashMap::from_iter(pairs.into_iter())))
                 }
             },
         }
@@ -491,6 +472,78 @@ impl Runtime {
             }
             other => self.new_value(other),
         }
+    }
+
+    pub fn cmp(&self, a: usize, b: usize) -> Ordering {
+        match (self.get_value(a), self.get_value(b)) {
+            (Value::Nil, Value::Nil) => Ordering::Equal,
+            (Value::Bool(a), Value::Bool(b)) => a.cmp(b),
+            (Value::Str(a), Value::Str(b)) => a.cmp(b),
+            (Value::Numeric(a), Value::Numeric(b)) => a.cmp(b),
+            (Value::Regex(a), Value::Regex(b)) => a.0.as_str().cmp(b.0.as_str()),
+            (Value::Tuple(a), Value::Tuple(b)) => {
+                for (a, b) in a.into_iter().zip(b.into_iter()) {
+                    match self.cmp(*a, *b) {
+                        Ordering::Equal => {}
+                        Ordering::Greater => {
+                            return Ordering::Greater;
+                        }
+                        Ordering::Less => {
+                            return Ordering::Less;
+                        }
+                    }
+                }
+
+                a.len().cmp(&b.len())
+            }
+            (Value::List(_, a), Value::List(_, b)) => {
+                for (a, b) in a.into_iter().zip(b.into_iter()) {
+                    match self.cmp(*a, *b) {
+                        Ordering::Equal => {}
+                        Ordering::Greater => {
+                            return Ordering::Greater;
+                        }
+                        Ordering::Less => {
+                            return Ordering::Less;
+                        }
+                    }
+                }
+
+                a.len().cmp(&b.len())
+            }
+            (Value::Dict(a), Value::Dict(b)) => {
+                todo!("comparing dicts")
+                // a.0.len() == b.0.len()
+                //     && a.0.iter().all(|(k, v)| {
+                //         if let Some(w) = b.0.get(k) && self.eq(*v, *w) {
+                //             true
+                //         } else {
+                //             false
+                //         }
+                //     })
+                //     && b.0.iter().all(|(k, v)| {
+                //         if let Some(w) = a.0.get(k) && self.eq(*v, *w) {
+                //             true
+                //         } else {
+                //             false
+                //         }
+                //     })
+            }
+
+            (Value::Nil, _) => Ordering::Less,
+            (_, Value::Nil) => Ordering::Greater,
+
+            _ => panic!("cannot compare values of disparate types"),
+        }
+    }
+    //             (Value::Nil, Value::Nil) => Some(Ordering::Equal),
+    //             (Value::Bool(a), Value::Bool(b)) => Some(a.cmp(b)),
+    //             (Value::Str(a), Value::Str(b)) => Some(a.cmp(b)),
+    //             (Value::Numeric(a), Value::Numeric(b)) => Some(a.cmp(b)),
+    //             (Value::Regex(a), Value::Regex(b)) => Some(a.cmp(b)),
+
+    pub fn eq(&self, a: usize, b: usize) -> bool {
+        self.cmp(a, b) == Ordering::Equal
     }
 
     pub fn builtin(&mut self, name: &str, signatures: impl IntoIterator<Item = FnSig>) {
@@ -529,7 +582,7 @@ impl Runtime {
     }
 
     pub fn execute_block(&mut self, scope: usize, block: &Block) -> EvaluationResult<usize> {
-        let mut result = nil();
+        let mut result = self.new_value(Value::Nil);
 
         for item in &block.items {
             self.define(scope, &item)?;
@@ -733,10 +786,11 @@ impl Runtime {
 
                 let items = items.clone();
 
-                for (pattern, value) in elements
-                    .into_iter()
-                    .zip(items.into_iter().chain(std::iter::repeat(nil())))
-                {
+                for (pattern, value) in elements.into_iter().zip(
+                    items
+                        .into_iter()
+                        .chain(std::iter::repeat(self.new_value(Value::Nil))),
+                ) {
                     self.declare(scope, pattern, value)?;
                 }
 
@@ -760,10 +814,11 @@ impl Runtime {
                     ))
                 })?;
 
-                for (pattern, value) in elements
-                    .into_iter()
-                    .zip(items.into_iter().chain(std::iter::repeat(nil())))
-                {
+                for (pattern, value) in elements.into_iter().zip(
+                    items
+                        .into_iter()
+                        .chain(std::iter::repeat(self.new_value(Value::Nil))),
+                ) {
                     self.declare(scope, pattern, value)?;
                 }
 
@@ -783,7 +838,7 @@ impl Runtime {
                 let value = expr
                     .clone()
                     .try_map(|expr| self.evaluate(scope, &expr))?
-                    .unwrap_or(nil());
+                    .unwrap_or(self.new_value(Value::Nil));
 
                 Err(EvalOther::Break(value))
             }
@@ -791,7 +846,7 @@ impl Runtime {
                 let value = expr
                     .clone()
                     .try_map(|expr| self.evaluate(scope, &expr))?
-                    .unwrap_or(nil());
+                    .unwrap_or(self.new_value(Value::Nil));
 
                 Err(EvalOther::Return(value))
             }
@@ -801,7 +856,7 @@ impl Runtime {
 
                 self.declare(scope, pattern, value)?;
 
-                Ok(nil())
+                Ok(self.new_value(Value::Nil))
             }
             Stmt::Assign { pattern, expr } => {
                 let value = self.evaluate(scope, expr)?;
@@ -810,7 +865,7 @@ impl Runtime {
 
                 self.assign(scope, assignable, value)?;
 
-                Ok(nil())
+                Ok(self.new_value(Value::Nil))
             }
         }
     }
@@ -963,6 +1018,19 @@ impl Runtime {
                 Location::Single(parent) => {
                     let i = self.evaluate(scope, index_expr)?;
                     let index_value = self.get_value(i).clone();
+                    let nil = self.new_value(Value::Nil);
+
+                    let matching_dict_key = match self.get_value(parent) {
+                        Value::Dict(dict) => {
+                            if let Some(pair) = dict.0.iter().find(|(k, v)| self.eq(*k, i)) {
+                                Some(pair.0)
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    };
+
                     match self.get_value_mut(parent) {
                         Value::List(_, items) | Value::Tuple(items) => {
                             let Value::Numeric(Numeric::Int(index)) = index_value else {
@@ -975,7 +1043,7 @@ impl Runtime {
 
                             let i = if index >= 0 {
                                 if index >= items.len() as i64 {
-                                    items.resize(index as usize + 1, nil());
+                                    items.resize(index as usize + 1, nil);
                                 }
                                 index as usize
                             } else if items.len() as i64 + index >= 0 {
@@ -987,9 +1055,14 @@ impl Runtime {
 
                             Ok(Location::Single(items[i]))
                         }
-                        Value::Dict(dict) => Ok(Location::Single(
-                            *dict.0.entry(index_value).or_insert(nil()),
-                        )),
+                        Value::Dict(dict) => {
+                            if let Some(loc) = matching_dict_key {
+                                Ok(Location::Single(loc))
+                            } else {
+                                dict.0.push((i, nil));
+                                Ok(Location::Single(nil))
+                            }
+                        }
                         v => RuntimeError(format!(
                             "cannot assign index of value other than list/tuple/dict, is a: {}",
                             v.ty()
@@ -1041,8 +1114,8 @@ impl Runtime {
 
     pub fn evaluate(&mut self, scope: usize, expr: &Expr) -> EvaluationResult<usize> {
         match expr {
-            Expr::Bool(b) => Ok(bool(*b)),
-            Expr::NilLiteral => Ok(nil()),
+            Expr::Bool(b) => Ok(self.new_value(Value::Bool(*b))),
+            Expr::NilLiteral => Ok(self.new_value(Value::Nil)),
             Expr::DictLiteral { elements } => {
                 let mut dict = Dict::new();
                 for (key, value_expr) in elements {
@@ -1053,7 +1126,7 @@ impl Runtime {
 
                     let expr_value = self.evaluate(scope, value_expr)?;
 
-                    dict.0.insert(self.get_value(k).clone(), expr_value);
+                    dict.0.push((k, expr_value));
                 }
 
                 Ok(self.new_value(Value::Dict(dict)))
@@ -1118,37 +1191,28 @@ impl Runtime {
                 let right_value = self.get_value(ri);
 
                 match op.as_str() {
-                    "^" => Ok(self.new_value(left_value.pow(right_value)?)),
-                    "<<" => Ok(self.new_value(left_value.left_shift(right_value)?)),
-                    "+" => Ok(self.new_value(left_value.add(right_value)?)),
-                    "-" => Ok(self.new_value(left_value.sub(&right_value)?)),
-                    "*" => Ok(self.new_value(left_value.mul(right_value)?)),
-                    "/" => Ok(self.new_value(left_value.div(right_value)?)),
-                    "%" => Ok(self.new_value(left_value.modulo(right_value)?)),
-                    "<" => match left_value.partial_cmp(&right_value) {
-                        None => RuntimeError(format!("cannot compare")).into(),
-                        Some(ord) => Ok(bool(ord == Ordering::Less)),
-                    },
-                    ">" => match left_value.partial_cmp(&right_value) {
-                        None => RuntimeError(format!("cannot compare")).into(),
-                        Some(ord) => Ok(bool(ord == Ordering::Greater)),
-                    },
-                    "==" => match left_value.partial_cmp(&right_value) {
-                        None => RuntimeError(format!("cannot compare")).into(),
-                        Some(ord) => Ok(bool(ord == Ordering::Equal)),
-                    },
-                    "!=" => match left_value.partial_cmp(&right_value) {
-                        None => RuntimeError(format!("cannot compare")).into(),
-                        Some(ord) => Ok(bool(ord != Ordering::Equal)),
-                    },
-                    ">=" => match left_value.partial_cmp(&right_value) {
-                        None => RuntimeError(format!("cannot compare")).into(),
-                        Some(ord) => Ok(bool(ord == Ordering::Equal || ord == Ordering::Greater)),
-                    },
-                    "<=" => match left_value.partial_cmp(&right_value) {
-                        None => RuntimeError(format!("cannot compare")).into(),
-                        Some(ord) => Ok(bool(ord == Ordering::Equal || ord == Ordering::Less)),
-                    },
+                    "^" => return Ok(self.new_value(left_value.pow(right_value)?)),
+                    "<<" => return Ok(self.new_value(left_value.left_shift(right_value)?)),
+                    "+" => return Ok(self.new_value(left_value.add(right_value)?)),
+                    "-" => return Ok(self.new_value(left_value.sub(&right_value)?)),
+                    "*" => return Ok(self.new_value(left_value.mul(right_value)?)),
+                    "/" => return Ok(self.new_value(left_value.div(right_value)?)),
+                    "%" => return Ok(self.new_value(left_value.modulo(right_value)?)),
+                    _ => {}
+                };
+
+                let ord = self.cmp(le, ri);
+
+                match op.as_str() {
+                    "<" => Ok(self.new_value(Value::Bool(ord == Ordering::Less))),
+                    ">" => Ok(self.new_value(Value::Bool(ord == Ordering::Greater))),
+                    "==" => Ok(self.new_value(Value::Bool(ord == Ordering::Equal))),
+                    "!=" => Ok(self.new_value(Value::Bool(ord != Ordering::Equal))),
+                    ">=" => Ok(self.new_value(Value::Bool(
+                        ord == Ordering::Equal || ord == Ordering::Greater,
+                    ))),
+                    "<=" => Ok(self
+                        .new_value(Value::Bool(ord == Ordering::Equal || ord == Ordering::Less))),
                     _ => RuntimeError(format!("Unknown binary operation: {op}")).into(),
                 }
             }
@@ -1216,13 +1280,13 @@ impl Runtime {
 
                     self.execute_block(execution_scope, els)?
                 } else {
-                    nil()
+                    self.new_value(Value::Nil)
                 };
 
                 Ok(result)
             }
             Expr::While { cond, body } => {
-                let mut result = nil();
+                let mut result = self.new_value(Value::Nil);
                 loop {
                     let cond_value = self.evaluate(scope, cond)?;
                     if !self.get_value(cond_value).truthy()? {
@@ -1278,7 +1342,7 @@ impl Runtime {
                     let _ = self.execute_block(execution_scope, body)?;
                 }
 
-                Ok(nil())
+                Ok(self.new_value(Value::Nil))
             }
         }
     }
@@ -1321,12 +1385,16 @@ mod tests {
         Ev::List(items.into_iter().collect())
     }
 
-    //     fn tuple(elements: Vec<Value>) -> Value {
-    //         Value::Tuple(elements)
-    //     }
+    fn tuple(items: impl IntoIterator<Item = Ev>) -> Ev {
+        Ev::Tuple(items.into_iter().collect())
+    }
 
     fn int(n: i64) -> Ev {
         Ev::Int(n)
+    }
+
+    fn bool(b: bool) -> Ev {
+        Ev::Bool(b)
     }
 
     fn str(s: &'static str) -> Ev {
@@ -1358,6 +1426,20 @@ mod tests {
         assert_eq!(
             execute_simple("let a = [1,2,3]; let b = clone(a); a[0] = 5; b"),
             Ok(list([int(1), int(2), int(3)]))
+        );
+
+        assert_eq!(
+            execute_simple(r#""hello world bla" :match / [a-z]{2}/"#),
+            Ok(tuple([str(" wo"), int(5)]))
+        );
+
+        assert_eq!(execute_simple("[1,2,3] == [1,2,3]"), Ok(bool(true)));
+
+        assert_eq!(execute_simple("[1,2,3] != [1,2,50]"), Ok(bool(true)));
+
+        assert_eq!(
+            execute_simple("let d = @{}; d[(2,6)] = 4; d[(2,6)]"),
+            Ok(int(4))
         );
     }
 

@@ -96,6 +96,15 @@ impl PartialOrd for Numeric {
 }
 
 impl Numeric {
+    pub fn eq(&self, other: &Numeric) -> bool {
+        match (self, other) {
+            (Numeric::Double(a), Numeric::Double(b)) => a == b,
+            (Numeric::Int(a), Numeric::Int(b)) => a == b,
+            (a, Numeric::Double(b)) => a.get_double() == *b,
+            (Numeric::Double(a), b) => *a == b.get_double(),
+        }
+    }
+
     pub fn negate(&self) -> Result<Numeric, RuntimeError> {
         match self {
             Numeric::Int(n) => Ok(Numeric::Int(-n)),

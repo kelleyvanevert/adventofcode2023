@@ -1,6 +1,8 @@
+use std::cmp::Ordering;
+
 use crate::{
     ast::{DeclarePattern, Identifier, Type},
-    runtime::{bool, nil, FnBody, FnSig, Runtime, Value},
+    runtime::{FnBody, FnSig, Runtime, Value},
     value::{Numeric, RuntimeError},
 };
 
@@ -24,7 +26,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
             body: FnBody::Builtin(|runtime, scope| {
                 let text = runtime.get_scope(scope).get_unchecked("text");
 
-                Ok(nil())
+                println!("{}", runtime.get_value(text));
+                Ok(runtime.new_value(Value::Nil))
             }),
         }],
     );
@@ -115,10 +118,10 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     let a = runtime.get_scope(scope).get_unchecked("a");
                     let b = runtime.get_scope(scope).get_unchecked("b");
 
-                    match (runtime.get_value(a), runtime.get_value(b)) {
-                        (&Value::Nil, _) => Ok(b),
-                        (_, &Value::Nil) => Ok(a),
-                        (a, b) => Ok(runtime.new_value(a.max(b).clone())),
+                    match runtime.cmp(a, b) {
+                        Ordering::Greater => Ok(a),
+                        Ordering::Less => Ok(b),
+                        _ => Ok(a),
                     }
                 }),
             },
@@ -445,12 +448,12 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 };
 
                 for el in haystack {
-                    if runtime.get_value(el) == runtime.get_value(needle) {
-                        return Ok(bool(true));
+                    if runtime.eq(el, needle) {
+                        return Ok(runtime.new_value(Value::Bool(true)));
                     }
                 }
 
-                Ok(bool(false))
+                Ok(runtime.new_value(Value::Bool(false)))
             }),
         }],
     );
@@ -648,7 +651,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     }
                 }
 
-                Ok(nil())
+                Ok(runtime.new_value(Value::Nil))
             }),
         }],
     );
@@ -676,7 +679,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     }
                 }
 
-                Ok(nil())
+                Ok(runtime.new_value(Value::Nil))
             }),
         }],
     );
@@ -731,40 +734,58 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         }],
     );
 
-    // runtime.builtin(
-    //     "enumerate",
-    //     [FnSig {
-    //         params: vec![idpat("items")],
-    //         body: FnBody::Builtin(|runtime, scope| {
-    //             let items = runtime.get_scope(scope).get_unchecked("items");
+    runtime.builtin(
+        "enumerate",
+        [FnSig {
+            params: vec![idpat("items")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let items = runtime.get_scope(scope).get_unchecked("items");
 
-    //             Ok(match items {
-    //                 Value::List(_, list) => Value::List(
-    //                     Type::Tuple, // TODO generic tuple types
-    //                     list.iter()
-    //                         .cloned()
-    //                         .enumerate()
-    //                         .map(|(i, item)| {
-    //                             Value::Tuple(vec![Value::Numeric(Numeric::Int(i as i64)), item])
-    //                         })
-    //                         .collect::<Vec<_>>(),
-    //                 ),
-    //                 Value::Tuple(list) => Value::Tuple(
-    //                     list.iter()
-    //                         .cloned()
-    //                         .enumerate()
-    //                         .map(|(i, item)| {
-    //                             Value::Tuple(vec![Value::Numeric(Numeric::Int(i as i64)), item])
-    //                         })
-    //                         .collect::<Vec<_>>(),
-    //                 ),
-    //                 _ => {
-    //                     return RuntimeError(format!("cannot get max of: {}", items.ty())).into();
-    //                 }
-    //             })
-    //         }),
-    //     }],
-    // );
+                Ok(match runtime.get_value(items).clone() {
+                    Value::List(_, list) => {
+                        let new_items = list
+                            .iter()
+                            .cloned()
+                            .enumerate()
+                            .map(|(i, item)| {
+                                let index =
+                                    runtime.new_value(Value::Numeric(Numeric::Int(i as i64)));
+
+                                runtime.new_value(Value::Tuple(vec![index, item]))
+                            })
+                            .collect::<Vec<_>>();
+
+                        runtime.new_value(Value::List(
+                            Type::Tuple, // TODO generic tuple types
+                            new_items,
+                        ))
+                    }
+                    Value::Tuple(list) => {
+                        let new_items = list
+                            .iter()
+                            .cloned()
+                            .enumerate()
+                            .map(|(i, item)| {
+                                let index =
+                                    runtime.new_value(Value::Numeric(Numeric::Int(i as i64)));
+
+                                runtime.new_value(Value::Tuple(vec![index, item]))
+                            })
+                            .collect::<Vec<_>>();
+
+                        runtime.new_value(Value::Tuple(new_items))
+                    }
+                    _ => {
+                        return RuntimeError(format!(
+                            "cannot get max of: {}",
+                            runtime.get_ty(items)
+                        ))
+                        .into();
+                    }
+                })
+            }),
+        }],
+    );
 
     runtime.builtin(
         "sum",
@@ -896,44 +917,44 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         }],
     );
 
-    // runtime.builtin(
-    //     "match",
-    //     [FnSig {
-    //         params: vec![idpat("text"), idpat("regex")],
-    //         body: FnBody::Builtin(|runtime, scope| {
-    //             let text = runtime.get_scope(scope).get_unchecked("text");
+    runtime.builtin(
+        "match",
+        [FnSig {
+            params: vec![idpat("text"), idpat("regex")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let text = runtime.get_scope(scope).get_unchecked("text");
 
-    //             let Value::Str(text) = text else {
-    //                 return RuntimeError(format!(
-    //                     "match() text must be a string, is a: {}",
-    //                     text.ty()
-    //                 ))
-    //                 .into();
-    //             };
+                let Value::Str(text) = runtime.get_value(text).clone() else {
+                    return RuntimeError(format!(
+                        "match() text must be a string, is a: {}",
+                        runtime.get_ty(text)
+                    ))
+                    .into();
+                };
 
-    //             let regex = runtime.get_scope(scope).get_unchecked("regex");
+                let regex = runtime.get_scope(scope).get_unchecked("regex");
 
-    //             let Value::Regex(regex) = regex else {
-    //                 return RuntimeError(format!(
-    //                     "match() regex must be a regex, is a: {}",
-    //                     regex.ty()
-    //                 ))
-    //                 .into();
-    //             };
+                let Value::Regex(regex) = runtime.get_value(regex).clone() else {
+                    return RuntimeError(format!(
+                        "match() regex must be a regex, is a: {}",
+                        runtime.get_ty(regex)
+                    ))
+                    .into();
+                };
 
-    //             match regex.0.captures(text) {
-    //                 Some(cap) => {
-    //                     let m = cap.get(0).unwrap();
-    //                     Ok(Value::Tuple(vec![
-    //                         Value::Str(m.as_str().into()),
-    //                         Value::Numeric(Numeric::Int(m.start() as i64)),
-    //                     ]))
-    //                 }
-    //                 None => Ok(Value::Nil),
-    //             }
-    //         }),
-    //     }],
-    // );
+                match regex.0.captures(&text) {
+                    Some(cap) => {
+                        let m = cap.get(0).unwrap();
+                        let matched_part = runtime.new_value(Value::Str(m.as_str().into()));
+                        let offset =
+                            runtime.new_value(Value::Numeric(Numeric::Int(m.start() as i64)));
+                        Ok(runtime.new_value(Value::Tuple(vec![matched_part, offset])))
+                    }
+                    None => Ok(runtime.new_value(Value::Nil)),
+                }
+            }),
+        }],
+    );
 
     // runtime.builtin(
     //     "match_all",
@@ -1003,7 +1024,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     .into();
                 };
 
-                Ok(bool(text.starts_with(substr.as_str())))
+                Ok(runtime.new_value(Value::Bool(text.starts_with(substr.as_str()))))
             }),
         }],
     );
@@ -1141,90 +1162,105 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     Ok(runtime.new_value(Value::Str(text.substr((i as usize)..))))
                 }),
             },
-            // FnSig {
-            //     params: vec![
-            //         DeclarePattern::Id(id("text"), Some(Type::Str)),
-            //         DeclarePattern::Id(id("range"), Some(Type::Tuple)),
-            //     ],
-            //     body: FnBody::Builtin(|runtime, scope| {
-            //         let text = runtime.get_scope(scope).get_unchecked("text");
+            FnSig {
+                params: vec![
+                    DeclarePattern::Id(id("text"), Some(Type::Str)),
+                    DeclarePattern::Id(id("range"), Some(Type::Tuple)),
+                ],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let text = runtime.get_scope(scope).get_unchecked("text");
 
-            //         let Value::Str(text) = text else {
-            //             return RuntimeError(format!(
-            //                 "slice() text must be a string, is a: {}",
-            //                 text.ty()
-            //             ))
-            //             .into();
-            //         };
+                    let Value::Str(text) = runtime.get_value(text).clone() else {
+                        return RuntimeError(format!(
+                            "slice() text must be a string, is a: {}",
+                            runtime.get_ty(text)
+                        ))
+                        .into();
+                    };
 
-            //         let range = runtime.get_scope(scope).get_unchecked("range");
+                    let range = runtime.get_scope(scope).get_unchecked("range");
 
-            //         let Value::Tuple(range) = range else {
-            //             return RuntimeError(format!(
-            //                 "slice() range must be an (int, int) range, is a: {}",
-            //                 range.ty()
-            //             ))
-            //             .into();
-            //         };
+                    let Value::Tuple(range) = runtime.get_value(range).clone() else {
+                        return RuntimeError(format!(
+                            "slice() range must be an (int, int) range, is a: {}",
+                            runtime.get_ty(range)
+                        ))
+                        .into();
+                    };
 
-            //         let Some(Value::Numeric(start)) = range.get(0) else {
-            //             return RuntimeError(format!("slice() range must be an (int, int) range"))
-            //                 .into();
-            //         };
+                    let Some(start) = range.get(0) else {
+                        return RuntimeError(format!("slice() range must be an (int, int) range"))
+                            .into();
+                    };
 
-            //         let start = start.get_int()?;
+                    let Value::Numeric(start) = runtime.get_value(*start) else {
+                        return RuntimeError(format!("slice() range must be an (int, int) range"))
+                            .into();
+                    };
 
-            //         if start < 0 {
-            //             return RuntimeError(format!("slice() range must be an (int, int) range"))
-            //                 .into();
-            //         }
+                    let start = start.get_int()?;
 
-            //         let Some(Value::Numeric(end)) = range.get(1) else {
-            //             return RuntimeError(format!("slice() range must be an (int, int) range"))
-            //                 .into();
-            //         };
+                    if start < 0 {
+                        return RuntimeError(format!("slice() range must be an (int, int) range"))
+                            .into();
+                    }
 
-            //         let end = end.get_int()?;
+                    let Some(end) = range.get(1) else {
+                        return RuntimeError(format!("slice() range must be an (int, int) range"))
+                            .into();
+                    };
 
-            //         if end < 0 {
-            //             return RuntimeError(format!("slice() range must be an (int, int) range"))
-            //                 .into();
-            //         }
+                    let Value::Numeric(end) = runtime.get_value(*end) else {
+                        return RuntimeError(format!("slice() range must be an (int, int) range"))
+                            .into();
+                    };
 
-            //         Ok(Value::Str(
-            //             text.substr((start as usize)..(end as usize).min(text.len())),
-            //         ))
-            //     }),
-            // },
+                    let end = end.get_int()?;
+
+                    if end < 0 {
+                        return RuntimeError(format!("slice() range must be an (int, int) range"))
+                            .into();
+                    }
+
+                    Ok(runtime.new_value(Value::Str(
+                        text.substr((start as usize)..(end as usize).min(text.len())),
+                    )))
+                }),
+            },
         ],
     );
 
     runtime.builtin(
         "index",
         [
-            // FnSig {
-            //     params: vec![
-            //         DeclarePattern::Id(id("dict"), Some(Type::Dict)),
-            //         idpat("key"),
-            //     ],
-            //     body: FnBody::Builtin(|runtime, scope| {
-            //         let dict = runtime.get_scope(scope).get_unchecked("dict");
+            FnSig {
+                params: vec![
+                    DeclarePattern::Id(id("dict"), Some(Type::Dict)),
+                    idpat("key"),
+                ],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let dict = runtime.get_scope(scope).get_unchecked("dict");
 
-            //         let Value::Dict(dict) = dict else {
-            //             return RuntimeError(format!(
-            //                 "index() dict must be a dict, is a: {}",
-            //                 dict.ty()
-            //             ))
-            //             .into();
-            //         };
+                    let Value::Dict(dict) = runtime.get_value(dict).clone() else {
+                        return RuntimeError(format!(
+                            "index() dict must be a dict, is a: {}",
+                            runtime.get_ty(dict)
+                        ))
+                        .into();
+                    };
 
-            //         let key = runtime.get_scope(scope).get_unchecked("key");
+                    let key = runtime.get_scope(scope).get_unchecked("key");
 
-            //         let result = dict.0.get(key).cloned().unwrap_or(Value::Nil);
+                    let result = dict
+                        .0
+                        .into_iter()
+                        .find(|(k, v)| runtime.eq(*k, key))
+                        .map(|(k, v)| v)
+                        .unwrap_or(runtime.new_value(Value::Nil));
 
-            //         Ok(result)
-            //     }),
-            // },
+                    Ok(result)
+                }),
+            },
             FnSig {
                 params: vec![
                     DeclarePattern::Id(id("list"), Some(Type::List(Type::Any.into()))),
@@ -1261,7 +1297,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                         _ => None,
                     };
 
-                    Ok(el.unwrap_or(nil()))
+                    Ok(el.unwrap_or(runtime.new_value(Value::Nil)))
                 }),
             },
             FnSig {
@@ -1300,7 +1336,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                         _ => None,
                     };
 
-                    Ok(el.unwrap_or(nil()))
+                    Ok(el.unwrap_or(runtime.new_value(Value::Nil)))
                 }),
             },
             // FnSig {
