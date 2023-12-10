@@ -324,38 +324,38 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     //     }],
     // );
 
-    // runtime.builtin(
-    //     "map",
-    //     [FnSig {
-    //         params: vec![idpat("items"), idpat("cb")],
-    //         body: FnBody::Builtin(|runtime, scope| {
-    //             let items = runtime.scopes[scope].values.get(&id("items")).unwrap();
+    runtime.builtin(
+        "map",
+        [FnSig {
+            params: vec![idpat("items"), idpat("cb")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let items = runtime.get_scope(scope).values.get(&id("items")).unwrap();
 
-    //             let Value::List(_, list) = items else {
-    //                 return RuntimeError(format!("cannot get max of: {}", items.ty())).into();
-    //             };
+                let Value::List(_, list) = runtime.get_value(*items) else {
+                    return RuntimeError(format!("cannot get map of")).into();
+                };
 
-    //             let list = list.clone();
+                let list = list.clone();
 
-    //             let cb = runtime.scopes[scope].values.get(&id("cb")).unwrap();
+                let cb = runtime.get_scope(scope).values.get(&id("cb")).unwrap();
 
-    //             let Value::FnDef(def) = cb else {
-    //                 return RuntimeError(format!("cannot use map w/ cb of type: {}", cb.ty()))
-    //                     .into();
-    //             };
+                let Value::FnDef(def) = runtime.get_value(*cb) else {
+                    return RuntimeError(format!("cannot use map w/ cb of type: {}", cb.ty()))
+                        .into();
+                };
 
-    //             let def = def.clone();
+                let def = def.clone();
 
-    //             let mut result = vec![];
-    //             for item in list.iter() {
-    //                 result.push(runtime.invoke(def.clone(), vec![(None, item.clone())])?);
-    //             }
+                let mut result = vec![];
+                for item in list.iter() {
+                    result.push(runtime.invoke(def.clone(), vec![(None, item.clone())])?);
+                }
 
-    //             // TODO
-    //             Ok(Value::List(Type::Any, result))
-    //         }),
-    //     }],
-    // );
+                // TODO
+                Ok(Value::List(Type::Any, result))
+            }),
+        }],
+    );
 
     // runtime.builtin(
     //     "flat_map",

@@ -2,6 +2,7 @@ use std::{cmp::Ordering, collections::HashMap, fmt::Display};
 
 use arcstr::Substr;
 use either::Either;
+use nom::Err;
 use try_map::FallibleMapExt;
 
 use crate::{
@@ -84,6 +85,20 @@ impl std::hash::Hash for FnBody {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         todo!("todo FnBody::hash")
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Ev {
+    Nil,
+    Bool(bool),
+    Str(String),
+    Int(i64),
+    Double(f64),
+    Regex,
+    FnDef,
+    List(Vec<Ev>),
+    Tuple(Vec<Ev>),
+    Dict(HashMap<String, Ev>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -407,6 +422,49 @@ impl Runtime {
         let id = self.arena.len();
         self.arena.push(N::Value(value));
         id
+    }
+
+    pub fn get_value_ext(&self, loc: usize) -> Result<Ev, String> {
+        match self.arena.get(loc) {
+            None => Err("nothing at location".into()),
+            Some(N::Scope(_)) => Err("scope at location".into()),
+            Some(N::Value(value)) => match value {
+                Value::Nil => Ok(Ev::Nil),
+                Value::Bool(b) => Ok(Ev::Bool(*b)),
+                Value::Str(s) => Ok(Ev::Str(s.to_string())),
+                Value::Numeric(Numeric::Int(n)) => Ok(Ev::Int(*n)),
+                Value::Numeric(Numeric::Double(d)) => Ok(Ev::Double(*d)),
+                Value::Regex(_) => Ok(Ev::Regex),
+                Value::FnDef(_) => Ok(Ev::FnDef),
+                Value::List(_, items) => Ok(Ev::List(
+                    items
+                        .into_iter()
+                        .map(|loc| self.get_value_ext(*loc))
+                        .collect::<Result<Vec<_>, _>>()?,
+                )),
+                Value::Tuple(items) => Ok(Ev::Tuple(
+                    items
+                        .into_iter()
+                        .map(|loc| self.get_value_ext(*loc))
+                        .collect::<Result<Vec<_>, _>>()?,
+                )),
+                Value::Dict(dict) => {
+                    let pairs = dict
+                        .0
+                        .iter()
+                        .map(|(key, value_loc)| {
+                            let Value::Str(key) = key else {
+                                return Err("cannot externalize non-str dict key".into());
+                            };
+
+                            Ok((key.to_string(), self.get_value_ext(*value_loc)?))
+                        })
+                        .collect::<Result<Vec<_>, String>>()?;
+
+                    Ok(Ev::Dict(HashMap::from_iter(pairs.into_iter())))
+                }
+            },
+        }
     }
 
     pub fn builtin(&mut self, name: &str, signatures: impl IntoIterator<Item = FnSig>) {
@@ -977,7 +1035,7 @@ impl Runtime {
                         }
                         StrLiteralPiece::Interpolation(expr) => {
                             let value = self.evaluate(scope, expr)?;
-                            build += &format!("{}", value);
+                            build += &format!("{}", self.get_value(value));
                             // build += &value.auto_coerce_str();
                         }
                     }
@@ -1205,131 +1263,164 @@ pub fn execute(doc: &Document, stdin: String) -> EvaluationResult<(Runtime, usiz
     Ok((runtime, r))
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use crate::parse::parse_document;
+#[cfg(test)]
+mod tests {
 
-//     fn list(t: Type, elements: Vec<Value>) -> Value {
-//         Value::List(t, elements)
-//     }
+    use super::*;
+    use crate::parse::parse_document;
 
-//     fn tuple(elements: Vec<Value>) -> Value {
-//         Value::Tuple(elements)
-//     }
+    fn list(items: impl IntoIterator<Item = Ev>) -> Ev {
+        Ev::List(items.into_iter().collect())
+    }
 
-//     fn int(n: i64) -> Value {
-//         Value::Numeric(Numeric::Int(n))
-//     }
+    //     fn tuple(elements: Vec<Value>) -> Value {
+    //         Value::Tuple(elements)
+    //     }
 
-//     #[test]
-//     fn list_literals() {
-//         assert_eq!(
-//             execute(&parse_document(r#"[0]"#).unwrap(), "".into()),
-//             Ok(list(Type::Numeric, vec![int(0)]))
-//         );
+    fn int(n: i64) -> Ev {
+        Ev::Int(n)
+    }
 
-//         assert_eq!(
-//             execute(&parse_document(r#"[0, "hello"]"#).unwrap(), "".into()),
-//             RuntimeError("list contains distinct types".into()).into()
-//         );
-//     }
+    fn str(s: &'static str) -> Ev {
+        Ev::Str(s.to_string())
+    }
 
-//     #[test]
-//     fn bla() {
-//         assert_eq!(
-//             execute(&parse_document("range(0, 10)").unwrap(), "".into()),
-//             Ok(list(Type::Numeric, (0..10).map(int).collect()))
-//         );
+    fn exec(code: &'static str) -> Ev {
+        let Some(doc) = parse_document(code) else {
+            panic!("could not parse document");
+        };
 
-//         assert_eq!(
-//             execute(&parse_document("range(6, 2)").unwrap(), "".into()),
-//             Ok(list(Type::Numeric, vec![]))
-//         );
-//     }
+        let (runtime, res_loc) = match execute(&doc, "".into()) {
+            Err(EvalOther::RuntimeError(e)) => panic!("runtime error: {}", e.0),
+            Err(_) => panic!("break or return"),
+            Ok((runtime, res_loc)) => (runtime, res_loc),
+        };
 
-//     #[test]
-//     fn patterns() {
-//         assert_eq!(
-//             execute(
-//                 &parse_document("let [a, b] = [2, 3]; (a, b)").unwrap(),
-//                 "".into()
-//             ),
-//             Ok(tuple(vec![int(2), int(3)]))
-//         );
+        let value = match runtime.get_value_ext(res_loc) {
+            Err(e) => panic!("could not get result: {}", e),
+            Ok(value) => value,
+        };
 
-//         assert_eq!(
-//             execute(
-//                 &parse_document("let [a, b] = [2]; (a, b)").unwrap(),
-//                 "".into()
-//             ),
-//             Ok(tuple(vec![int(2), Value::Nil]))
-//         );
+        value
+    }
 
-//         assert_eq!(
-//             execute(
-//                 &parse_document("let [a, b] = [2, 3, 4]; (a, b)").unwrap(),
-//                 "".into()
-//             ),
-//             Ok(tuple(vec![int(2), int(3)]))
-//         );
+    #[test]
+    fn some_simple_tests() {
+        assert_eq!(exec("[1, 2, 3]"), list([int(1), int(2), int(3)]));
 
-//         assert_eq!(
-//             execute(&parse_document("let [] = [2, 3, 4]").unwrap(), "".into()),
-//             Ok(Value::Nil)
-//         );
+        assert_eq!(exec(r#""hello {"world"}""#), str("hello world"));
 
-//         assert_eq!(
-//             execute(
-//                 &parse_document("let a = 4; let b = 5; [a, b] = [1, 2, 3, 4]; (a, b)").unwrap(),
-//                 "".into()
-//             ),
-//             Ok(tuple(vec![int(1), int(2)]))
-//         );
-//     }
+        assert_eq!(exec("[1, 2, 3] :map |n| { n * 2 }"), str("hello world"));
+    }
 
-//     #[test]
-//     fn if_declare() {
-//         assert_eq!(
-//             execute(
-//                 &parse_document("if (let answer = 42) { answer }").unwrap(),
-//                 "".into()
-//             ),
-//             Ok(int(42))
-//         );
-//     }
+    //     #[test]
+    //     fn list_literals() {
+    //         assert_eq!(
+    //             execute(&parse_document(r#"[0]"#).unwrap(), "".into()),
+    //             Ok(list(Type::Numeric, vec![int(0)]))
+    //         );
 
-//     #[test]
-//     fn test_sorting() {
-//         assert_eq!(
-//             execute(
-//                 &parse_document("[1, 9, 3, 2, 7] :sort_by_key |n| { n }").unwrap(),
-//                 "".into()
-//             ),
-//             Ok(list(
-//                 Type::Numeric,
-//                 vec![int(1), int(2), int(3), int(7), int(9)]
-//             ))
-//         );
+    //         assert_eq!(
+    //             execute(&parse_document(r#"[0, "hello"]"#).unwrap(), "".into()),
+    //             RuntimeError("list contains distinct types".into()).into()
+    //         );
+    //     }
 
-//         assert_eq!(
-//             execute(
-//                 &parse_document(
-//                     "[(nil, 1), (nil, 9), (nil, 3), (nil, 2), (nil, 7)] :sort_by_key |n| { n[1] }"
-//                 )
-//                 .unwrap(),
-//                 "".into()
-//             ),
-//             Ok(list(
-//                 Type::Tuple,
-//                 vec![
-//                     tuple(vec![Value::Nil, int(1)]),
-//                     tuple(vec![Value::Nil, int(2)]),
-//                     tuple(vec![Value::Nil, int(3)]),
-//                     tuple(vec![Value::Nil, int(7)]),
-//                     tuple(vec![Value::Nil, int(9)])
-//                 ]
-//             ))
-//         );
-//     }
-// }
+    //     #[test]
+    //     fn bla() {
+    //         assert_eq!(
+    //             execute(&parse_document("range(0, 10)").unwrap(), "".into()),
+    //             Ok(list(Type::Numeric, (0..10).map(int).collect()))
+    //         );
+
+    //         assert_eq!(
+    //             execute(&parse_document("range(6, 2)").unwrap(), "".into()),
+    //             Ok(list(Type::Numeric, vec![]))
+    //         );
+    //     }
+
+    //     #[test]
+    //     fn patterns() {
+    //         assert_eq!(
+    //             execute(
+    //                 &parse_document("let [a, b] = [2, 3]; (a, b)").unwrap(),
+    //                 "".into()
+    //             ),
+    //             Ok(tuple(vec![int(2), int(3)]))
+    //         );
+
+    //         assert_eq!(
+    //             execute(
+    //                 &parse_document("let [a, b] = [2]; (a, b)").unwrap(),
+    //                 "".into()
+    //             ),
+    //             Ok(tuple(vec![int(2), Value::Nil]))
+    //         );
+
+    //         assert_eq!(
+    //             execute(
+    //                 &parse_document("let [a, b] = [2, 3, 4]; (a, b)").unwrap(),
+    //                 "".into()
+    //             ),
+    //             Ok(tuple(vec![int(2), int(3)]))
+    //         );
+
+    //         assert_eq!(
+    //             execute(&parse_document("let [] = [2, 3, 4]").unwrap(), "".into()),
+    //             Ok(Value::Nil)
+    //         );
+
+    //         assert_eq!(
+    //             execute(
+    //                 &parse_document("let a = 4; let b = 5; [a, b] = [1, 2, 3, 4]; (a, b)").unwrap(),
+    //                 "".into()
+    //             ),
+    //             Ok(tuple(vec![int(1), int(2)]))
+    //         );
+    //     }
+
+    //     #[test]
+    //     fn if_declare() {
+    //         assert_eq!(
+    //             execute(
+    //                 &parse_document("if (let answer = 42) { answer }").unwrap(),
+    //                 "".into()
+    //             ),
+    //             Ok(int(42))
+    //         );
+    //     }
+
+    //     #[test]
+    //     fn test_sorting() {
+    //         assert_eq!(
+    //             execute(
+    //                 &parse_document("[1, 9, 3, 2, 7] :sort_by_key |n| { n }").unwrap(),
+    //                 "".into()
+    //             ),
+    //             Ok(list(
+    //                 Type::Numeric,
+    //                 vec![int(1), int(2), int(3), int(7), int(9)]
+    //             ))
+    //         );
+
+    //         assert_eq!(
+    //             execute(
+    //                 &parse_document(
+    //                     "[(nil, 1), (nil, 9), (nil, 3), (nil, 2), (nil, 7)] :sort_by_key |n| { n[1] }"
+    //                 )
+    //                 .unwrap(),
+    //                 "".into()
+    //             ),
+    //             Ok(list(
+    //                 Type::Tuple,
+    //                 vec![
+    //                     tuple(vec![Value::Nil, int(1)]),
+    //                     tuple(vec![Value::Nil, int(2)]),
+    //                     tuple(vec![Value::Nil, int(3)]),
+    //                     tuple(vec![Value::Nil, int(7)]),
+    //                     tuple(vec![Value::Nil, int(9)])
+    //                 ]
+    //             ))
+    //         );
+    //     }
+}
