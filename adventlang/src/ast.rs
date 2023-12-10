@@ -213,7 +213,7 @@ pub enum DeclarePattern {
 #[derive(Debug, Clone, PartialEq)]
 pub enum AssignPattern {
     Id(Identifier),
-    Index(Box<AssignPattern>, Box<Expr>),
+    Index(Box<AssignPattern>, Option<Box<Expr>>),
     List {
         elements: Vec<AssignPattern>,
         // TODO maybe also add rest spread
@@ -304,19 +304,24 @@ impl From<AssignPattern> for Expr {
     fn from(pattern: AssignPattern) -> Self {
         match pattern {
             AssignPattern::Id(id) => Expr::Variable(id),
-            AssignPattern::Index(box location, box index_expr) => Expr::Invocation {
-                expr: Expr::Variable(Identifier("index".into())).into(),
-                args: vec![
-                    Argument {
-                        name: None,
-                        expr: Expr::from(location),
-                    },
-                    Argument {
+            AssignPattern::Index(box location, index_expr) => {
+                let mut args = vec![Argument {
+                    name: None,
+                    expr: Expr::from(location),
+                }];
+
+                if let Some(box index_expr) = index_expr {
+                    args.push(Argument {
                         name: None,
                         expr: index_expr,
-                    },
-                ],
-            },
+                    });
+                }
+
+                Expr::Invocation {
+                    expr: Expr::Variable(Identifier("index".into())).into(),
+                    args,
+                }
+            }
             AssignPattern::List { elements } => Expr::ListLiteral {
                 elements: elements.into_iter().map(Expr::from).collect(),
             },

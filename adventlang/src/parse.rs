@@ -429,17 +429,22 @@ fn tuple_literal_or_parenthesized_expr(s: State) -> ParseResult<State, Expr> {
 }
 
 fn dict_pair(s: State) -> ParseResult<State, (Either<Identifier, Expr>, Expr)> {
-    map(
-        seq((
-            alt((
-                map(preceded(tag("."), identifier), Either::Left),
-                map(constrained(true, expr), Either::Right),
+    alt((
+        map(
+            seq((
+                preceded(tag("."), identifier),
+                optional(preceded(ws1, constrained(false, expr))),
             )),
-            ws1,
-            constrained(false, expr),
+            |(id, value)| match value {
+                Some(value) => (Either::Left(id), value),
+                None => (Either::Left(id.clone()), Expr::Variable(id)),
+            },
+        ),
+        seq((
+            map(constrained(true, expr), Either::Right),
+            preceded(ws1, constrained(false, expr)),
         )),
-        |(key, _, value)| (key, value),
-    )
+    ))
     .parse(s)
 }
 
@@ -526,23 +531,47 @@ fn expr_index_stack(s: State) -> ParseResult<State, Expr> {
     map(
         seq((
             expr_leaf,
-            many0(delimited(
-                seq((ws0, tag("["), ws0)),
-                constrained(false, expr),
-                seq((ws0, tag("]"))),
-            )),
+            many0(alt((
+                map(
+                    delimited(
+                        seq((ws0, tag("["), ws0)),
+                        constrained(false, expr),
+                        seq((ws0, tag("]"))),
+                    ),
+                    Either::Left,
+                ),
+                map(preceded(seq((ws0, tag("."))), identifier), Either::Right),
+            ))),
         )),
         |(mut expr, indices)| {
             for index in indices {
-                expr = Expr::Invocation {
-                    expr: Expr::Variable(Identifier("index".into())).into(),
-                    args: vec![
-                        Argument { name: None, expr },
-                        Argument {
-                            name: None,
-                            expr: index,
-                        },
-                    ],
+                match index {
+                    Either::Left(index_expr) => {
+                        expr = Expr::Invocation {
+                            expr: Expr::Variable(Identifier("index".into())).into(),
+                            args: vec![
+                                Argument { name: None, expr },
+                                Argument {
+                                    name: None,
+                                    expr: index_expr,
+                                },
+                            ],
+                        };
+                    }
+                    Either::Right(id) => {
+                        expr = Expr::Invocation {
+                            expr: Expr::Variable(Identifier("index".into())).into(),
+                            args: vec![
+                                Argument { name: None, expr },
+                                Argument {
+                                    name: None,
+                                    expr: Expr::StrLiteral {
+                                        pieces: vec![StrLiteralPiece::Fragment(id.0.to_string())],
+                                    },
+                                },
+                            ],
+                        };
+                    }
                 }
             }
             expr
@@ -884,7 +913,7 @@ fn assign_pattern(s: State) -> ParseResult<State, AssignPattern> {
                 identifier,
                 many0(delimited(
                     seq((ws0, tag("["), ws0)),
-                    constrained(false, expr),
+                    optional(constrained(false, expr)),
                     seq((ws0, tag("]"))),
                 )),
             )),
@@ -892,7 +921,7 @@ fn assign_pattern(s: State) -> ParseResult<State, AssignPattern> {
                 let mut pattern = AssignPattern::Id(id);
 
                 for index in indexes {
-                    pattern = AssignPattern::Index(pattern.into(), index.into());
+                    pattern = AssignPattern::Index(pattern.into(), index.map(Box::new));
                 }
 
                 pattern

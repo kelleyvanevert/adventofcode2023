@@ -161,7 +161,7 @@ impl Display for Value {
                 let pairs = dict.0.iter().collect::<Vec<_>>();
                 let len = pairs.len();
                 for (i, (key, value)) in pairs.iter().enumerate() {
-                    write!(f, "{key} => {value}")?;
+                    write!(f, ".{key} {value}")?;
                     if i < len - 1 {
                         write!(f, ", ")?;
                     }
@@ -303,6 +303,7 @@ impl Value {
             Value::Bool(b) => Ok(*b),
             Value::List(_, _) => Ok(true),
             Value::Tuple(_) => Ok(true),
+            Value::Dict(_) => Ok(true),
             Value::Numeric(n) => Ok(n != &Numeric::Int(0) && n != &Numeric::Double(0.0)),
             Value::Str(str) => Ok(str.len() > 0),
             _ => RuntimeError(format!("cannot check truthiness of {}", self.ty())).into(),
@@ -316,7 +317,7 @@ pub enum Assignable {
     Loc {
         scope: usize,
         id: Identifier,
-        indexes: Vec<Value>,
+        indexes: Vec<Either<Value, ()>>, // () = "push in array"
     },
     List {
         elements: Vec<Assignable>,
@@ -437,8 +438,8 @@ impl Runtime {
                     .expect("assignable location id get failed");
 
                 for index_value in indexes {
-                    match location_value {
-                        Value::List(t, list) => {
+                    match (index_value, location_value) {
+                        (Either::Left(index_value), Value::List(t, list)) => {
                             let Ok(i) = index_value.auto_coerce_int() else {
                                 return RuntimeError(format!(
                                     "list index must be int, is: {}",
@@ -470,9 +471,14 @@ impl Runtime {
                                 list.resize(i + 1, Value::Nil);
                             }
 
-                            location_value = &mut list[i]
+                            location_value = &mut list[i];
                         }
-                        Value::Tuple(list) => {
+                        (Either::Right(()), Value::List(_, list)) => {
+                            list.push(Value::Nil);
+                            let i = list.len() - 1;
+                            location_value = &mut list[i];
+                        }
+                        (Either::Left(index_value), Value::Tuple(list)) => {
                             let Ok(i) = index_value.auto_coerce_int() else {
                                 return RuntimeError(format!(
                                     "tuple index must be int, is: {}",
@@ -497,8 +503,19 @@ impl Runtime {
 
                             location_value = &mut list[i]
                         }
-                        Value::Dict(dict) => {
+                        (Either::Right(()), Value::Tuple(list)) => {
+                            list.push(Value::Nil);
+                            let i = list.len() - 1;
+                            location_value = &mut list[i];
+                        }
+                        (Either::Left(index_value), Value::Dict(dict)) => {
                             location_value = dict.0.entry(index_value).or_insert(Value::Nil);
+                        }
+                        (Either::Right(()), Value::Dict(_)) => {
+                            return RuntimeError(format!(
+                                "cannot push value into dict with []= syntax"
+                            ))
+                            .into()
                         }
                         _ => {
                             return RuntimeError(format!(
@@ -811,9 +828,12 @@ impl Runtime {
                         id,
                         mut indexes,
                     } => {
-                        let result = self.evaluate(eval_scope, index_expr)?;
-
-                        indexes.push(result);
+                        indexes.push(match index_expr {
+                            Some(index_expr) => {
+                                Either::Left(self.evaluate(eval_scope, index_expr)?)
+                            }
+                            None => Either::Right(()),
+                        });
 
                         Ok(Assignable::Loc { scope, id, indexes })
                     }
