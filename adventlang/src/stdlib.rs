@@ -211,7 +211,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     sorting_keys.push((i, key));
                 }
 
-                sorting_keys.sort_by_cached_key(|t| t.1.clone());
+                sorting_keys.sort_by(|a, b| runtime.cmp(a.1, b.1));
+                // sorting_keys.sort_by_cached_key(|t| t.1.clone());
 
                 let mut result = list
                     .iter()
