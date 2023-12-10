@@ -1356,21 +1356,17 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         ],
     );
 
-    // runtime.builtin(
-    //     "clone",
-    //     [FnSig {
-    //         params: vec![idpat("data")],
-    //         body: FnBody::Builtin(|runtime, scope| {
-    //             let data = runtime.get_scope(scope)
-    //                 .values
-    //                 .get(&id("data"))
-    //                 .unwrap()
-    //                 .clone();
+    runtime.builtin(
+        "clone",
+        [FnSig {
+            params: vec![idpat("data")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let data = runtime.get_scope(scope).get_unchecked("data");
 
-    //             Ok(data)
-    //         }),
-    //     }],
-    // );
+                Ok(runtime.clone(data))
+            }),
+        }],
+    );
 
     // runtime.builtin(
     //     "trim",

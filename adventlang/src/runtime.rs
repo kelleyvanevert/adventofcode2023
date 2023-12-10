@@ -333,7 +333,7 @@ pub enum Location {
     Tuple(Vec<Location>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Scope {
     pub parent_scope: Option<usize>,
     pub values: HashMap<Identifier, usize>,
@@ -352,7 +352,7 @@ impl Scope {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum N {
     Scope(Scope),
     Value(Value),
@@ -479,6 +479,20 @@ impl Runtime {
         }
     }
 
+    pub fn clone(&mut self, orig: usize) -> usize {
+        match self.get_value(orig).clone() {
+            Value::List(t, items) => {
+                let cloned_items = items.into_iter().map(|item| self.clone(item)).collect();
+                self.new_value(Value::List(t, cloned_items))
+            }
+            Value::Tuple(items) => {
+                let cloned_items = items.into_iter().map(|item| self.clone(item)).collect();
+                self.new_value(Value::Tuple(cloned_items))
+            }
+            other => self.new_value(other),
+        }
+    }
+
     pub fn builtin(&mut self, name: &str, signatures: impl IntoIterator<Item = FnSig>) {
         let def = self.new_value(Value::FnDef(FnDef {
             name: Some(name.into()),
@@ -552,8 +566,15 @@ impl Runtime {
         scope: usize,
         assignable: Location,
         value: usize,
-    ) -> EvaluationResult<Option<Value>> {
-        todo!()
+    ) -> EvaluationResult<()> {
+        match assignable {
+            Location::Single(loc) => {
+                self.arena[loc] = self.arena[value].clone();
+                Ok(())
+            }
+            Location::List(elements) => todo!("assign list pattern"),
+            Location::Tuple(elements) => todo!("assign tuple pattern"),
+        }
 
         // match assignable {
         //     Assignable::Loc { scope, id, indexes } => {
@@ -787,7 +808,7 @@ impl Runtime {
 
                 let assignable = self.resolve(scope, &pattern)?;
 
-                let _ = self.assign(scope, assignable, value)?;
+                self.assign(scope, assignable, value)?;
 
                 Ok(nil())
             }
@@ -1327,6 +1348,16 @@ mod tests {
         assert_eq!(
             execute_simple("[1, 2, 3] :map |n| { n * 2 }"),
             Ok(list([int(2), int(4), int(6)]))
+        );
+
+        assert_eq!(
+            execute_simple("let a = [1,2,3]; let b = a; a[0] = 5; b"),
+            Ok(list([int(5), int(2), int(3)]))
+        );
+
+        assert_eq!(
+            execute_simple("let a = [1,2,3]; let b = clone(a); a[0] = 5; b"),
+            Ok(list([int(1), int(2), int(3)]))
         );
     }
 
