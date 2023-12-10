@@ -83,47 +83,47 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     //     ],
     // );
 
-    // runtime.builtin(
-    //     "max",
-    //     [
-    //         FnSig {
-    //             params: vec![idpat_ty("items", Type::List(Type::Any.into()))],
-    //             body: FnBody::Builtin(|runtime, scope| {
-    //                 let items = runtime.get_scope(scope).get_unchecked("items");
+    runtime.builtin(
+        "max",
+        [
+            // FnSig {
+            //     params: vec![idpat_ty("items", Type::List(Type::Any.into()))],
+            //     body: FnBody::Builtin(|runtime, scope| {
+            //         let items = runtime.get_scope(scope).get_unchecked("items");
 
-    //                 match items {
-    //                     Value::List(_, list) => {
-    //                         if list.len() == 0 {
-    //                             return Ok(Value::Nil);
-    //                         }
+            //         match items {
+            //             Value::List(_, list) => {
+            //                 if list.len() == 0 {
+            //                     return Ok(Value::Nil);
+            //                 }
 
-    //                         match list.iter().max().cloned() {
-    //                             Some(result) => Ok(result),
-    //                             None => RuntimeError(
-    //                                 "error getting max: could not compare all elements".into(),
-    //                             )
-    //                             .into(),
-    //                         }
-    //                     }
-    //                     _ => RuntimeError(format!("cannot get max of: {}", items.ty())).into(),
-    //                 }
-    //             }),
-    //         },
-    //         FnSig {
-    //             params: vec![idpat_ty("a", Type::Any), idpat_ty("b", Type::Any)],
-    //             body: FnBody::Builtin(|runtime, scope| {
-    //                 let a = runtime.get_scope(scope).get_unchecked("a");
-    //                 let b = runtime.get_scope(scope).get_unchecked("b");
+            //                 match list.iter().max().cloned() {
+            //                     Some(result) => Ok(result),
+            //                     None => RuntimeError(
+            //                         "error getting max: could not compare all elements".into(),
+            //                     )
+            //                     .into(),
+            //                 }
+            //             }
+            //             _ => RuntimeError(format!("cannot get max of: {}", items.ty())).into(),
+            //         }
+            //     }),
+            // },
+            FnSig {
+                params: vec![idpat_ty("a", Type::Any), idpat_ty("b", Type::Any)],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let a = runtime.get_scope(scope).get_unchecked("a");
+                    let b = runtime.get_scope(scope).get_unchecked("b");
 
-    //                 match (a, b) {
-    //                     (&Value::Nil, b) => Ok(b.clone()),
-    //                     (a, &Value::Nil) => Ok(a.clone()),
-    //                     _ => Ok(a.max(b).clone()),
-    //                 }
-    //             }),
-    //         },
-    //     ],
-    // );
+                    match (runtime.get_value(a), runtime.get_value(b)) {
+                        (&Value::Nil, _) => Ok(b),
+                        (_, &Value::Nil) => Ok(a),
+                        (a, b) => Ok(runtime.new_value(a.max(b).clone())),
+                    }
+                }),
+            },
+        ],
+    );
 
     // runtime.builtin(
     //     "chunks",
@@ -345,49 +345,41 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         }],
     );
 
-    // runtime.builtin(
-    //     "flat_map",
-    //     [FnSig {
-    //         params: vec![idpat("items"), idpat("cb")],
-    //         body: FnBody::Builtin(|runtime, scope| {
-    //             let items = runtime.get_scope(scope).get_unchecked("items");
+    runtime.builtin(
+        "flat_map",
+        [FnSig {
+            params: vec![idpat("items"), idpat("cb")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let items = runtime.get_scope(scope).get_unchecked("items");
 
-    //             let Value::List(_, list) = items else {
-    //                 return RuntimeError(format!("cannot get max of: {}", items.ty())).into();
-    //             };
+                let Value::List(_, list) = runtime.get_value(items).clone() else {
+                    return RuntimeError(format!("cannot get max of: {}", runtime.get_ty(items)))
+                        .into();
+                };
 
-    //             let list = list.clone();
+                let cb = runtime.get_scope(scope).get_unchecked("cb");
 
-    //             let cb = runtime.get_scope(scope).get_unchecked("cb");
+                let mut result = vec![];
+                for item in list.into_iter() {
+                    let value = runtime.invoke(cb, vec![(None, item.clone())])?;
+                    let Value::List(_, items) = runtime.get_value(value) else {
+                        return RuntimeError(format!(
+                            "flat_map cb should return lists, returned: {}",
+                            runtime.get_ty(value)
+                        ))
+                        .into();
+                    };
 
-    //             let Value::FnDef(def) = cb else {
-    //                 return RuntimeError(format!("cannot use map w/ cb of type: {}", cb.ty()))
-    //                     .into();
-    //             };
+                    // TODO type-check
 
-    //             let def = def.clone();
+                    result.extend(items);
+                }
 
-    //             let mut result = vec![];
-    //             for item in list.iter() {
-    //                 let value = runtime.invoke(def.clone(), vec![(None, item.clone())])?;
-    //                 let Value::List(_, items) = value else {
-    //                     return RuntimeError(format!(
-    //                         "flat_map cb should return lists, returned: {}",
-    //                         value.ty()
-    //                     ))
-    //                     .into();
-    //                 };
-
-    //                 // TODO type-check
-
-    //                 result.extend(items);
-    //             }
-
-    //             // TODO type
-    //             Ok(Value::List(Type::Any, result))
-    //         }),
-    //     }],
-    // );
+                // TODO type
+                Ok(runtime.new_value(Value::List(Type::Any, result)))
+            }),
+        }],
+    );
 
     // runtime.builtin(
     //     "dict",
@@ -661,39 +653,33 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         }],
     );
 
-    // runtime.builtin(
-    //     "find",
-    //     [FnSig {
-    //         params: vec![idpat("items"), idpat("cb")],
-    //         body: FnBody::Builtin(|runtime, scope| {
-    //             let items = runtime.get_scope(scope).get_unchecked("items");
+    runtime.builtin(
+        "find",
+        [FnSig {
+            params: vec![idpat("items"), idpat("cb")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let items = runtime.get_scope(scope).get_unchecked("items");
 
-    //             let Value::List(_, list) = items else {
-    //                 return RuntimeError(format!("cannot get max of: {}", items.ty())).into();
-    //             };
+                let Value::List(_, list) = runtime.get_value(items) else {
+                    return RuntimeError(format!("cannot get max of: {}", runtime.get_ty(items)))
+                        .into();
+                };
 
-    //             let list = list.clone();
+                let list = list.clone();
 
-    //             let cb = runtime.get_scope(scope).get_unchecked("cb");
+                let cb = runtime.get_scope(scope).get_unchecked("cb");
 
-    //             let Value::FnDef(def) = cb else {
-    //                 return RuntimeError(format!("cannot use filter w/ cb of type: {}", cb.ty()))
-    //                     .into();
-    //             };
+                for item in list {
+                    let check = runtime.invoke(cb, vec![(None, item.clone())])?;
+                    if runtime.get_value(check).truthy()? {
+                        return Ok(item);
+                    }
+                }
 
-    //             let def = def.clone();
-
-    //             for item in list {
-    //                 let check = runtime.invoke(def.clone(), vec![(None, item.clone())])?;
-    //                 if check.truthy()? {
-    //                     return Ok(item);
-    //                 }
-    //             }
-
-    //             Ok(Value::Nil)
-    //         }),
-    //     }],
-    // );
+                Ok(nil())
+            }),
+        }],
+    );
 
     runtime.builtin(
         "range",
@@ -809,80 +795,80 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         }],
     );
 
-    // runtime.builtin(
-    //     "split",
-    //     [
-    //         FnSig {
-    //             params: vec![
-    //                 DeclarePattern::Id("text".into(), Some(Type::Str)),
-    //                 DeclarePattern::Id("sep".into(), Some(Type::Str)),
-    //             ],
-    //             body: FnBody::Builtin(|runtime, scope| {
-    //                 let text = runtime.get_scope(scope).get_unchecked("text");
+    runtime.builtin(
+        "split",
+        [
+            FnSig {
+                params: vec![
+                    DeclarePattern::Id("text".into(), Some(Type::Str)),
+                    DeclarePattern::Id("sep".into(), Some(Type::Str)),
+                ],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let text = runtime.get_scope(scope).get_unchecked("text");
 
-    //                 let Value::Str(text) = text else {
-    //                     return RuntimeError(format!(
-    //                         "split() text must be a string, is a: {}",
-    //                         text.ty()
-    //                     ))
-    //                     .into();
-    //                 };
+                    let Value::Str(text) = runtime.get_value(text).clone() else {
+                        return RuntimeError(format!(
+                            "split() text must be a string, is a: {}",
+                            runtime.get_ty(text)
+                        ))
+                        .into();
+                    };
 
-    //                 let sep = runtime.get_scope(scope).get_unchecked("sep");
+                    let sep = runtime.get_scope(scope).get_unchecked("sep");
 
-    //                 let Value::Str(sep) = sep else {
-    //                     return RuntimeError(format!(
-    //                         "split() sep must be a string, is a: {}",
-    //                         sep.ty()
-    //                     ))
-    //                     .into();
-    //                 };
+                    let Value::Str(sep) = runtime.get_value(sep).clone() else {
+                        return RuntimeError(format!(
+                            "split() sep must be a string, is a: {}",
+                            runtime.get_ty(sep)
+                        ))
+                        .into();
+                    };
 
-    //                 let result = text
-    //                     .split(sep.as_str())
-    //                     .map(|piece| Value::Str(text.substr_from(piece)))
-    //                     .collect::<Vec<_>>();
+                    let result = text
+                        .split(sep.as_str())
+                        .map(|piece| runtime.new_value(Value::Str(text.substr_from(piece))))
+                        .collect::<Vec<_>>();
 
-    //                 Ok(Value::List(Type::Str, result))
-    //             }),
-    //         },
-    //         FnSig {
-    //             params: vec![
-    //                 DeclarePattern::Id("text".into(), Some(Type::Str)),
-    //                 DeclarePattern::Id("sep".into(), Some(Type::Regex)),
-    //             ],
-    //             body: FnBody::Builtin(|runtime, scope| {
-    //                 let text = runtime.get_scope(scope).get_unchecked("text");
+                    Ok(runtime.new_value(Value::List(Type::Str, result)))
+                }),
+            },
+            // FnSig {
+            //     params: vec![
+            //         DeclarePattern::Id("text".into(), Some(Type::Str)),
+            //         DeclarePattern::Id("sep".into(), Some(Type::Regex)),
+            //     ],
+            //     body: FnBody::Builtin(|runtime, scope| {
+            //         let text = runtime.get_scope(scope).get_unchecked("text");
 
-    //                 let Value::Str(text) = text else {
-    //                     return RuntimeError(format!(
-    //                         "split() text must be a string, is a: {}",
-    //                         text.ty()
-    //                     ))
-    //                     .into();
-    //                 };
+            //         let Value::Str(text) = text else {
+            //             return RuntimeError(format!(
+            //                 "split() text must be a string, is a: {}",
+            //                 text.ty()
+            //             ))
+            //             .into();
+            //         };
 
-    //                 let sep = runtime.get_scope(scope).get_unchecked("sep");
+            //         let sep = runtime.get_scope(scope).get_unchecked("sep");
 
-    //                 let Value::Regex(sep) = sep else {
-    //                     return RuntimeError(format!(
-    //                         "split() setp must be a regex, is a: {}",
-    //                         sep.ty()
-    //                     ))
-    //                     .into();
-    //                 };
+            //         let Value::Regex(sep) = sep else {
+            //             return RuntimeError(format!(
+            //                 "split() setp must be a regex, is a: {}",
+            //                 sep.ty()
+            //             ))
+            //             .into();
+            //         };
 
-    //                 let result = sep
-    //                     .0
-    //                     .split(&text)
-    //                     .map(|piece| Value::Str(text.substr_from(piece)))
-    //                     .collect::<Vec<_>>();
+            //         let result = sep
+            //             .0
+            //             .split(&text)
+            //             .map(|piece| Value::Str(text.substr_from(piece)))
+            //             .collect::<Vec<_>>();
 
-    //                 Ok(Value::List(Type::Str, result))
-    //             }),
-    //         },
-    //     ],
-    // );
+            //         Ok(Value::List(Type::Str, result))
+            //     }),
+            // },
+        ],
+    );
 
     runtime.builtin(
         "lines",
@@ -1022,62 +1008,65 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         }],
     );
 
-    // runtime.builtin(
-    //     "replace",
-    //     [FnSig {
-    //         params: vec![idpat("text"), idpat("def")],
-    //         body: FnBody::Builtin(|runtime, scope| {
-    //             let text = runtime.get_scope(scope).get_unchecked("text");
+    runtime.builtin(
+        "replace",
+        [FnSig {
+            params: vec![idpat("text"), idpat("def")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let text = runtime.get_scope(scope).get_unchecked("text");
 
-    //             let Value::Str(text) = text else {
-    //                 return RuntimeError(format!(
-    //                     "replace() text must be a string, is a: {}",
-    //                     text.ty()
-    //                 ))
-    //                 .into();
-    //             };
+                let Value::Str(text) = runtime.get_value(text) else {
+                    return RuntimeError(format!(
+                        "replace() text must be a string, is a: {}",
+                        runtime.get_ty(text)
+                    ))
+                    .into();
+                };
 
-    //             let def = runtime.get_scope(scope).get_unchecked("def");
+                let def = runtime.get_scope(scope).get_unchecked("def");
 
-    //             let Value::Tuple(def) = def else {
-    //                 return RuntimeError(format!(
-    //                     "replace() def must be a tuple, is a: {}",
-    //                     def.ty()
-    //                 ))
-    //                 .into();
-    //             };
+                let Value::Tuple(def) = runtime.get_value(def) else {
+                    return RuntimeError(format!(
+                        "replace() def must be a tuple, is a: {}",
+                        runtime.get_ty(def)
+                    ))
+                    .into();
+                };
 
-    //             if def.len() != 2 {
-    //                 return RuntimeError(format!(
-    //                     "replace() def must be a tuple with two elements"
-    //                 ))
-    //                 .into();
-    //             }
+                if def.len() != 2 {
+                    return RuntimeError(format!(
+                        "replace() def must be a tuple with two elements"
+                    ))
+                    .into();
+                }
 
-    //             let replace = def.get(1).unwrap();
+                let replace = *def.get(1).unwrap();
 
-    //             let Value::Str(replace) = replace else {
-    //                 return RuntimeError(format!("replace() def[1] must be a string")).into();
-    //             };
+                let Value::Str(replace) = runtime.get_value(replace) else {
+                    return RuntimeError(format!("replace() def[1] must be a string")).into();
+                };
 
-    //             let find = def.get(0).unwrap();
+                let find = *def.get(0).unwrap();
 
-    //             match find {
-    //                 Value::Str(find) => Ok(Value::Str(text.replace(find.as_str(), replace).into())),
-    //                 Value::Regex(find) => Ok(Value::Str(
-    //                     find.0.replace_all(&text, replace.to_string()).into(),
-    //                 )),
-    //                 _ => {
-    //                     return RuntimeError(format!(
-    //                         "replace() def[0] must be a string or regex, is a: {}",
-    //                         find.ty()
-    //                     ))
-    //                     .into();
-    //                 }
-    //             }
-    //         }),
-    //     }],
-    // );
+                match runtime.get_value(find) {
+                    Value::Str(find) => {
+                        Ok(runtime
+                            .new_value(Value::Str(text.replace(find.as_str(), replace).into())))
+                    }
+                    Value::Regex(find) => Ok(runtime.new_value(Value::Str(
+                        find.0.replace_all(&text, replace.to_string()).into(),
+                    ))),
+                    _ => {
+                        return RuntimeError(format!(
+                            "replace() def[0] must be a string or regex, is a: {}",
+                            runtime.get_ty(find)
+                        ))
+                        .into();
+                    }
+                }
+            }),
+        }],
+    );
 
     runtime.builtin(
         "slice",
@@ -1368,23 +1357,25 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         }],
     );
 
-    // runtime.builtin(
-    //     "trim",
-    //     [FnSig {
-    //         params: vec![idpat("text")],
-    //         body: FnBody::Builtin(|runtime, scope| {
-    //             let text = runtime.get_scope(scope).get_unchecked("text");
+    runtime.builtin(
+        "trim",
+        [FnSig {
+            params: vec![idpat("text")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let text = runtime.get_scope(scope).get_unchecked("text");
 
-    //             let Value::Str(text) = text else {
-    //                 return RuntimeError(format!("trim[#1] must be a string, is a: {}", text.ty()))
-    //                     .into();
-    //             };
+                let Value::Str(text) = runtime.get_value(text) else {
+                    return RuntimeError(format!(
+                        "trim[#1] must be a string, is a: {}",
+                        runtime.get_ty(text)
+                    ))
+                    .into();
+                };
 
-    //             // TODO // substr_from
-    //             Ok(Value::Str(text.trim().to_string().into()))
-    //         }),
-    //     }],
-    // );
+                Ok(runtime.new_value(Value::Str(text.substr_from(text.trim()))))
+            }),
+        }],
+    );
 
     runtime.builtin(
         "len",
