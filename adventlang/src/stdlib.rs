@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use crate::{
     ast::{DeclarePattern, Identifier, Type},
-    runtime::{FnBody, FnSig, Runtime, Value},
+    runtime::{Dict, FnBody, FnSig, Runtime, Value},
     value::{Numeric, RuntimeError},
 };
 
@@ -227,33 +227,34 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         }],
     );
 
-    // runtime.builtin(
-    //     "reverse",
-    //     [FnSig {
-    //         params: vec![idpat("items")],
-    //         body: FnBody::Builtin(|runtime, scope| {
-    //             let items = runtime.get_scope(scope).get_unchecked("items");
+    runtime.builtin(
+        "reverse",
+        [FnSig {
+            params: vec![idpat("items")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let items = runtime.get_scope(scope).get_unchecked("items");
+                let items = runtime.clone(items);
 
-    //             match items.clone() {
-    //                 Value::List(t, mut list) => {
-    //                     list.reverse();
-    //                     Ok(Value::List(t, list))
-    //                 }
-    //                 Value::Tuple(mut list) => {
-    //                     list.reverse();
-    //                     Ok(Value::Tuple(list))
-    //                 }
-    //                 _ => {
-    //                     return RuntimeError(format!(
-    //                         "reverse() items must be a list or tuple, is a: {}",
-    //                         items.ty()
-    //                     ))
-    //                     .into();
-    //                 }
-    //             }
-    //         }),
-    //     }],
-    // );
+                match runtime.get_value(items).clone() {
+                    Value::List(t, mut list) => {
+                        list.reverse();
+                        Ok(runtime.new_value(Value::List(t, list)))
+                    }
+                    Value::Tuple(mut list) => {
+                        list.reverse();
+                        Ok(runtime.new_value(Value::Tuple(list)))
+                    }
+                    _ => {
+                        return RuntimeError(format!(
+                            "reverse() items must be a list or tuple, is a: {}",
+                            runtime.get_ty(items)
+                        ))
+                        .into();
+                    }
+                }
+            }),
+        }],
+    );
 
     runtime.builtin(
         "zip",
@@ -390,52 +391,52 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         }],
     );
 
-    // runtime.builtin(
-    //     "dict",
-    //     [FnSig {
-    //         params: vec![DeclarePattern::Id(
-    //             id("pairs"),
-    //             Some(Type::List(Type::Any.into())),
-    //         )],
-    //         body: FnBody::Builtin(|runtime, scope| {
-    //             let pairs = runtime.get_scope(scope).get_unchecked("pairs");
+    runtime.builtin(
+        "dict",
+        [FnSig {
+            params: vec![DeclarePattern::Id(
+                id("pairs"),
+                Some(Type::List(Type::Any.into())),
+            )],
+            body: FnBody::Builtin(|runtime, scope| {
+                let pairs = runtime.get_scope(scope).get_unchecked("pairs");
 
-    //             let Value::List(_, pairs) = pairs.clone() else {
-    //                 return RuntimeError(format!(
-    //                     "dict() pairs must be list of tuples, is a: {}",
-    //                     pairs.ty()
-    //                 ))
-    //                 .into();
-    //             };
+                let Value::List(_, pairs) = runtime.get_value(pairs).clone() else {
+                    return RuntimeError(format!(
+                        "dict() pairs must be list of tuples, is a: {}",
+                        runtime.get_ty(pairs)
+                    ))
+                    .into();
+                };
 
-    //             let mut dict = Dict::new();
+                let mut dict = Dict::new();
 
-    //             for pair in pairs {
-    //                 let Value::Tuple(elements) = pair else {
-    //                     return RuntimeError(format!(
-    //                         "each dict() pair must be a tuple, is a: {}",
-    //                         pair.ty()
-    //                     ))
-    //                     .into();
-    //                 };
+                for pair in pairs {
+                    let Value::Tuple(elements) = runtime.get_value(pair) else {
+                        return RuntimeError(format!(
+                            "each dict() pair must be a tuple, is a: {}",
+                            runtime.get_ty(pair)
+                        ))
+                        .into();
+                    };
 
-    //                 let mut elements = elements.into_iter();
+                    let mut elements = elements.into_iter();
 
-    //                 let Some(key) = elements.next() else {
-    //                     return RuntimeError(format!("dict() pair without key")).into();
-    //                 };
+                    let Some(key) = elements.next() else {
+                        return RuntimeError(format!("dict() pair without key")).into();
+                    };
 
-    //                 let Some(value) = elements.next() else {
-    //                     return RuntimeError(format!("dict() pair without key")).into();
-    //                 };
+                    let Some(value) = elements.next() else {
+                        return RuntimeError(format!("dict() pair without key")).into();
+                    };
 
-    //                 dict.0.insert(key, value);
-    //             }
+                    dict.0.push((*key, *value));
+                }
 
-    //             Ok(Value::Dict(dict))
-    //         }),
-    //     }],
-    // );
+                Ok(runtime.new_value(Value::Dict(dict)))
+            }),
+        }],
+    );
 
     runtime.builtin(
         "in",
@@ -567,72 +568,62 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     //     }],
     // );
 
-    // runtime.builtin(
-    //     "all",
-    //     [
-    //         FnSig {
-    //             params: vec![idpat("items"), idpat("cb")],
-    //             body: FnBody::Builtin(|runtime, scope| {
-    //                 let items = runtime.get_scope(scope).get_unchecked("items");
+    runtime.builtin(
+        "all",
+        [
+            FnSig {
+                params: vec![idpat("items"), idpat("cb")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let items = runtime.get_scope(scope).get_unchecked("items");
 
-    //                 let Value::List(_, list) = items else {
-    //                     return RuntimeError(format!(
-    //                         "all() items must be a list, is a: {}",
-    //                         items.ty()
-    //                     ))
-    //                     .into();
-    //                 };
+                    let Value::List(_, list) = runtime.get_value(items) else {
+                        return RuntimeError(format!(
+                            "all() items must be a list, is a: {}",
+                            runtime.get_ty(items)
+                        ))
+                        .into();
+                    };
 
-    //                 let list = list.clone();
+                    let list = list.clone();
 
-    //                 let cb = runtime.get_scope(scope).get_unchecked("cb");
+                    let cb = runtime.get_scope(scope).get_unchecked("cb");
 
-    //                 let Value::FnDef(def) = cb else {
-    //                     return RuntimeError(format!(
-    //                         "cannot use all() w/ cb of type: {}",
-    //                         cb.ty()
-    //                     ))
-    //                     .into();
-    //                 };
+                    for item in list {
+                        let item = runtime.invoke(cb, vec![(None, item)])?;
+                        if !runtime.get_value(item).truthy()? {
+                            return Ok(runtime.new_value(Value::Bool(false)));
+                        }
+                    }
 
-    //                 let def = def.clone();
+                    Ok(runtime.new_value(Value::Bool(true)))
+                }),
+            },
+            FnSig {
+                params: vec![idpat("items")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let items = runtime.get_scope(scope).get_unchecked("items");
 
-    //                 for item in list {
-    //                     let item = runtime.invoke(def.clone(), vec![(None, item)])?;
-    //                     if !item.truthy()? {
-    //                         return Ok(Value::Bool(false));
-    //                     }
-    //                 }
+                    let Value::List(_, list) = runtime.get_value(items) else {
+                        return RuntimeError(format!(
+                            "all() items must be a list, is a: {}",
+                            runtime.get_ty(items)
+                        ))
+                        .into();
+                    };
 
-    //                 Ok(Value::Bool(true))
-    //             }),
-    //         },
-    //         FnSig {
-    //             params: vec![idpat("items")],
-    //             body: FnBody::Builtin(|runtime, scope| {
-    //                 let items = runtime.get_scope(scope).get_unchecked("items");
+                    let list = list.clone();
 
-    //                 let Value::List(_, list) = items else {
-    //                     return RuntimeError(format!(
-    //                         "all() items must be a list, is a: {}",
-    //                         items.ty()
-    //                     ))
-    //                     .into();
-    //                 };
+                    for item in list {
+                        if !runtime.get_value(item).truthy()? {
+                            return Ok(runtime.new_value(Value::Bool(false)));
+                        }
+                    }
 
-    //                 let list = list.clone();
-
-    //                 for item in list {
-    //                     if !item.truthy()? {
-    //                         return Ok(Value::Bool(false));
-    //                     }
-    //                 }
-
-    //                 Ok(Value::Bool(true))
-    //             }),
-    //         },
-    //     ],
-    // );
+                    Ok(runtime.new_value(Value::Bool(true)))
+                }),
+            },
+        ],
+    );
 
     runtime.builtin(
         "find_map",
@@ -1348,45 +1339,48 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     Ok(el.unwrap_or(runtime.new_value(Value::Nil)))
                 }),
             },
-            // FnSig {
-            //     params: vec![DeclarePattern::Id(id("text"), Some(Type::Str)), idpat("i")],
-            //     body: FnBody::Builtin(|runtime, scope| {
-            //         let text = runtime.get_scope(scope).get_unchecked("text");
+            FnSig {
+                params: vec![DeclarePattern::Id(id("text"), Some(Type::Str)), idpat("i")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let text = runtime.get_scope(scope).get_unchecked("text");
 
-            //         let Value::Str(text) = text else {
-            //             return RuntimeError(format!(
-            //                 "index() list must be a str, is a: {}",
-            //                 text.ty()
-            //             ))
-            //             .into();
-            //         };
+                    let Value::Str(text) = runtime.get_value(text) else {
+                        return RuntimeError(format!(
+                            "index() list must be a str, is a: {}",
+                            runtime.get_value(text)
+                        ))
+                        .into();
+                    };
 
-            //         let i = runtime.get_scope(scope).get_unchecked("i");
+                    let i = runtime.get_scope(scope).get_unchecked("i");
 
-            //         let Value::Numeric(i) = i else {
-            //             return RuntimeError(format!("index() i must be an int, is a: {}", i.ty()))
-            //                 .into();
-            //         };
+                    let Value::Numeric(i) = runtime.get_value(i) else {
+                        return RuntimeError(format!(
+                            "index() i must be an int, is a: {}",
+                            runtime.get_ty(i)
+                        ))
+                        .into();
+                    };
 
-            //         let i = i.get_int()?;
+                    let i = i.get_int()?;
 
-            //         let result = match i {
-            //             i if i >= 0 => {
-            //                 let i = i as usize;
-            //                 text.get(i..(i + 1))
-            //             }
-            //             i if text.len() as i64 + i >= 0 => {
-            //                 let i = (text.len() as i64 + i) as usize;
-            //                 text.get(i..(i + 1))
-            //             }
-            //             _ => None,
-            //         }
-            //         .map(|substr| Value::Str(text.substr_from(substr)))
-            //         .unwrap_or(Value::Nil);
+                    let result = match i {
+                        i if i >= 0 => {
+                            let i = i as usize;
+                            text.get(i..(i + 1))
+                        }
+                        i if text.len() as i64 + i >= 0 => {
+                            let i = (text.len() as i64 + i) as usize;
+                            text.get(i..(i + 1))
+                        }
+                        _ => None,
+                    }
+                    .map(|substr| Value::Str(text.substr_from(substr)))
+                    .unwrap_or(Value::Nil);
 
-            //         Ok(result)
-            //     }),
-            // },
+                    Ok(runtime.new_value(result))
+                }),
+            },
         ],
     );
 

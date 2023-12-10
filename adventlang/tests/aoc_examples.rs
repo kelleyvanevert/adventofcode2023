@@ -1,11 +1,4 @@
-use adventlang::{
-    parse::parse_document,
-    runtime::{execute, execute_simple, Ev},
-};
-
-fn list(items: impl IntoIterator<Item = Ev>) -> Ev {
-    Ev::List(items.into_iter().collect())
-}
+use adventlang::runtime::{execute_simple, Ev};
 
 fn tuple(items: impl IntoIterator<Item = Ev>) -> Ev {
     Ev::Tuple(items.into_iter().collect())
@@ -13,10 +6,6 @@ fn tuple(items: impl IntoIterator<Item = Ev>) -> Ev {
 
 fn int(n: i64) -> Ev {
     Ev::Int(n)
-}
-
-fn str(s: &'static str) -> Ev {
-    Ev::Str(s.to_string())
 }
 
 #[test]
@@ -577,345 +566,336 @@ let bonus_solution = bonus(example_input);
     assert_eq!(execute_simple(document), Ok(tuple([int(288), int(71503)])));
 }
 
-// #[test]
-// fn aoc_day07() {
-//     let document = r#"
+#[test]
+fn aoc_day07() {
+    let document = r#"
 
-// let example_input = "
-// 32T3K 765
-// T55J5 684
-// KK677 28
-// KTJJT 220
-// QQQJA 483
-// "
+let example_input = "
+32T3K 765
+T55J5 684
+KK677 28
+KTJJT 220
+QQQJA 483
+"
 
-// let five_of_a_kind = 6
-// let four_of_a_kind = 5
-// let full_house = 4
-// let three_of_a_kind = 3
-// let two_pair = 2
-// let one_pair = 1
-// let high_card = 0
+let five_of_a_kind = 6
+let four_of_a_kind = 5
+let full_house = 4
+let three_of_a_kind = 3
+let two_pair = 2
+let one_pair = 1
+let high_card = 0
 
-// fn solve(input: str) {
-//   let digits = @{
-//     "2" 2,
-//     "3" 3,
-//     "4" 4,
-//     "5" 5,
-//     "6" 6,
-//     "7" 7,
-//     "8" 8,
-//     "9" 9,
-//     "T" 10,
-//     "J" 11,
-//     "Q" 12,
-//     "K" 13,
-//     "A" 14,
-//   }
+fn solve(input: str) {
+  let digits = @{
+    "2" 2,
+    "3" 3,
+    "4" 4,
+    "5" 5,
+    "6" 6,
+    "7" 7,
+    "8" 8,
+    "9" 9,
+    "T" 10,
+    "J" 11,
+    "Q" 12,
+    "K" 13,
+    "A" 14,
+  }
 
-//   fn convert_base(hand: str) {
-//     hand :chars :reverse :enumerate
-//       :map |(i, d)| { digits[d] << (i * 4) }
-//       :sum
-//   }
+  fn convert_base(hand: str) {
+    hand :chars :reverse :enumerate
+      :map |(i, d)| { digits[d] << (i * 4) }
+      :sum
+  }
 
-//   fn hand_type(hand: str) {
-//     let counts = range(0, 16) :map |i| { (i, 0) }
-//     for let k in hand :chars :map |d| { digits[d] } {
-//       counts[k][1] += 1
-//     }
+  fn hand_type(hand: str) {
+    let counts = range(0, 16) :map |i| { (i, 0) }
+    for let k in hand :chars :map |d| { digits[d] } {
+      counts[k][1] += 1
+    }
 
-//     if counts :find |(i, c)| { c == 5 } {
-//       return five_of_a_kind
-//     }
+    if counts :find |(i, c)| { c == 5 } {
+      return five_of_a_kind
+    }
 
-//     if counts :find |(i, c)| { c == 4 } {
-//       return four_of_a_kind
-//     }
+    if counts :find |(i, c)| { c == 4 } {
+      return four_of_a_kind
+    }
 
-//     if let (i, k) = counts :find |(i, c)| { c == 3 } {
-//       if counts :find |(j, c)| { i != j && c == 2 } {
-//         return full_house
-//       } else {
-//         return three_of_a_kind
-//       }
-//     }
+    if let (i, k) = counts :find |(i, c)| { c == 3 } {
+      if counts :find |(j, c)| { i != j && c == 2 } {
+        return full_house
+      } else {
+        return three_of_a_kind
+      }
+    }
 
-//     if let (i, k) = counts :find |(i, c)| { c == 2 } {
-//       if counts :find |(j, c)| { i != j && c == 2 } {
-//         return two_pair
-//       } else {
-//         return one_pair
-//       }
-//     }
+    if let (i, k) = counts :find |(i, c)| { c == 2 } {
+      if counts :find |(j, c)| { i != j && c == 2 } {
+        return two_pair
+      } else {
+        return one_pair
+      }
+    }
 
-//     return high_card
-//   }
+    return high_card
+  }
 
-//   fn score_hand(hand: str) {
-//     convert_base(hand) + (hand_type(hand) << 20)
-//   }
+  fn score_hand(hand: str) {
+    convert_base(hand) + (hand_type(hand) << 20)
+  }
 
-//   input :trim :lines
-//     :map |line| { line :split " " }
-//     :sort_by_key |[hand, bid]| { score_hand(hand) }
-//     :enumerate
-//     :map |(i, [hand, bid])| { (i + 1) * bid:int }
-//     :sum
-// }
+  input :trim :lines
+    :map |line| { line :split " " }
+    :sort_by_key |[hand, bid]| { score_hand(hand) }
+    :enumerate
+    :map |(i, [hand, bid])| { (i + 1) * bid:int }
+    :sum
+}
 
-// fn bonus(input: str) {
-//   let J = 0
+fn bonus(input: str) {
+  let J = 0
 
-//   let digits = @{
-//     "J" 0, // moved (!)
+  let digits = @{
+    "J" 0, // moved (!)
 
-//     "2" 2,
-//     "3" 3,
-//     "4" 4,
-//     "5" 5,
-//     "6" 6,
-//     "7" 7,
-//     "8" 8,
-//     "9" 9,
-//     "T" 10,
-//     // "J" 11
-//     "Q" 12,
-//     "K" 13,
-//     "A" 14,
-//   }
+    "2" 2,
+    "3" 3,
+    "4" 4,
+    "5" 5,
+    "6" 6,
+    "7" 7,
+    "8" 8,
+    "9" 9,
+    "T" 10,
+    // "J" 11
+    "Q" 12,
+    "K" 13,
+    "A" 14,
+  }
 
-//   fn convert_base(hand: str) {
-//     hand :chars :reverse :enumerate
-//       :map |(i, d)| { digits[d] << (i * 4) }
-//       :sum
-//   }
+  fn convert_base(hand: str) {
+    hand :chars :reverse :enumerate
+      :map |(i, d)| { digits[d] << (i * 4) }
+      :sum
+  }
 
-//   fn hand_type(hand: str) {
-//     let counts = range(0, 16) :map |i| { (i, 0) }
-//     for let k in hand :chars :map |d| { digits[d] } {
-//       counts[k][1] += 1
-//     }
+  fn hand_type(hand: str) {
+    let counts = range(0, 16) :map |i| { (i, 0) }
+    for let k in hand :chars :map |d| { digits[d] } {
+      counts[k][1] += 1
+    }
 
-//     // count and then remove the jokers from the hand
-//     let jokers = counts[0][1]
-//     counts[0][1] = 0
+    // count and then remove the jokers from the hand
+    let jokers = counts[0][1]
+    counts[0][1] = 0
 
-//     if counts :find |(i, c)| { c == 5 } {
-//       return five_of_a_kind
-//     }
+    if counts :find |(i, c)| { c == 5 } {
+      return five_of_a_kind
+    }
 
-//     if counts :find |(i, c)| { c == 4 } {
-//       if jokers >= 1 {
-//         return five_of_a_kind
-//       } else {
-//         return four_of_a_kind
-//       }
-//     }
+    if counts :find |(i, c)| { c == 4 } {
+      if jokers >= 1 {
+        return five_of_a_kind
+      } else {
+        return four_of_a_kind
+      }
+    }
 
-//     if let (i, k) = counts :find |(i, c)| { c == 3 } {
-//       if jokers >= 2 {
-//         return five_of_a_kind
-//       } else if jokers >= 1 {
-//         return four_of_a_kind
-//       }
+    if let (i, k) = counts :find |(i, c)| { c == 3 } {
+      if jokers >= 2 {
+        return five_of_a_kind
+      } else if jokers >= 1 {
+        return four_of_a_kind
+      }
 
-//       if counts :find |(j, c)| { i != j && c == 2 } {
-//         return full_house
-//       } else {
-//         return three_of_a_kind
-//       }
-//     }
+      if counts :find |(j, c)| { i != j && c == 2 } {
+        return full_house
+      } else {
+        return three_of_a_kind
+      }
+    }
 
-//     if let (i, k) = counts :find |(i, c)| { c == 2 } {
-//       if jokers >= 3 {
-//         return five_of_a_kind
-//       } else if jokers >= 2 {
-//         return four_of_a_kind
-//       }
+    if let (i, k) = counts :find |(i, c)| { c == 2 } {
+      if jokers >= 3 {
+        return five_of_a_kind
+      } else if jokers >= 2 {
+        return four_of_a_kind
+      }
 
-//       if counts :find |(j, c)| { i != j && c == 2 } {
-//         if jokers >= 1 {
-//           return full_house
-//         } else {
-//           return two_pair
-//         }
-//       } else {
-//         if jokers >= 1 {
-//           return three_of_a_kind
-//         } else {
-//           return one_pair
-//         }
-//       }
-//     }
+      if counts :find |(j, c)| { i != j && c == 2 } {
+        if jokers >= 1 {
+          return full_house
+        } else {
+          return two_pair
+        }
+      } else {
+        if jokers >= 1 {
+          return three_of_a_kind
+        } else {
+          return one_pair
+        }
+      }
+    }
 
-//     if jokers >= 4 {
-//       return five_of_a_kind
-//     } else if jokers >= 3 {
-//       return four_of_a_kind
-//     } else if jokers >= 2 {
-//       return three_of_a_kind
-//     } else if jokers >= 1 {
-//       return one_pair
-//     }
+    if jokers >= 4 {
+      return five_of_a_kind
+    } else if jokers >= 3 {
+      return four_of_a_kind
+    } else if jokers >= 2 {
+      return three_of_a_kind
+    } else if jokers >= 1 {
+      return one_pair
+    }
 
-//     return high_card
-//   }
+    return high_card
+  }
 
-//   fn score_hand(hand: str) {
-//     convert_base(hand) + (hand_type(hand) << 20)
-//   }
+  fn score_hand(hand: str) {
+    convert_base(hand) + (hand_type(hand) << 20)
+  }
 
-//   input :trim :lines
-//     :map |line| { line :split " " }
-//     :sort_by_key |[hand, bid]| { score_hand(hand) }
-//     :enumerate
-//     :map |(i, [hand, bid])| { (i + 1) * bid:int }
-//     :sum
-// }
+  input :trim :lines
+    :map |line| { line :split " " }
+    :sort_by_key |[hand, bid]| { score_hand(hand) }
+    :enumerate
+    :map |(i, [hand, bid])| { (i + 1) * bid:int }
+    :sum
+}
 
-// let solution = solve(example_input);
+let solution = solve(example_input);
 
-// let bonus_solution = bonus(example_input);
+let bonus_solution = bonus(example_input);
 
-// (solution, bonus_solution)
+(solution, bonus_solution)
 
-// "#;
+"#;
 
-//     assert_eq!(
-//         execute(
-//             &parse_document(document).expect("document should parse"),
-//             "".into()
-//         ),
-//         Ok(tuple([int(6440), int(5905)]))
-//     );
-// }
+    assert_eq!(execute_simple(document), Ok(tuple([int(6440), int(5905)])));
+}
 
-// #[test]
-// fn aoc_day08() {
-//     let document = r#"
+#[test]
+fn aoc_day08() {
+    let document = r#"
 
-// let example_input = "
-// RL
+let example_input = "
+RL
 
-// AAA = (BBB, CCC)
-// BBB = (DDD, EEE)
-// CCC = (ZZZ, GGG)
-// DDD = (DDD, DDD)
-// EEE = (EEE, EEE)
-// GGG = (GGG, GGG)
-// ZZZ = (ZZZ, ZZZ)
-// "
+AAA = (BBB, CCC)
+BBB = (DDD, EEE)
+CCC = (ZZZ, GGG)
+DDD = (DDD, DDD)
+EEE = (EEE, EEE)
+GGG = (GGG, GGG)
+ZZZ = (ZZZ, ZZZ)
+"
 
-// let example_input_2 = "
-// LLR
+let example_input_2 = "
+LLR
 
-// AAA = (BBB, BBB)
-// BBB = (AAA, ZZZ)
-// ZZZ = (ZZZ, ZZZ)
-// "
+AAA = (BBB, BBB)
+BBB = (AAA, ZZZ)
+ZZZ = (ZZZ, ZZZ)
+"
 
-// fn solve(input: str) {
-//   let dirs = @{"L" 0, "R" 1}
-//   let [path, rules] = input :trim :split "\n\n"
-//   let path = path :chars :map |c| { dirs[c] }
+fn solve(input: str) {
+  let dirs = @{"L" 0, "R" 1}
+  let [path, rules] = input :trim :split "\n\n"
+  let path = path :chars :map |c| { dirs[c] }
 
-//   let rules = rules :lines :map |line| {
-//     let [source, dests] = line :split " = "
-//     (source, dests :replace (/[)(]/, "") :split ", ")
-//   } :dict
+  let rules = rules :lines :map |line| {
+    let [source, dests] = line :split " = "
+    (source, dests :replace (/[)(]/, "") :split ", ")
+  } :dict
 
-//   let i = 0
-//   let at = "AAA"
-//   while at != "ZZZ" {
-//     at = rules[at][path[i % path:len]]
-//     i += 1
-//   }
+  let i = 0
+  let at = "AAA"
+  while at != "ZZZ" {
+    at = rules[at][path[i % path:len]]
+    i += 1
+  }
 
-//   i
-// }
+  i
+}
 
-// let bonus_example_input = "
-// LR
+let bonus_example_input = "
+LR
 
-// 11A = (11B, XXX)
-// 11B = (XXX, 11Z)
-// 11Z = (11B, XXX)
-// 22A = (22B, XXX)
-// 22B = (22C, 22C)
-// 22C = (22Z, 22Z)
-// 22Z = (22B, 22B)
-// XXX = (XXX, XXX)
-// "
+11A = (11B, XXX)
+11B = (XXX, 11Z)
+11Z = (11B, XXX)
+22A = (22B, XXX)
+22B = (22C, 22C)
+22C = (22Z, 22Z)
+22Z = (22B, 22B)
+XXX = (XXX, XXX)
+"
 
-// fn gcd(a, b) {
-//   if b == 0 {
-//     a
-//   } else {
-//     gcd(b, a % b)
-//   }
-// }
+fn gcd(a, b) {
+  if b == 0 {
+    a
+  } else {
+    gcd(b, a % b)
+  }
+}
 
-// fn lcm(a, b) {
-//   a * b / gcd(a, b)
-// }
+fn lcm(a, b) {
+  a * b / gcd(a, b)
+}
 
-// fn bonus(input: str) {
-//   let dirs = @{"L" 0, "R" 1}
-//   let [path, rules] = input :trim :split "\n\n"
-//   let path = path :chars :map |c| { dirs[c] }
+fn bonus(input: str) {
+  let dirs = @{"L" 0, "R" 1}
+  let [path, rules] = input :trim :split "\n\n"
+  let path = path :chars :map |c| { dirs[c] }
 
-//   let nodes = rules :lines :map |line| { line :split " = " :[0] }
-//   let as = nodes :filter |n| { n[2] == "A" }
+  let nodes = rules :lines :map |line| { line :split " = " :[0] }
+  let as = nodes :filter |n| { n[2] == "A" }
 
-//   let rules = rules :lines :map |line| {
-//     let [source, dests] = line :split " = "
-//     (source, dests :replace (/[)(]/, "") :split ", ")
-//   } :dict
+  let rules = rules :lines :map |line| {
+    let [source, dests] = line :split " = "
+    (source, dests :replace (/[)(]/, "") :split ", ")
+  } :dict
 
-//   let i = 0
-//   let at = clone(as)
-//   let looping = as :map |_| { false }
-//   loop {
-//     for let j in range(0, as:len) {
-//       if !looping[j] {
-//         at[j] = rules[ at[j] ] [ path[i % path:len] ]
-//       }
-//     }
+  let i = 0
+  let at = clone(as)
+  let looping = as :map |_| { false }
+  loop {
+    for let j in range(0, as:len) {
+      if !looping[j] {
+        at[j] = rules[ at[j] ] [ path[i % path:len] ]
+      }
+    }
 
-//     i += 1
+    i += 1
 
-//     for let j in range(0, as:len) {
-//       if !looping[j] {
-//         if at[j][2] == "Z" {
-//           print("  {as[j]} reached {at[j]} in {i} (and we happen to know it'll loop after)")
-//           looping[j] = i
-//           if all(looping) {
-//             print("    ..and ALL are looping now -> shortcut");
-//             return looping :fold 1, lcm
-//           }
-//         }
-//       }
-//     }
-//   }
-// }
+    for let j in range(0, as:len) {
+      if !looping[j] {
+        if at[j][2] == "Z" {
+          print("  {as[j]} reached {at[j]} in {i} (and we happen to know it'll loop after)")
+          looping[j] = i
+          if all(looping) {
+            print("    ..and ALL are looping now -> shortcut");
+            return looping :fold 1, lcm
+          }
+        }
+      }
+    }
+  }
+}
 
-// let solution = solve(example_input);
+let solution = solve(example_input);
 
-// let solution_2 = solve(example_input_2);
+let solution_2 = solve(example_input_2);
 
-// let bonus_solution = bonus(bonus_example_input);
+let bonus_solution = bonus(bonus_example_input);
 
-// (solution, solution_2, bonus_solution)
+(solution, solution_2, bonus_solution)
 
-// "#;
+"#;
 
-//     assert_eq!(
-//         execute(
-//             &parse_document(document).expect("document should parse"),
-//             "".into()
-//         ),
-//         Ok(tuple([int(2), int(6), int(6)]))
-//     );
-// }
+    assert_eq!(
+        execute_simple(document),
+        Ok(tuple([int(2), int(6), int(6)]))
+    );
+}
