@@ -484,6 +484,7 @@ let bonus_solution = bonus(example_input);
 //   let loc = nil
 
 //   for let [seed, num] in seeds :chunks 2 {
+//     print("seed {seed}")
 //     let end = seed + num
 //     while seed < end {
 //       let n = seed
@@ -504,89 +505,77 @@ let bonus_solution = bonus(example_input);
 
 // let solution = solve(example_input);
 
-// let bonus_solution = bonus(example_input);
+// let bonus_solution = 0bonus(example_input);
 
 // (solution, bonus_solution)
 
 // "#;
 
-//     assert_eq!(
-//         execute(
-//             &parse_document(document).expect("document should parse"),
-//             "".into()
-//         ),
-//         Ok(tuple([int(35), int(46)]))
-//     );
+//     assert_eq!(execute_simple(document), Ok(tuple([int(35), int(46)])));
 // }
 
-// #[test]
-// fn aoc_day06() {
-//     let document = r#"
+#[test]
+fn aoc_day06() {
+    let document = r#"
 
-// let example_input = "
-// Time:      7  15   30
-// Distance:  9  40  200
-// "
+let example_input = "
+Time:      7  15   30
+Distance:  9  40  200
+"
 
-// fn funky_ceil(n) {
-//     if abs(n % 1) < 0.0001 {
-//         n + 1
-//     } else {
-//         ceil(n)
-//     }
-// }
+fn funky_ceil(n) {
+    if abs(n % 1) < 0.0001 {
+        n + 1
+    } else {
+        ceil(n)
+    }
+}
 
-// fn funky_floor(n) {
-//     if abs(n % 1) < 0.0001 {
-//         n - 1
-//     } else {
-//         floor(n)
-//     }
-// }
+fn funky_floor(n) {
+    if abs(n % 1) < 0.0001 {
+        n - 1
+    } else {
+        floor(n)
+    }
+}
 
-// fn race((t, d)) {
-//     let lo = (t - sqrt((t^2) - 4 * d)) / 2
-//     let hi = (t + sqrt((t^2) - 4 * d)) / 2
+fn race((t, d)) {
+    let lo = (t - sqrt((t^2) - 4 * d)) / 2
+    let hi = (t + sqrt((t^2) - 4 * d)) / 2
 
-//     round(funky_floor(hi) - funky_ceil(lo) + 1)
-// }
+    round(funky_floor(hi) - funky_ceil(lo) + 1)
+}
 
-// fn solve(input: str) {
-//     let [time, dist] = input :trim :lines :map |line| {
-//         line :split ":" :[1] :trim :split /[ ]+/ :map int
-//     }
+fn solve(input: str) {
+    let [time, dist] = input :trim :lines :map |line| {
+        line :split ":" :[1] :trim :split /[ ]+/ :map int
+    }
 
-//     let races = time :zip dist
+    let races = time :zip dist
 
-//     races
-//         :map race
-//         :fold 1, |a, b| { a * b }
-// }
+    races
+        :map race
+        :fold 1, |a, b| { a * b }
+}
 
-// fn bonus(input: str) {
-//     let [time, dist] = input :trim :lines :map |line| {
-//         line :split ":" :[1] :trim :replace (/[ ]+/, "") :int
-//     }
+fn bonus(input: str) {
+    let [time, dist] = input :trim :lines :map |line| {
+        line :split ":" :[1] :trim :replace (/[ ]+/, "") :int
+    }
 
-//     (time, dist):race
-// }
+    (time, dist):race
+}
 
-// let solution = solve(example_input);
+let solution = solve(example_input);
 
-// let bonus_solution = bonus(example_input);
+let bonus_solution = bonus(example_input);
 
-// (solution, bonus_solution)
+(solution, bonus_solution)
 
-// "#;
+"#;
 
-//     assert_eq!(
-//         execute(
-//             &parse_document(document).expect("document should parse"),
-//             "".into()
-//         ),
-//         Ok(tuple([int(288), int(71503)]))
-//     );
-// }
+    assert_eq!(execute_simple(document), Ok(tuple([int(288), int(71503)])));
+}
 
 // #[test]
 // fn aoc_day07() {

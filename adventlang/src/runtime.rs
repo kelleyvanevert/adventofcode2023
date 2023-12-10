@@ -1194,7 +1194,7 @@ impl Runtime {
                     "^" => return Ok(self.new_value(left_value.pow(right_value)?)),
                     "<<" => return Ok(self.new_value(left_value.left_shift(right_value)?)),
                     "+" => return Ok(self.new_value(left_value.add(right_value)?)),
-                    "-" => return Ok(self.new_value(left_value.sub(&right_value)?)),
+                    "-" => return Ok(self.new_value(left_value.sub(right_value)?)),
                     "*" => return Ok(self.new_value(left_value.mul(right_value)?)),
                     "/" => return Ok(self.new_value(left_value.div(right_value)?)),
                     "%" => return Ok(self.new_value(left_value.modulo(right_value)?)),
@@ -1441,6 +1441,29 @@ mod tests {
             execute_simple("let d = @{}; d[(2,6)] = 4; d[(2,6)]"),
             Ok(int(4))
         );
+
+        assert_eq!(
+            execute_simple("let a = 1; if true { a = 2 }; a"),
+            Ok(int(2))
+        );
+
+        // assert_eq!(
+        //     execute_simple(
+        //         "
+        //         let out = 0;
+        //         for let a in [1,2,3] {
+        //             let i = 0
+        //             while i < 2 {
+        //                 i += 1
+        //                 a += 10
+        //             }
+        //             out += a
+        //         }
+        //         out
+        //         "
+        //     ),
+        //     Ok(int(2))
+        // );
     }
 
     //     #[test]
