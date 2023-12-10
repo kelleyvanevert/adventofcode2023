@@ -117,9 +117,11 @@ fn solve(input: str) {
     }
   }
 
+  print("  - length: {i}")
+  let solution = round(i / 2)
+
   print("- checking inside...")
   let inside = []
-  let done = []
 
   let i = 0
   while i < queue:len {
@@ -153,9 +155,9 @@ fn solve(input: str) {
     num_inside = w * h - num_inside - trail:len
   }
 
-  print("  - length: {i}, inside: {num_inside}, outside: {w * h - num_inside - trail:len}")
+  print("  - inside: {num_inside}, outside: {w * h - num_inside - trail:len}")
 
-  (round(i / 2), num_inside)
+  (solution, num_inside)
 }
 
 print("Example 1: {solve(example_1)}")
@@ -167,4 +169,5 @@ print("Example 3: {solve(example_3)}")
 print("Example 4: {solve(example_4)}")
 
 // ±22s first part
+// bonus errors at 90% after about 15min -- not really sure why
 print("Solution: {solve(stdin)}")
