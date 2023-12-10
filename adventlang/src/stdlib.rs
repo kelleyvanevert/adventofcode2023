@@ -956,48 +956,48 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         }],
     );
 
-    // runtime.builtin(
-    //     "match_all",
-    //     [FnSig {
-    //         params: vec![idpat("text"), idpat("regex")],
-    //         body: FnBody::Builtin(|runtime, scope| {
-    //             let text = runtime.get_scope(scope).get_unchecked("text");
+    runtime.builtin(
+        "match_all",
+        [FnSig {
+            params: vec![idpat("text"), idpat("regex")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let text = runtime.get_scope(scope).get_unchecked("text");
 
-    //             let Value::Str(text) = text else {
-    //                 return RuntimeError(format!(
-    //                     "match() text must be a string, is a: {}",
-    //                     text.ty()
-    //                 ))
-    //                 .into();
-    //             };
+                let Value::Str(text) = runtime.get_value(text).clone() else {
+                    return RuntimeError(format!(
+                        "match() text must be a string, is a: {}",
+                        runtime.get_ty(text)
+                    ))
+                    .into();
+                };
 
-    //             let regex = runtime.get_scope(scope).get_unchecked("regex");
+                let regex = runtime.get_scope(scope).get_unchecked("regex");
 
-    //             let Value::Regex(regex) = regex else {
-    //                 return RuntimeError(format!(
-    //                     "match() regex must be a regex, is a: {}",
-    //                     regex.ty()
-    //                 ))
-    //                 .into();
-    //             };
+                let Value::Regex(regex) = runtime.get_value(regex).clone() else {
+                    return RuntimeError(format!(
+                        "match() regex must be a regex, is a: {}",
+                        runtime.get_ty(regex)
+                    ))
+                    .into();
+                };
 
-    //             Ok(Value::List(
-    //                 Type::Tuple,
-    //                 regex
-    //                     .0
-    //                     .captures_iter(text)
-    //                     .map(|cap| {
-    //                         let m = cap.get(0).unwrap();
-    //                         Value::Tuple(vec![
-    //                             Value::Str(m.as_str().into()),
-    //                             Value::Numeric(Numeric::Int(m.start() as i64)),
-    //                         ])
-    //                     })
-    //                     .collect(),
-    //             ))
-    //         }),
-    //     }],
-    // );
+                let items = regex
+                    .0
+                    .captures_iter(&text)
+                    .map(|cap| {
+                        let m = cap.get(0).unwrap();
+                        let matched = runtime.new_value(Value::Str(m.as_str().into()));
+                        let offset =
+                            runtime.new_value(Value::Numeric(Numeric::Int(m.start() as i64)));
+
+                        runtime.new_value(Value::Tuple(vec![matched, offset]))
+                    })
+                    .collect::<Vec<_>>();
+
+                Ok(runtime.new_value(Value::List(Type::Tuple, items)))
+            }),
+        }],
+    );
 
     runtime.builtin(
         "starts_with",
