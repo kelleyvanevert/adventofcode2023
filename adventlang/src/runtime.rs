@@ -1310,7 +1310,10 @@ mod tests {
 
         assert_eq!(exec(r#""hello {"world"}""#), str("hello world"));
 
-        assert_eq!(exec("[1, 2, 3] :map |n| { n * 2 }"), str("hello world"));
+        assert_eq!(
+            exec("[1, 2, 3] :map |n| { n * 2 }"),
+            list([int(2), int(4), int(6)])
+        );
     }
 
     //     #[test]

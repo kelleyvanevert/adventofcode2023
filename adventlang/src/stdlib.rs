@@ -337,22 +337,14 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                 let list = list.clone();
 
-                let cb = runtime.get_scope(scope).values.get(&id("cb")).unwrap();
-
-                let Value::FnDef(def) = runtime.get_value(*cb) else {
-                    return RuntimeError(format!("cannot use map w/ cb of type: {}", cb.ty()))
-                        .into();
-                };
-
-                let def = def.clone();
+                let cb = *runtime.get_scope(scope).values.get(&id("cb")).unwrap();
 
                 let mut result = vec![];
                 for item in list.iter() {
-                    result.push(runtime.invoke(def.clone(), vec![(None, item.clone())])?);
+                    result.push(runtime.invoke(cb, vec![(None, item.clone())])?);
                 }
 
-                // TODO
-                Ok(Value::List(Type::Any, result))
+                Ok(runtime.new_value(Value::List(Type::Any, result)))
             }),
         }],
     );
