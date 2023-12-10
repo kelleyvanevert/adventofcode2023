@@ -10,6 +10,7 @@ use crate::{
         AssignPattern, Block, DeclarePattern, Document, Expr, Identifier, Item, Stmt,
         StrLiteralPiece, Type,
     },
+    parse::parse_document,
     stdlib::implement_stdlib,
     value::{AlRegex, EvalOther, EvaluationResult, Numeric, RuntimeError},
 };
@@ -345,6 +346,10 @@ impl Scope {
             values: HashMap::new(),
         }
     }
+
+    pub fn get_unchecked(&self, name: &str) -> usize {
+        *self.values.get(&Identifier(name.into())).unwrap()
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -414,6 +419,13 @@ impl Runtime {
     pub fn get_value_mut(&mut self, id: usize) -> &mut Value {
         match self.arena.get_mut(id) {
             Some(N::Value(value)) => value,
+            _ => panic!("could not get value"),
+        }
+    }
+
+    pub fn get_ty(&self, id: usize) -> Type {
+        match self.arena.get(id) {
+            Some(N::Value(value)) => value.ty(),
             _ => panic!("could not get value"),
         }
     }
@@ -1263,11 +1275,26 @@ pub fn execute(doc: &Document, stdin: String) -> EvaluationResult<(Runtime, usiz
     Ok((runtime, r))
 }
 
+pub fn execute_simple(code: &str) -> EvaluationResult<Ev> {
+    let Some(doc) = parse_document(code) else {
+        return RuntimeError("could not parse code".into()).into();
+    };
+
+    let (runtime, res_loc) = execute(&doc, "".into())?;
+
+    let value = match runtime.get_value_ext(res_loc) {
+        Err(e) => {
+            return RuntimeError(format!("could not get runtime result: {}", e)).into();
+        }
+        Ok(value) => value,
+    };
+
+    Ok(value)
+}
+
 #[cfg(test)]
 mod tests {
-
     use super::*;
-    use crate::parse::parse_document;
 
     fn list(items: impl IntoIterator<Item = Ev>) -> Ev {
         Ev::List(items.into_iter().collect())
@@ -1285,34 +1312,21 @@ mod tests {
         Ev::Str(s.to_string())
     }
 
-    fn exec(code: &'static str) -> Ev {
-        let Some(doc) = parse_document(code) else {
-            panic!("could not parse document");
-        };
-
-        let (runtime, res_loc) = match execute(&doc, "".into()) {
-            Err(EvalOther::RuntimeError(e)) => panic!("runtime error: {}", e.0),
-            Err(_) => panic!("break or return"),
-            Ok((runtime, res_loc)) => (runtime, res_loc),
-        };
-
-        let value = match runtime.get_value_ext(res_loc) {
-            Err(e) => panic!("could not get result: {}", e),
-            Ok(value) => value,
-        };
-
-        value
-    }
-
     #[test]
     fn some_simple_tests() {
-        assert_eq!(exec("[1, 2, 3]"), list([int(1), int(2), int(3)]));
-
-        assert_eq!(exec(r#""hello {"world"}""#), str("hello world"));
+        assert_eq!(
+            execute_simple("[1, 2, 3]"),
+            Ok(list([int(1), int(2), int(3)]))
+        );
 
         assert_eq!(
-            exec("[1, 2, 3] :map |n| { n * 2 }"),
-            list([int(2), int(4), int(6)])
+            execute_simple(r#""hello {"world"}""#),
+            Ok(str("hello world"))
+        );
+
+        assert_eq!(
+            execute_simple("[1, 2, 3] :map |n| { n * 2 }"),
+            Ok(list([int(2), int(4), int(6)]))
         );
     }
 

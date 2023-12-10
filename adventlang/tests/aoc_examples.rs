@@ -1,112 +1,113 @@
-// use adventlang::{
-//     parse::parse_document,
-//     runtime::{execute, Value},
-//     value::Numeric,
-// };
+use adventlang::{
+    parse::parse_document,
+    runtime::{execute, execute_simple, Ev},
+};
 
-// fn tuple(elements: impl IntoIterator<Item = Value>) -> Value {
-//     Value::Tuple(elements.into_iter().collect())
-// }
+fn list(items: impl IntoIterator<Item = Ev>) -> Ev {
+    Ev::List(items.into_iter().collect())
+}
 
-// fn int(n: i64) -> Value {
-//     Value::Numeric(Numeric::Int(n))
-// }
+fn tuple(items: impl IntoIterator<Item = Ev>) -> Ev {
+    Ev::Tuple(items.into_iter().collect())
+}
 
-// #[test]
-// fn aoc_day01() {
-//     let document = r#"
+fn int(n: i64) -> Ev {
+    Ev::Int(n)
+}
 
-// let digits = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+fn str(s: &'static str) -> Ev {
+    Ev::Str(s.to_string())
+}
 
-// fn is_digit(s) {
-//   s :in digits
-// }
+#[test]
+fn aoc_day01() {
+    let document = r#"
 
-// let nums = [
-//   ("0", "0"),
-//   ("1", "1"),
-//   ("2", "2"),
-//   ("3", "3"),
-//   ("4", "4"),
-//   ("5", "5"),
-//   ("6", "6"),
-//   ("7", "7"),
-//   ("8", "8"),
-//   ("9", "9"),
-//   ("zero", "0"),
-//   ("one", "1"),
-//   ("two", "2"),
-//   ("three", "3"),
-//   ("four", "4"),
-//   ("five", "5"),
-//   ("six", "6"),
-//   ("seven", "7"),
-//   ("eight", "8"),
-//   ("nine", "9"),
-//   ("ten", "0"),
-//   ("eleven", "1"),
-//   ("twelve", "2"),
-//   ("thirteen", "3"),
-//   ("fourteen", "4"),
-//   ("fifteen", "5"),
-//   ("sixteen", "6"),
-//   ("seventeen", "7"),
-//   ("eighteen", "8"),
-//   ("nineteen", "9"),
-//   ("twenty", "0"),
-// ]
+let digits = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
 
-// fn solve(input) {
-//   let values = input :lines :map |line| {
-//     let digits = line :chars :filter is_digit
-//     int(digits[0] + digits[-1])
-//   }
+fn is_digit(s) {
+  s :in digits
+}
 
-//   values :sum
-// }
+let nums = [
+  ("0", "0"),
+  ("1", "1"),
+  ("2", "2"),
+  ("3", "3"),
+  ("4", "4"),
+  ("5", "5"),
+  ("6", "6"),
+  ("7", "7"),
+  ("8", "8"),
+  ("9", "9"),
+  ("zero", "0"),
+  ("one", "1"),
+  ("two", "2"),
+  ("three", "3"),
+  ("four", "4"),
+  ("five", "5"),
+  ("six", "6"),
+  ("seven", "7"),
+  ("eight", "8"),
+  ("nine", "9"),
+  ("ten", "0"),
+  ("eleven", "1"),
+  ("twelve", "2"),
+  ("thirteen", "3"),
+  ("fourteen", "4"),
+  ("fifteen", "5"),
+  ("sixteen", "6"),
+  ("seventeen", "7"),
+  ("eighteen", "8"),
+  ("nineteen", "9"),
+  ("twenty", "0"),
+]
 
-// fn bonus(input) {
-//   let values = input :lines :map |line| {
-//     let digits = range(0, line :len)
-//       :filter_map |i| {
-//         nums :find_map |t| {
-//           if line :slice i :starts_with t[0] {
-//             t[1]
-//           }
-//         }
-//       }
+fn solve(input) {
+  let values = input :lines :map |line| {
+    let digits = line :chars :filter is_digit
+    int(digits[0] + digits[-1])
+  }
 
-//     int(digits[0] + digits[-1])
-//   }
+  values :sum
+}
 
-//   values :sum
-// }
+fn bonus(input) {
+  let values = input :lines :map |line| {
+    let digits = range(0, line :len)
+      :filter_map |i| {
+        nums :find_map |t| {
+          if line :slice i :starts_with t[0] {
+            t[1]
+          }
+        }
+      }
 
-// let solution = solve("1abc2
-// pqr3stu8vwx
-// a1b2c3d4e5f
-// treb7uchet");
+    int(digits[0] + digits[-1])
+  }
 
-// let bonus_solution = bonus("two1nine
-// eightwothree
-// abcone2threexyz
-// xtwone3four
-// 4nineeightseven2
-// zoneight234
-// 7pqrstsixteen");
+  values :sum
+}
 
-// (solution, bonus_solution)
+let solution = solve("1abc2
+pqr3stu8vwx
+a1b2c3d4e5f
+treb7uchet");
 
-// "#;
+let bonus_solution = bonus("two1nine
+eightwothree
+abcone2threexyz
+xtwone3four
+4nineeightseven2
+zoneight234
+7pqrstsixteen");
 
-//     assert_eq!(
-//         execute(
-//             &parse_document(document).expect("document should parse"),
-//             "".into()
-//         ),
-//         Ok(tuple([int(142), int(281)]))
-//     );
-// }
+(solution, bonus_solution)
+
+"#;
+
+    assert_eq!(execute_simple(document), Ok(tuple([int(142), int(281)])));
+}
 
 // #[test]
 // fn aoc_day02() {
