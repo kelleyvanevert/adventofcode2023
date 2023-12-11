@@ -32,7 +32,7 @@ Anyhow, you could summarize it as follows:
 
 <img src="./adventlang_vscode_ext/icon.png" align="left" width="200px"/>
 
-This year's challenges will (hopefully all) be completed in a new programming language _Adventlang_! This exciting new interpreted language has syntax that looks like Rust, but anonymous functions like in Kotlin, postfix/infix notation function calls to make it all look very succinct, and soon-to-be-implemented GC :)
+This year's challenges will (hopefully all) be completed in a new programming language _Adventlang_! [This exciting new interpreted language](#adventlang-overview) has syntax that looks like Rust, but anonymous functions like in Kotlin, postfix/infix notation function calls to make it all look very succinct, and soon-to-be-implemented GC :)
 
 If you use VS Code, be sure to install the ✨[_official language features extension_](https://marketplace.visualstudio.com/items?itemName=hello-kelley.adventlang)✨. It currently just attempts to add some syntax highlighting, but I have high ambitions! Maybe I can get Rust code, compiled to WASM, to power a LSP? 🫣
 
@@ -422,3 +422,133 @@ I can notice how I'm now starting to wade in the territory of optimization. This
 - So now, I implemented an optimization for this: only copy _when necessary_. All the evaluations etc. in the runtime now pass around tuples `(usize, bool)` indicating not only the location of the evaluated expression (or whatever), but also whether it's a _fresh_ value or not. And if it eventually gets used for an assignment (or declaration), I use `Runtime::ensure_new` to copy it if necessary.
 
   And now the time is back down to ±2.5 seconds again, and running _all_ the days in sequence went down from ±20s to ±6s! 🎉
+
+## Adventlang overview
+
+- Mostly value-based, structural equality
+- Postfix and infix function notation: `left :func right`
+- Dynamically typed, functions are resolved at runtime based on types, best match wins
+- Garbage collected
+- Syntax that looks mostly like Rust, but without the language complexities of course
+- Trailing inline function arguments don't require parentheses, like in Kotlin. But also, with infix function notation, they're not necessary anyway
+
+### Syntax example
+
+![](./syntax_example.png)
+
+### Types
+
+Primitive
+
+```
+nil
+int           // i64 in Rust
+double        // f64 in Rust
+str
+regex
+```
+
+Composite
+
+```
+[T]           // because of untagged unions, these can actually be as heterogeneous as you want
+list          // any list
+(A,)
+(A, B), ..
+tuple         // any tuple
+dict          // any key => any value
+```
+
+Untagged unions
+
+```
+A | B | C ...
+A?            // A | nil
+```
+
+Also, types are _optional_ and there's also the type annotation `any` for if you don't care.
+
+### Standard library
+
+General purpose
+
+```
+print         (data: any)
+run           (block: fn) -> any
+clone         <T>(data: T) -> T
+
+==            // structural equality
+```
+
+Conversions
+
+```
+int           (data: any) -> int
+```
+
+Numeric
+
+```
+min           (list: [num?]) -> num?
+min           (a: num?, b: num?) -> num?
+max           (list: [num?]) -> num?
+max           (a: num?, b: num?) -> num?
+sqrt          (x: num) -> num
+ceil          (x: num) -> int
+floor         (x: num) -> int
+abs           (x: num) -> num
+round         (x: num) -> int
+
++, -, *, /, <<, <, >, <=, >=
+```
+
+Boolean
+
+```
+&&, ||
+```
+
+Text
+
+```
+split         (text: str, sep: str) -> [str]
+split         (text: str, sep: regex) -> [str]
+lines         (text: str) -> [str]
+match         (text: str, find: regex) -> (str, int)?
+match_all     (text: str, find: regex) -> [(str, int)]
+starts_with   (text: str, find: str) -> bool
+replace       (text: str, def: (regex | str, str)) -> str
+slice         (text: str, i: int) -> str
+slice         (text: str, range: (int, int)) -> str
+index         (text: str, i: int) -> str?
+len           (text: str) -> int
+trim          (text: str) -> str
+chars         (text: str) -> [str]
+```
+
+Lists, tuples, dicts
+
+```
+chunks        <T>(items: [T], size: int) -> [[T]]
+sort_by_key   <T>(items: [T], key: (T) -> any) -> [T]
+reverse       <T>(items: [T]) -> [T]
+zip           <A, B>(as: [A], bs: [B]) -> [(A, B)]
+fold          <T, A>(items: [T], init: A, f: (A, T) => A) -> A
+map           <A, B>(items: [A], f: (A) -> B) -> [B]
+flat_map      <A, B>(items: [A], f: (A) -> [B]) -> [B]
+dict          (pairs: [(any, any)]) -> Dict
+in            <A>(needle: A, haystack: [A]) -> bool
+in            (needle: any, haystack: Tuple) -> bool
+filter        <A>(items: [A], f: (A) -> bool) -> [A]
+filter_map    <A, B>(items: [A], f: (A) -> B?) -> [B]
+any           (items: [any]) -> bool
+all           (items: [any]) -> bool
+find_map      <A, B>(items: [A], f: (A) -> B?) -> B?
+find          <T>(items: [T]) -> T?
+range         (start: num, end: num) -> [num]
+enumerate     <T>(items: [T]) -> [(int, T)]
+sum           (items: [num]) -> num
+slice         <T>(items: [T], i: int) -> [T]
+index         <T>(items: [T], i: int) -> T?
+len           (items: [any]) -> int
+```
