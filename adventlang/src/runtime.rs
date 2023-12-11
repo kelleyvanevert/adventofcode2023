@@ -1250,7 +1250,7 @@ impl Runtime {
             Expr::RegexLiteral { regex } => Ok(self.new_value(Value::Regex(regex.clone()))),
             Expr::Variable(id) => {
                 let (_, k) = self.lookup(scope, id)?;
-                Ok(k)
+                Ok(self.new_value(self.get_value(k).clone()))
             }
             Expr::UnaryExpr { expr, op } => {
                 let k = self.evaluate(scope, expr)?;
@@ -1543,6 +1543,8 @@ mod tests {
             execute_simple("let a = 1; if true { a = 2 }; a"),
             Ok(int(2))
         );
+
+        assert_eq!(execute_simple("let a = 1; let b = a; a = 2; b"), Ok(int(1)));
 
         assert_eq!(
             execute_simple("let a = []; a []= (1, 2); let i = 0; a[i]"),
