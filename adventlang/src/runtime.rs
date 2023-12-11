@@ -623,12 +623,22 @@ impl Runtime {
             }
         }
 
+        let mut num_reclaimed = 0;
+        let mut num_kept = 0;
+
         for (i, &is_reachable) in reachable.iter().enumerate() {
             if !is_reachable {
                 self.reclaimed.push(i);
                 self.heap[i] = None;
+                num_reclaimed += 1;
+            } else {
+                num_kept += 1;
             }
         }
+
+        //println!("GC stats:");
+        //println!("- reclaimed: {num_reclaimed}");
+        //println!("- heap size: {num_kept}");
     }
 
     fn gc_reach(&self, v: usize, reachable: &mut Vec<bool>) {
