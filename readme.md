@@ -386,3 +386,13 @@ There's two things that have been on my mind though / I've been hacking on, that
   If you assign a variable holding a list to another variable, it currently copies over the list. I'm .. not super sure I want this behaviour. Anyhow, I'm _not able to not have this behaviour_ at the moment, because of the way I set up the memory of the interpreter. It doesn't have a _heap_, or maybe more precisely said, it doesn't have any way of _shared_ access/reference to memory/data, in whatever way that could be implemented. I made a few small stabs at implementing shared access (using Arcs, no heap), and yesterday spent a few hours trying to implement a heap, but I keep running into technical detail problems. Like, when implementing a heap naively, the (assignable) "locations" of values become very unwieldy and ugly. But when I try to "flatten" the whole thing into an "arena", I still have difficulties making the compiler believe everything is fine..
 
   To be continued..
+
+## Day 10
+
+**I implemented a heap and reference types.** In a very ugly direct way, but .. it was able to make day 10's bonus computable in the first place :P
+
+Day 10 was fun and algorithmically challenging, but it was also an unpleasant surprise that, after getting the whole algorithm correct for the bonus part, AL was able to compute all the examples, but would spend ±15 minutes on the real input and then just crash. We finally got there: the moment that AL's inefficient memory usage + all the cloning of values would just not do any more.
+
+I had been experimenting with implementing a heap, shared references, and passing values around internally as references, but it had been a struggle for a few days to get it right. Yesterday I finally made the final push, and .. now it's way faster, but also .. kinda incorrect in ways that I haven't been able to fully understand yet :P So, of all the AOC day example tests, I had to disable day 5 (because it loops), and day 7 is giving some weird results.
+
+A bunch of refactoring and debugging lies ahead 😅
