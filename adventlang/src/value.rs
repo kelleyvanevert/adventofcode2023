@@ -10,8 +10,8 @@ pub type EvaluationResult<T> = Result<T, EvalOther>;
 #[derive(Debug, PartialEq)]
 pub enum EvalOther {
     RuntimeError(RuntimeError),
-    Break(usize),
-    Return(usize),
+    Break((usize, bool)),
+    Return((usize, bool)),
 }
 
 impl From<RuntimeError> for EvalOther {

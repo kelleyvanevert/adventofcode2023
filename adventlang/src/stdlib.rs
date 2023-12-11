@@ -58,8 +58,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                                 return Ok(runtime.new_value(Value::Nil));
                             }
 
-                            match list.iter().min_by(|&&a, &&b| runtime.cmp(a, b)).cloned() {
-                                Some(result) => Ok(result),
+                            match list.iter().min_by(|&&a, &&b| runtime.cmp(a, b)) {
+                                Some(result) => Ok((*result, false)),
                                 None => RuntimeError(
                                     "error getting min: could not compare all elements".into(),
                                 )
@@ -78,15 +78,15 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     let b = runtime.get_scope(scope).get_unchecked("b");
 
                     if runtime.get_value(a) == &Value::Nil {
-                        return Ok(b);
+                        return Ok((b, false));
                     } else if runtime.get_value(b) == &Value::Nil {
-                        return Ok(a);
+                        return Ok((a, false));
                     }
 
                     match runtime.cmp(a, b) {
-                        Ordering::Greater => Ok(b),
-                        Ordering::Less => Ok(a),
-                        _ => Ok(a),
+                        Ordering::Greater => Ok((b, false)),
+                        Ordering::Less => Ok((a, false)),
+                        _ => Ok((a, false)),
                     }
                 }),
             },
@@ -107,8 +107,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                                 return Ok(runtime.new_value(Value::Nil));
                             }
 
-                            match list.iter().max_by(|&&a, &&b| runtime.cmp(a, b)).cloned() {
-                                Some(result) => Ok(result),
+                            match list.iter().max_by(|&&a, &&b| runtime.cmp(a, b)) {
+                                Some(result) => Ok((*result, false)),
                                 None => RuntimeError(
                                     "error getting max: could not compare all elements".into(),
                                 )
@@ -127,15 +127,15 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     let b = runtime.get_scope(scope).get_unchecked("b");
 
                     if runtime.get_value(a) == &Value::Nil {
-                        return Ok(b);
+                        return Ok((b, false));
                     } else if runtime.get_value(b) == &Value::Nil {
-                        return Ok(a);
+                        return Ok((a, false));
                     }
 
                     match runtime.cmp(a, b) {
-                        Ordering::Greater => Ok(a),
-                        Ordering::Less => Ok(b),
-                        _ => Ok(a),
+                        Ordering::Greater => Ok((a, false)),
+                        Ordering::Less => Ok((b, false)),
+                        _ => Ok((a, false)),
                     }
                 }),
             },
@@ -177,7 +177,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                 let chunks = list
                     .chunks_exact(*size as usize)
-                    .map(|chunk| runtime.new_value(Value::List(t.clone(), chunk.to_vec())))
+                    .map(|chunk| runtime.new_value(Value::List(t.clone(), chunk.to_vec())).0)
                     .collect::<Vec<_>>();
 
                 Ok(runtime.new_value(Value::List(Type::List(t.clone().into()), chunks)))
@@ -209,15 +209,14 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                 for (i, item) in list.clone().into_iter().enumerate() {
                     let key = runtime.invoke(cb, vec![(None, item)])?;
-                    sorting_keys.push((i, key));
+                    sorting_keys.push((i, key.0));
                 }
 
                 sorting_keys.sort_by(|a, b| runtime.cmp(a.1, b.1));
-                // sorting_keys.sort_by_cached_key(|t| t.1.clone());
 
                 let mut result = list
                     .iter()
-                    .map(|_| runtime.new_value(Value::Nil))
+                    .map(|_| runtime.new_value(Value::Nil).0)
                     .collect::<Vec<_>>();
 
                 for (dest, (source, _)) in sorting_keys.iter().enumerate() {
@@ -237,7 +236,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let items = runtime.get_scope(scope).get_unchecked("items");
                 let items = runtime.clone(items);
 
-                match runtime.get_value(items).clone() {
+                match runtime.get_value(items.0).clone() {
                     Value::List(t, mut list) => {
                         list.reverse();
                         Ok(runtime.new_value(Value::List(t, list)))
@@ -249,7 +248,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     _ => {
                         return RuntimeError(format!(
                             "reverse() items must be a list or tuple, is a: {}",
-                            runtime.get_ty(items)
+                            runtime.get_ty(items.0)
                         ))
                         .into();
                     }
@@ -271,7 +270,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                         let zipped_items = x_els
                             .into_iter()
                             .zip(y_els.into_iter())
-                            .map(|(x, y)| runtime.new_value(Value::Tuple(vec![x, y])))
+                            .map(|(x, y)| runtime.new_value(Value::Tuple(vec![x, y])).0)
                             .collect();
 
                         Ok(runtime.new_value(Value::List(Type::Tuple, zipped_items)))
@@ -280,7 +279,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                         let zipped_items = x_els
                             .into_iter()
                             .zip(y_els.into_iter())
-                            .map(|(x, y)| runtime.new_value(Value::Tuple(vec![x, y])))
+                            .map(|(x, y)| runtime.new_value(Value::Tuple(vec![x, y])).0)
                             .collect();
 
                         Ok(runtime.new_value(Value::Tuple(zipped_items)))
@@ -309,13 +308,13 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                 match runtime.get_value(items).clone() {
                     Value::List(_, els) => {
-                        Ok(els.clone().into_iter().try_fold(init.clone(), |acc, el| {
-                            runtime.invoke(cb, vec![(None, acc), (None, el.clone())])
+                        Ok(els.clone().into_iter().try_fold((init, false), |acc, el| {
+                            runtime.invoke(cb, vec![(None, acc.0), (None, el.clone())])
                         })?)
                     }
                     Value::Tuple(els) => {
-                        Ok(els.clone().into_iter().try_fold(init.clone(), |acc, el| {
-                            runtime.invoke(cb, vec![(None, acc), (None, el.clone())])
+                        Ok(els.clone().into_iter().try_fold((init, false), |acc, el| {
+                            runtime.invoke(cb, vec![(None, acc.0), (None, el.clone())])
                         })?)
                     }
                     _ => {
@@ -349,7 +348,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                 let mut result = vec![];
                 for item in list.iter() {
-                    result.push(runtime.invoke(cb, vec![(None, item.clone())])?);
+                    result.push(runtime.invoke(cb, vec![(None, item.clone())])?.0);
                 }
 
                 Ok(runtime.new_value(Value::List(Type::Any, result)))
@@ -374,10 +373,10 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let mut result = vec![];
                 for item in list.into_iter() {
                     let value = runtime.invoke(cb, vec![(None, item.clone())])?;
-                    let Value::List(_, items) = runtime.get_value(value) else {
+                    let Value::List(_, items) = runtime.get_value(value.0) else {
                         return RuntimeError(format!(
                             "flat_map cb should return lists, returned: {}",
-                            runtime.get_ty(value)
+                            runtime.get_ty(value.0)
                         ))
                         .into();
                     };
@@ -486,7 +485,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let mut result = vec![];
                 for item in list.iter() {
                     let r = runtime.invoke(cb, vec![(None, item.clone())])?;
-                    if runtime.get_value(r).truthy()? {
+                    if runtime.get_value(r.0).truthy()? {
                         result.push(*item);
                     }
                 }
@@ -517,11 +516,11 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 for item in list.iter() {
                     let item = runtime.invoke(cb, vec![(None, item.clone())])?;
 
-                    match runtime.get_value(item) {
+                    match runtime.get_value(item.0) {
                         // TODO fix the "nil as well as unit" problem
                         Value::Nil => {}
                         _ => {
-                            result.push(item);
+                            result.push(item.0);
                         }
                     }
                 }
@@ -552,7 +551,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                     for item in list {
                         let item = runtime.invoke(cb, vec![(None, item)])?;
-                        if runtime.get_value(item).truthy()? {
+                        if runtime.get_value(item.0).truthy()? {
                             return Ok(runtime.new_value(Value::Bool(true)));
                         }
                     }
@@ -607,7 +606,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                     for item in list {
                         let item = runtime.invoke(cb, vec![(None, item)])?;
-                        if !runtime.get_value(item).truthy()? {
+                        if !runtime.get_value(item.0).truthy()? {
                             return Ok(runtime.new_value(Value::Bool(false)));
                         }
                     }
@@ -660,7 +659,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                 for item in list {
                     let item = runtime.invoke(cb, vec![(None, item)])?;
-                    if runtime.get_value(item).truthy()? {
+                    if runtime.get_value(item.0).truthy()? {
                         return Ok(item);
                     }
                 }
@@ -688,8 +687,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                 for item in list {
                     let check = runtime.invoke(cb, vec![(None, item.clone())])?;
-                    if runtime.get_value(check).truthy()? {
-                        return Ok(item);
+                    if runtime.get_value(check.0).truthy()? {
+                        return Ok((item, false));
                     }
                 }
 
@@ -729,7 +728,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                 if end >= start {
                     let items = (start..end)
-                        .map(|n| runtime.new_value(Value::Numeric(Numeric::Int(n))))
+                        .map(|n| runtime.new_value(Value::Numeric(Numeric::Int(n))).0)
                         .collect();
 
                     Ok(runtime.new_value(Value::List(Type::Numeric, items)))
@@ -765,7 +764,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                                 let index =
                                     runtime.new_value(Value::Numeric(Numeric::Int(i as i64)));
 
-                                runtime.new_value(Value::Tuple(vec![index, item]))
+                                runtime.new_value(Value::Tuple(vec![index.0, item])).0
                             })
                             .collect::<Vec<_>>();
 
@@ -783,7 +782,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                                 let index =
                                     runtime.new_value(Value::Numeric(Numeric::Int(i as i64)));
 
-                                runtime.new_value(Value::Tuple(vec![index, item]))
+                                runtime.new_value(Value::Tuple(vec![index.0, item])).0
                             })
                             .collect::<Vec<_>>();
 
@@ -861,7 +860,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                     let result = text
                         .split(sep.as_str())
-                        .map(|piece| runtime.new_value(Value::Str(text.substr_from(piece))))
+                        .map(|piece| runtime.new_value(Value::Str(text.substr_from(piece))).0)
                         .collect::<Vec<_>>();
 
                     Ok(runtime.new_value(Value::List(Type::Str, result)))
@@ -896,7 +895,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     let result = sep
                         .0
                         .split(&text)
-                        .map(|piece| runtime.new_value(Value::Str(text.substr_from(piece))))
+                        .map(|piece| runtime.new_value(Value::Str(text.substr_from(piece))).0)
                         .collect::<Vec<_>>();
 
                     Ok(runtime.new_value(Value::List(Type::Str, result)))
@@ -923,7 +922,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let result = text
                     .clone()
                     .lines()
-                    .map(|line| runtime.new_value(Value::Str(text.substr_from(line))))
+                    .map(|line| runtime.new_value(Value::Str(text.substr_from(line))).0)
                     .collect::<Vec<_>>();
 
                 Ok(runtime.new_value(Value::List(Type::Str, result)))
@@ -962,7 +961,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                         let matched_part = runtime.new_value(Value::Str(m.as_str().into()));
                         let offset =
                             runtime.new_value(Value::Numeric(Numeric::Int(m.start() as i64)));
-                        Ok(runtime.new_value(Value::Tuple(vec![matched_part, offset])))
+                        Ok(runtime.new_value(Value::Tuple(vec![matched_part.0, offset.0])))
                     }
                     None => Ok(runtime.new_value(Value::Nil)),
                 }
@@ -1004,7 +1003,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                         let offset =
                             runtime.new_value(Value::Numeric(Numeric::Int(m.start() as i64)));
 
-                        runtime.new_value(Value::Tuple(vec![matched, offset]))
+                        runtime.new_value(Value::Tuple(vec![matched.0, offset.0])).0
                     })
                     .collect::<Vec<_>>();
 
@@ -1306,7 +1305,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                     let slice_els = list[(start as usize)..(end as usize).min(list.len())]
                         .into_iter()
-                        .map(|v| runtime.clone(*v))
+                        .map(|v| runtime.clone(*v).0)
                         .collect::<Vec<_>>();
 
                     Ok(runtime.new_value(Value::List(el_type, slice_els)))
@@ -1340,7 +1339,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                         .0
                         .into_iter()
                         .find(|(k, _)| runtime.eq(*k, key))
-                        .map(|(_, v)| runtime.copy_for_assignment(v))
+                        .map(|(_, v)| (v, false))
                         .unwrap_or(runtime.new_value(Value::Nil));
 
                     Ok(result)
@@ -1381,9 +1380,10 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                         }
                         _ => None,
                     })
-                    .map(|v| runtime.copy_for_assignment(v));
+                    .map(|v| (v, false))
+                    .unwrap_or(runtime.new_value(Value::Nil));
 
-                    Ok(el.unwrap_or(runtime.new_value(Value::Nil)))
+                    Ok(el)
                 }),
             },
             FnSig {
@@ -1421,9 +1421,10 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                         }
                         _ => None,
                     })
-                    .map(|v| runtime.copy_for_assignment(v));
+                    .map(|v| (v, false))
+                    .unwrap_or(runtime.new_value(Value::Nil));
 
-                    Ok(el.unwrap_or(runtime.new_value(Value::Nil)))
+                    Ok(el)
                 }),
             },
             FnSig {
@@ -1545,7 +1546,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                 let items = text
                     .chars()
-                    .map(|c| runtime.new_value(Value::Str(c.to_string().into())))
+                    .map(|c| runtime.new_value(Value::Str(c.to_string().into())).0)
                     .collect::<Vec<_>>();
 
                 Ok(runtime.new_value(Value::List(Type::Str, items)))

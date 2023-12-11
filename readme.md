@@ -402,3 +402,23 @@ A bunch of refactoring and debugging lies ahead 😅
 ## Day 11
 
 Fun and largely uneventful :) The new heap-based runtime still works, albeit not for the examples of day 5 and 7. And the bonus twist pointed out a fun algorithmic trick.
+
+### Interpreter runtime optimizations
+
+I can notice how I'm now starting to wade in the territory of optimization. This is not the kind of thing I'm naturally interested in, but now that I'm noticing big differences in speed depending on small changes in the runtime code, I'm .. starting to see why it can be striking, or even .. fun?
+
+- The first step in this little journey was yesterday's first real performance problems: I wasn't able to run the bonus. It ran for 15 minutes and then crashed for whatever reason. I needed to stop cloning everything around, which I already knew .. and spent quite a while implementing a "heap" in the runtime. I was very happy when I finally got everything (mostly) working again, because the bonus now computed in ±2.5 seconds.
+
+- The second step was finding out that, after resolving the remaining bugs that caused day 5 and 7 to fail, that time went back up to about 8s. The bugs were caused by accidentally overwriting other values in assignments, because now I evaluate a variable or index expression to the _location_ of a values instead of the value itself. The relevant test case:
+
+  ```
+  let a = 1; let b = a; a = 2; b // should be 1, accidentally was 2
+  ```
+
+  To fix this problem, I basically just needed a single extra line in a crucial spot: a copy of primitive values (but not composites) when I evaluate a variable expression. (Actually a few more lines though, because the same thing is also needed when evaluating index expressions like `a[2]`.)
+
+  All this extra copying though, drove up that time that day 10 needed back from ±2.5s to ±8s.
+
+- So now, I implemented an optimization for this: only copy _when necessary_. All the evaluations etc. in the runtime now pass around tuples `(usize, bool)` indicating not only the location of the evaluated expression (or whatever), but also whether it's a _fresh_ value or not. And if it eventually gets used for an assignment (or declaration), I use `Runtime::ensure_new` to copy it if necessary.
+
+  And now the time is back down to ±2.5 seconds again! 🎉

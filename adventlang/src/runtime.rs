@@ -74,7 +74,7 @@ impl std::hash::Hash for FnSig {
 #[derive(Debug, Clone, PartialEq)]
 pub enum FnBody {
     Code(Block),
-    Builtin(fn(&mut Runtime, usize) -> EvaluationResult<usize>),
+    Builtin(fn(&mut Runtime, usize) -> EvaluationResult<(usize, bool)>),
 }
 
 impl std::hash::Hash for FnBody {
@@ -412,14 +412,14 @@ impl Runtime {
         self.get_value(id).ty()
     }
 
-    pub fn new_value(&mut self, value: Value) -> usize {
+    pub fn new_value(&mut self, value: Value) -> (usize, bool) {
         if let Some(i) = self.reclaimed.pop() {
             self.heap[i] = Some(value);
-            i
+            (i, true)
         } else {
             let i = self.heap.len();
             self.heap.push(Some(value));
-            i
+            (i, true)
         }
     }
 
@@ -461,18 +461,22 @@ impl Runtime {
         }
     }
 
-    pub fn copy_for_assignment(&mut self, orig: usize) -> usize {
-        self.new_value(self.get_value(orig).clone())
+    pub fn ensure_new(&mut self, (orig, is_new): (usize, bool)) -> usize {
+        if is_new {
+            orig
+        } else {
+            self.new_value(self.get_value(orig).clone()).0
+        }
     }
 
-    pub fn clone(&mut self, orig: usize) -> usize {
+    pub fn clone(&mut self, orig: usize) -> (usize, bool) {
         match self.get_value(orig).clone() {
             Value::List(t, items) => {
-                let cloned_items = items.into_iter().map(|item| self.clone(item)).collect();
+                let cloned_items = items.into_iter().map(|item| self.clone(item).0).collect();
                 self.new_value(Value::List(t, cloned_items))
             }
             Value::Tuple(items) => {
-                let cloned_items = items.into_iter().map(|item| self.clone(item)).collect();
+                let cloned_items = items.into_iter().map(|item| self.clone(item).0).collect();
                 self.new_value(Value::Tuple(cloned_items))
             }
             other => self.new_value(other),
@@ -666,7 +670,7 @@ impl Runtime {
     }
 
     pub fn builtin(&mut self, name: &str, signatures: impl IntoIterator<Item = FnSig>) {
-        let def = self.new_value(Value::FnDef(FnDef {
+        let (def, _) = self.new_value(Value::FnDef(FnDef {
             name: Some(name.into()),
             parent_scope: 0,
             signatures: signatures.into_iter().collect(),
@@ -700,7 +704,11 @@ impl Runtime {
         }
     }
 
-    pub fn execute_block(&mut self, scope: usize, block: &Block) -> EvaluationResult<usize> {
+    pub fn execute_block(
+        &mut self,
+        scope: usize,
+        block: &Block,
+    ) -> EvaluationResult<(usize, bool)> {
         let mut result = self.new_value(Value::Nil);
 
         for item in &block.items {
@@ -717,7 +725,7 @@ impl Runtime {
     pub fn define(&mut self, scope: usize, item: &Item) -> EvaluationResult<()> {
         match item {
             Item::NamedFn { name, params, body } => {
-                let def = self.new_value(Value::FnDef(FnDef {
+                let (def, _) = self.new_value(Value::FnDef(FnDef {
                     name: Some(name.clone()),
                     parent_scope: scope,
                     signatures: vec![FnSig {
@@ -908,13 +916,13 @@ impl Runtime {
                 for (pattern, value) in elements.into_iter().zip(
                     items
                         .into_iter()
-                        .chain(std::iter::repeat(self.new_value(Value::Nil))),
+                        .chain(std::iter::repeat(self.new_value(Value::Nil).0)),
                 ) {
                     self.declare(scope, pattern, value)?;
                 }
 
                 if let Some((id, t, items)) = assign_rest_later {
-                    let list = self.new_value(Value::List(item_type.clone(), items));
+                    let (list, _) = self.new_value(Value::List(item_type.clone(), items));
                     self.declare(scope, &DeclarePattern::Id(id, t), list)?;
                 }
             }
@@ -936,13 +944,13 @@ impl Runtime {
                 for (pattern, value) in elements.into_iter().zip(
                     items
                         .into_iter()
-                        .chain(std::iter::repeat(self.new_value(Value::Nil))),
+                        .chain(std::iter::repeat(self.new_value(Value::Nil).0)),
                 ) {
                     self.declare(scope, pattern, value)?;
                 }
 
                 if let Some((id, t, items)) = assign_rest_later {
-                    let tuple = self.new_value(Value::Tuple(items));
+                    let (tuple, _) = self.new_value(Value::Tuple(items));
                     self.declare(scope, &DeclarePattern::Id(id, t), tuple)?;
                 }
             }
@@ -951,7 +959,7 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn execute(&mut self, scope: usize, stmt: &Stmt) -> EvaluationResult<usize> {
+    pub fn execute(&mut self, scope: usize, stmt: &Stmt) -> EvaluationResult<(usize, bool)> {
         match stmt {
             Stmt::Break { expr } => {
                 let value = expr
@@ -973,6 +981,8 @@ impl Runtime {
             Stmt::Declare { pattern, expr } => {
                 let value = self.evaluate(scope, expr)?;
 
+                let value = self.ensure_new(value);
+
                 self.declare(scope, pattern, value)?;
 
                 Ok(self.new_value(Value::Nil))
@@ -982,7 +992,8 @@ impl Runtime {
 
                 let assignable = self.resolve(scope, &pattern)?;
 
-                // let value = self.copy_for_assignment(value);
+                let value = self.ensure_new(value);
+
                 self.assign(scope, assignable, value)?;
 
                 Ok(self.new_value(Value::Nil))
@@ -1041,7 +1052,7 @@ impl Runtime {
         &mut self,
         def: usize,
         args: Vec<(Option<Identifier>, usize)>,
-    ) -> EvaluationResult<usize> {
+    ) -> EvaluationResult<(usize, bool)> {
         let Value::FnDef(def) = self.get_value(def) else {
             return RuntimeError(format!(
                 "cannot call {} ({} args)",
@@ -1139,11 +1150,12 @@ impl Runtime {
                     Location::Single(parent) => {
                         let index_loc = maybe_index_expr
                             .clone()
-                            .try_map(|expr| self.evaluate(scope, &expr))?;
+                            .try_map(|expr| self.evaluate(scope, &expr))?
+                            .map(|(v, i)| v);
 
                         let index_val = index_loc.map(|i| self.get_value(i)).cloned();
 
-                        let nil = self.new_value(Value::Nil);
+                        let nil = self.new_value(Value::Nil).0;
 
                         let matching_dict_key = match (self.get_value(parent), index_loc) {
                             (Value::Dict(dict), Some(i)) => {
@@ -1262,19 +1274,20 @@ impl Runtime {
         }
     }
 
-    pub fn evaluate(&mut self, scope: usize, expr: &Expr) -> EvaluationResult<usize> {
+    /// (location of the value, whether it was copied or newly computed already during evaluation)
+    pub fn evaluate(&mut self, scope: usize, expr: &Expr) -> EvaluationResult<(usize, bool)> {
         match expr {
             Expr::Bool(b) => Ok(self.new_value(Value::Bool(*b))),
             Expr::NilLiteral => Ok(self.new_value(Value::Nil)),
             Expr::DictLiteral { elements } => {
                 let mut dict = Dict::new();
                 for (key, value_expr) in elements {
-                    let k = match key {
+                    let (k, _) = match key {
                         Either::Left(name) => self.new_value(Value::Str(name.0.to_string().into())),
                         Either::Right(key_expr) => self.evaluate(scope, key_expr)?,
                     };
 
-                    let expr_value = self.evaluate(scope, value_expr)?;
+                    let (expr_value, _) = self.evaluate(scope, value_expr)?;
 
                     dict.0.push((k, expr_value));
                 }
@@ -1290,7 +1303,7 @@ impl Runtime {
                             build += fragment;
                         }
                         StrLiteralPiece::Interpolation(expr) => {
-                            let value_loc = self.evaluate(scope, expr)?;
+                            let (value_loc, _) = self.evaluate(scope, expr)?;
                             build += &format!("{}", self.display(value_loc, true));
                             // build += &value.auto_coerce_str();
                         }
@@ -1304,12 +1317,11 @@ impl Runtime {
             Expr::Variable(id) => {
                 let (_, k) = self.lookup(scope, id)?;
 
-                let k = self.copy_for_assignment(k);
-                Ok(k)
+                Ok((k, false))
             }
             Expr::UnaryExpr { expr, op } => {
                 let k = self.evaluate(scope, expr)?;
-                let value = self.get_value(k);
+                let value = self.get_value(k.0);
                 match op.as_str() {
                     "!" => Ok(self.new_value(value.negate()?)),
                     _ => RuntimeError(format!("Unknown unary operation: {op}")).into(),
@@ -1321,14 +1333,14 @@ impl Runtime {
                 // short-circuiting ops
                 match op.as_str() {
                     "&&" => {
-                        if !self.get_value(le).truthy()? {
+                        if !self.get_value(le.0).truthy()? {
                             return Ok(le);
                         } else {
                             return Ok(self.evaluate(scope, right)?);
                         }
                     }
                     "||" => {
-                        if self.get_value(le).truthy()? {
+                        if self.get_value(le.0).truthy()? {
                             return Ok(le);
                         } else {
                             return Ok(self.evaluate(scope, right)?);
@@ -1339,8 +1351,8 @@ impl Runtime {
 
                 let ri = self.evaluate(scope, right)?;
 
-                let left_value = self.get_value(le);
-                let right_value = self.get_value(ri);
+                let left_value = self.get_value(le.0);
+                let right_value = self.get_value(ri.0);
 
                 match op.as_str() {
                     "^" => return Ok(self.new_value(left_value.pow(right_value)?)),
@@ -1353,7 +1365,7 @@ impl Runtime {
                     _ => {}
                 };
 
-                let ord = self.cmp(le, ri);
+                let ord = self.cmp(le.0, ri.0);
 
                 match op.as_str() {
                     "<" => Ok(self.new_value(Value::Bool(ord == Ordering::Less))),
@@ -1373,12 +1385,12 @@ impl Runtime {
                 let mut element_values = vec![];
                 for expr in elements {
                     let expr_value = self.evaluate(scope, expr)?;
-                    if let Some(narrowed) = ty.narrow(&self.get_value(expr_value).ty()) {
+                    if let Some(narrowed) = ty.narrow(&self.get_value(expr_value.0).ty()) {
                         ty = narrowed;
                     } else {
                         return RuntimeError("list contains distinct types".into()).into();
                     }
-                    element_values.push(expr_value);
+                    element_values.push(expr_value.0);
                 }
 
                 Ok(self.new_value(Value::List(ty, element_values)))
@@ -1387,7 +1399,7 @@ impl Runtime {
                 let mut element_values = vec![];
                 for expr in elements {
                     let expr_value = self.evaluate(scope, expr)?;
-                    element_values.push(expr_value);
+                    element_values.push(expr_value.0);
                 }
 
                 Ok(self.new_value(Value::Tuple(element_values)))
@@ -1398,10 +1410,10 @@ impl Runtime {
                 let mut evaluated_args = vec![];
                 for arg in args {
                     let arg_value = self.evaluate(scope, &arg.expr)?;
-                    evaluated_args.push((arg.name.clone(), arg_value));
+                    evaluated_args.push((arg.name.clone(), arg_value.0));
                 }
 
-                Ok(self.invoke(fn_expr_value, evaluated_args)?)
+                Ok(self.invoke(fn_expr_value.0, evaluated_args)?)
             }
             Expr::AnonymousFn { params, body } => Ok(self.new_value(Value::FnDef(FnDef {
                 name: None,
@@ -1419,11 +1431,11 @@ impl Runtime {
             } => {
                 let cond_value = self.evaluate(scope, cond)?;
 
-                let result = if self.get_value(cond_value).truthy()? {
+                let result = if self.get_value(cond_value.0).truthy()? {
                     let execution_scope = self.new_scope(scope);
 
                     if let Some(pattern) = pattern {
-                        self.declare(execution_scope, pattern, cond_value)?;
+                        self.declare(execution_scope, pattern, cond_value.0)?;
                     }
 
                     self.execute_block(execution_scope, then)?
@@ -1441,7 +1453,7 @@ impl Runtime {
                 let mut result = self.new_value(Value::Nil);
                 loop {
                     let cond_value = self.evaluate(scope, cond)?;
-                    if !self.get_value(cond_value).truthy()? {
+                    if !self.get_value(cond_value.0).truthy()? {
                         return Ok(result);
                     }
 
@@ -1454,7 +1466,7 @@ impl Runtime {
 
                     if let Some(cond) = cond {
                         let cond_value = self.evaluate(scope, cond)?;
-                        if !self.get_value(cond_value).truthy()? {
+                        if !self.get_value(cond_value.0).truthy()? {
                             return Ok(result);
                         }
                     } else {
@@ -1475,7 +1487,7 @@ impl Runtime {
                 body,
             } => {
                 let k = self.evaluate(scope, range)?;
-                let range_value = self.get_value(k).clone();
+                let range_value = self.get_value(k.0).clone();
 
                 let range = match range_value {
                     Value::List(_, values) => values,
@@ -1506,10 +1518,10 @@ pub fn execute(doc: &Document, stdin: String) -> EvaluationResult<(Runtime, usiz
     implement_stdlib(&mut runtime);
 
     let s = runtime.new_value(Value::Str(Substr::from(stdin)));
-    runtime.get_scope_mut(0).values.insert(id("stdin"), s);
+    runtime.get_scope_mut(0).values.insert(id("stdin"), s.0);
 
     let r = runtime.execute_block(0, &doc.body)?;
-    Ok((runtime, r))
+    Ok((runtime, r.0))
 }
 
 pub fn execute_simple(code: &str) -> EvaluationResult<Ev> {
