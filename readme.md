@@ -395,4 +395,6 @@ Day 10 was fun and algorithmically challenging, but it was also an unpleasant su
 
 I had been experimenting with implementing a heap, shared references, and passing values around internally as references, but it had been a struggle for a few days to get it right. Yesterday I finally made the final push, and .. now it's way faster, but also .. kinda incorrect in ways that I haven't been able to fully understand yet :P So, of all the AOC day example tests, I had to disable day 5 (because it loops), and day 7 is giving some weird results.
 
+But the good news: day 10 now runs in ±2.5s 🤘
+
 A bunch of refactoring and debugging lies ahead 😅
