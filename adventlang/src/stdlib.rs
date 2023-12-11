@@ -96,29 +96,30 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "max",
         [
-            // FnSig {
-            //     params: vec![idpat_ty("items", Type::List(Type::Any.into()))],
-            //     body: FnBody::Builtin(|runtime, scope| {
-            //         let items = runtime.get_scope(scope).get_unchecked("items");
+            FnSig {
+                params: vec![idpat_ty("items", Type::List(Type::Any.into()))],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let items = runtime.get_scope(scope).get_unchecked("items");
 
-            //         match items {
-            //             Value::List(_, list) => {
-            //                 if list.len() == 0 {
-            //                     return Ok(Value::Nil);
-            //                 }
+                    match runtime.get_value(items) {
+                        Value::List(_, list) => {
+                            if list.len() == 0 {
+                                return Ok(runtime.new_value(Value::Nil));
+                            }
 
-            //                 match list.iter().max().cloned() {
-            //                     Some(result) => Ok(result),
-            //                     None => RuntimeError(
-            //                         "error getting max: could not compare all elements".into(),
-            //                     )
-            //                     .into(),
-            //                 }
-            //             }
-            //             _ => RuntimeError(format!("cannot get max of: {}", items.ty())).into(),
-            //         }
-            //     }),
-            // },
+                            match list.iter().max().cloned() {
+                                Some(result) => Ok(result),
+                                None => RuntimeError(
+                                    "error getting max: could not compare all elements".into(),
+                                )
+                                .into(),
+                            }
+                        }
+                        _ => RuntimeError(format!("cannot get max of: {}", runtime.get_ty(items)))
+                            .into(),
+                    }
+                }),
+            },
             FnSig {
                 params: vec![idpat_ty("a", Type::Any), idpat_ty("b", Type::Any)],
                 body: FnBody::Builtin(|runtime, scope| {
@@ -531,43 +532,58 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         }],
     );
 
-    // runtime.builtin(
-    //     "any",
-    //     [FnSig {
-    //         params: vec![idpat("items"), idpat("cb")],
-    //         body: FnBody::Builtin(|runtime, scope| {
-    //             let items = runtime.get_scope(scope).get_unchecked("items");
+    runtime.builtin(
+        "any",
+        [
+            FnSig {
+                params: vec![idpat("items"), idpat("cb")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let items = runtime.get_scope(scope).get_unchecked("items");
 
-    //             let Value::List(_, list) = items else {
-    //                 return RuntimeError(format!(
-    //                     "any() items must be a list, is a: {}",
-    //                     items.ty()
-    //                 ))
-    //                 .into();
-    //             };
+                    let Value::List(_, list) = runtime.get_value(items).clone() else {
+                        return RuntimeError(format!(
+                            "any() items must be a list, is a: {}",
+                            runtime.get_ty(items)
+                        ))
+                        .into();
+                    };
 
-    //             let list = list.clone();
+                    let cb = runtime.get_scope(scope).get_unchecked("cb");
 
-    //             let cb = runtime.get_scope(scope).get_unchecked("cb");
+                    for item in list {
+                        let item = runtime.invoke(cb, vec![(None, item)])?;
+                        if runtime.get_value(item).truthy()? {
+                            return Ok(runtime.new_value(Value::Bool(true)));
+                        }
+                    }
 
-    //             let Value::FnDef(def) = cb else {
-    //                 return RuntimeError(format!("cannot use any() w/ cb of type: {}", cb.ty()))
-    //                     .into();
-    //             };
+                    Ok(runtime.new_value(Value::Bool(false)))
+                }),
+            },
+            FnSig {
+                params: vec![idpat("items")],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let items = runtime.get_scope(scope).get_unchecked("items");
 
-    //             let def = def.clone();
+                    let Value::List(_, list) = runtime.get_value(items).clone() else {
+                        return RuntimeError(format!(
+                            "any() items must be a list, is a: {}",
+                            runtime.get_ty(items)
+                        ))
+                        .into();
+                    };
 
-    //             for item in list {
-    //                 let item = runtime.invoke(def.clone(), vec![(None, item)])?;
-    //                 if item.truthy()? {
-    //                     return Ok(Value::Bool(true));
-    //                 }
-    //             }
+                    for item in list {
+                        if runtime.get_value(item).truthy()? {
+                            return Ok(runtime.new_value(Value::Bool(true)));
+                        }
+                    }
 
-    //             Ok(Value::Bool(false))
-    //         }),
-    //     }],
-    // );
+                    Ok(runtime.new_value(Value::Bool(false)))
+                }),
+            },
+        ],
+    );
 
     runtime.builtin(
         "all",

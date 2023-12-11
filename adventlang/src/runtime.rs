@@ -2,7 +2,6 @@ use std::{cmp::Ordering, collections::HashMap, fmt::Display};
 
 use arcstr::Substr;
 use either::Either;
-use nom::Err;
 use try_map::FallibleMapExt;
 
 use crate::{
@@ -168,7 +167,7 @@ impl Display for Value {
                 let pairs = dict.0.iter().collect::<Vec<_>>();
                 let len = pairs.len();
                 for (i, (key, value)) in pairs.iter().enumerate() {
-                    write!(f, "{key} => {value}")?;
+                    write!(f, ".{key} {value}")?;
                     if i < len - 1 {
                         write!(f, ", ")?;
                     }
@@ -310,6 +309,7 @@ impl Value {
             Value::Bool(b) => Ok(*b),
             Value::List(_, _) => Ok(true),
             Value::Tuple(_) => Ok(true),
+            Value::Dict(_) => Ok(true),
             Value::Numeric(n) => Ok(n != &Numeric::Int(0) && n != &Numeric::Double(0.0)),
             Value::Str(str) => Ok(str.len() > 0),
             _ => RuntimeError(format!("cannot check truthiness of {}", self.ty())).into(),
@@ -1014,67 +1014,97 @@ impl Runtime {
                 let (_, location) = self.lookup(scope, id)?;
                 Ok(Location::Single(location))
             }
-            AssignPattern::Index(pattern, index_expr) => match self.resolve(scope, &pattern)? {
-                Location::Single(parent) => {
-                    let i = self.evaluate(scope, index_expr)?;
-                    let index_value = self.get_value(i).clone();
-                    let nil = self.new_value(Value::Nil);
+            AssignPattern::Index(pattern, maybe_index_expr) => {
+                match self.resolve(scope, &pattern)? {
+                    Location::Single(parent) => {
+                        let index_loc = maybe_index_expr
+                            .clone()
+                            .try_map(|expr| self.evaluate(scope, &expr))?;
 
-                    let matching_dict_key = match self.get_value(parent) {
-                        Value::Dict(dict) => {
-                            if let Some(pair) = dict.0.iter().find(|(k, v)| self.eq(*k, i)) {
-                                Some(pair.0)
-                            } else {
-                                None
-                            }
-                        }
-                        _ => None,
-                    };
+                        let index_val = index_loc.map(|i| self.get_value(i)).cloned();
 
-                    match self.get_value_mut(parent) {
-                        Value::List(_, items) | Value::Tuple(items) => {
-                            let Value::Numeric(Numeric::Int(index)) = index_value else {
-                                return RuntimeError(format!(
-                                    "list/tuple assign index must be an int, is a: {}",
-                                    index_value.ty()
-                                ))
-                                .into();
-                            };
+                        let nil = self.new_value(Value::Nil);
 
-                            let i = if index >= 0 {
-                                if index >= items.len() as i64 {
-                                    items.resize(index as usize + 1, nil);
+                        let matching_dict_key = match (self.get_value(parent), index_loc) {
+                            (Value::Dict(dict), Some(i)) => {
+                                if let Some(pair) = dict.0.iter().find(|(k, v)| self.eq(*k, i)) {
+                                    Some(pair.0)
+                                } else {
+                                    None
                                 }
-                                index as usize
-                            } else if items.len() as i64 + index >= 0 {
-                                (items.len() as i64 + index) as usize
-                            } else {
-                                return RuntimeError(format!("negative index out of bounds"))
-                                    .into();
-                            };
-
-                            Ok(Location::Single(items[i]))
-                        }
-                        Value::Dict(dict) => {
-                            if let Some(loc) = matching_dict_key {
-                                Ok(Location::Single(loc))
-                            } else {
-                                dict.0.push((i, nil));
-                                Ok(Location::Single(nil))
                             }
+                            _ => None,
+                        };
+
+                        let array_pushed_loc = match (self.get_value_mut(parent), index_loc) {
+                            (Value::List(_, els), None) => {
+                                els.push(nil);
+                                Some(nil)
+                            }
+                            (Value::Tuple(els), None) => {
+                                els.push(nil);
+                                Some(nil)
+                            }
+                            _ => None,
+                        };
+
+                        match self.get_value_mut(parent) {
+                            Value::List(_, items) | Value::Tuple(items) => {
+                                if let Some(index) = index_val {
+                                    let Value::Numeric(Numeric::Int(index)) = index else {
+                                        return RuntimeError(format!(
+                                            "list/tuple assign index must be an int, is a: {}",
+                                            index.ty()
+                                        ))
+                                        .into();
+                                    };
+
+                                    let i = if index >= 0 {
+                                        if index >= items.len() as i64 {
+                                            items.resize(index as usize + 1, nil);
+                                        }
+                                        index as usize
+                                    } else if items.len() as i64 + index >= 0 {
+                                        (items.len() as i64 + index) as usize
+                                    } else {
+                                        return RuntimeError(format!(
+                                            "negative index out of bounds"
+                                        ))
+                                        .into();
+                                    };
+
+                                    Ok(Location::Single(items[i]))
+                                } else {
+                                    Ok(Location::Single(
+                                        array_pushed_loc.expect("array pushed location"),
+                                    ))
+                                }
+                            }
+                            Value::Dict(dict) => {
+                                if let Some(index_loc) = index_loc {
+                                    if let Some(loc) = matching_dict_key {
+                                        Ok(Location::Single(loc))
+                                    } else {
+                                        dict.0.push((index_loc, nil));
+                                        Ok(Location::Single(nil))
+                                    }
+                                } else {
+                                    RuntimeError(format!("cannot push new items into dict")).into()
+                                }
+                            }
+                            v => RuntimeError(format!(
+                                "cannot assign index of value other than list/tuple/dict, is a: {}",
+                                v.ty()
+                            ))
+                            .into(),
                         }
-                        v => RuntimeError(format!(
-                            "cannot assign index of value other than list/tuple/dict, is a: {}",
-                            v.ty()
-                        ))
-                        .into(),
                     }
+                    _ => RuntimeError(format!(
+                        "cannot index into list or tuple assignable pattern"
+                    ))
+                    .into(),
                 }
-                _ => RuntimeError(format!(
-                    "cannot index into list or tuple assignable pattern"
-                ))
-                .into(),
-            },
+            }
             AssignPattern::List { elements } => {
                 let mut assignable_elements = Vec::with_capacity(elements.len());
                 for pattern in elements {
