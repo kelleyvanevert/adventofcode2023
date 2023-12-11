@@ -421,4 +421,4 @@ I can notice how I'm now starting to wade in the territory of optimization. This
 
 - So now, I implemented an optimization for this: only copy _when necessary_. All the evaluations etc. in the runtime now pass around tuples `(usize, bool)` indicating not only the location of the evaluated expression (or whatever), but also whether it's a _fresh_ value or not. And if it eventually gets used for an assignment (or declaration), I use `Runtime::ensure_new` to copy it if necessary.
 
-  And now the time is back down to ±2.5 seconds again! 🎉
+  And now the time is back down to ±2.5 seconds again, and running _all_ the days in sequence went down from ±20s to ±6s! 🎉
