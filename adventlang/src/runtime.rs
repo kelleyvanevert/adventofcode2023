@@ -741,149 +741,47 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn assign(
-        &mut self,
-        scope: usize,
-        assignable: Location,
-        value: usize,
-    ) -> EvaluationResult<()> {
-        match assignable {
+    pub fn assign(&mut self, location: Location, value: usize) -> EvaluationResult<()> {
+        match location {
             Location::Single(loc) => {
                 self.heap[loc] = self.heap[value].clone();
                 Ok(())
             }
-            Location::List(elements) => todo!("assign list pattern"),
-            Location::Tuple(elements) => todo!("assign tuple pattern"),
+            Location::List(elements) => {
+                let value = self.get_value(value).clone();
+                let Value::List(_, items) = value else {
+                    return RuntimeError(format!("cannot assign to list pattern: {}", value.ty()))
+                        .into();
+                };
+
+                for (location, value) in elements.into_iter().zip(
+                    items
+                        .into_iter()
+                        .chain(std::iter::repeat(self.new_value(Value::Nil).0)),
+                ) {
+                    self.assign(location, value)?;
+                }
+
+                Ok(())
+            }
+            Location::Tuple(elements) => {
+                let value = self.get_value(value).clone();
+                let Value::Tuple(items) = value else {
+                    return RuntimeError(format!("cannot assign to tuple pattern: {}", value.ty()))
+                        .into();
+                };
+
+                for (location, value) in elements.into_iter().zip(
+                    items
+                        .into_iter()
+                        .chain(std::iter::repeat(self.new_value(Value::Nil).0)),
+                ) {
+                    self.assign(location, value)?;
+                }
+
+                Ok(())
+            }
         }
-
-        // match assignable {
-        //     Assignable::Loc { scope, id, indexes } => {
-        //         if indexes.len() == 0 {
-        //             self.scopes[scope].values.insert(id.clone(), value.clone());
-        //             return Ok(None);
-        //         }
-
-        //         let mut location_value = self.scopes[scope]
-        //             .values
-        //             .get_mut(&id)
-        //             .expect("assignable location id get failed");
-
-        //         for index_value in indexes {
-        //             match location_value {
-        //                 Value::List(t, list) => {
-        //                     let Ok(i) = index_value.auto_coerce_int() else {
-        //                         return RuntimeError(format!(
-        //                             "list index must be int, is: {}",
-        //                             index_value.ty(),
-        //                         ))
-        //                         .into();
-        //                     };
-
-        //                     if i < 0 {
-        //                         return RuntimeError(format!(
-        //                             "list index must be positive int, is: {}",
-        //                             i,
-        //                         ))
-        //                         .into();
-        //                     }
-
-        //                     let i = i as usize;
-
-        //                     if !(*t >= value.ty()) {
-        //                         return RuntimeError(format!(
-        //                             "cannot insert value of type {} into list of type {}",
-        //                             value.ty(),
-        //                             Type::List(t.clone().into())
-        //                         ))
-        //                         .into();
-        //                     }
-
-        //                     if list.len() < i + 1 {
-        //                         list.resize(i + 1, Value::Nil);
-        //                     }
-
-        //                     location_value = &mut list[i]
-        //                 }
-        //                 Value::Tuple(list) => {
-        //                     let Ok(i) = index_value.auto_coerce_int() else {
-        //                         return RuntimeError(format!(
-        //                             "tuple index must be int, is: {}",
-        //                             index_value.ty(),
-        //                         ))
-        //                         .into();
-        //                     };
-
-        //                     if i < 0 {
-        //                         return RuntimeError(format!(
-        //                             "tuple index must be positive int, is: {}",
-        //                             i,
-        //                         ))
-        //                         .into();
-        //                     }
-
-        //                     let i = i as usize;
-
-        //                     if list.len() < i + 1 {
-        //                         list.resize(i + 1, Value::Nil);
-        //                     }
-
-        //                     location_value = &mut list[i]
-        //                 }
-        //                 Value::Dict(dict) => {
-        //                     location_value = dict.0.entry(index_value).or_insert(Value::Nil);
-        //                 }
-        //                 _ => {
-        //                     return RuntimeError(format!(
-        //                         "cannot assign into value of type: {}",
-        //                         value.ty()
-        //                     ))
-        //                     .into()
-        //                 }
-        //             }
-        //         }
-
-        //         // and then, finally:
-        //         *location_value = value;
-
-        //         Ok(None)
-        //     }
-        //     Assignable::List { elements } => {
-        //         let Value::List(_, items) = value else {
-        //             return RuntimeError(format!(
-        //                 "cannot assign into list pattern: {}",
-        //                 value.ty()
-        //             ))
-        //             .into();
-        //         };
-
-        //         for (pattern, value) in elements
-        //             .into_iter()
-        //             .zip(items.into_iter().chain(std::iter::repeat(Value::Nil)))
-        //         {
-        //             self.assign(scope, pattern, value)?;
-        //         }
-
-        //         Ok(None)
-        //     }
-        //     Assignable::Tuple { elements } => {
-        //         let Value::Tuple(items) = value else {
-        //             return RuntimeError(format!(
-        //                 "cannot assign into tuple pattern: {}",
-        //                 value.ty()
-        //             ))
-        //             .into();
-        //         };
-
-        //         for (pattern, value) in elements
-        //             .into_iter()
-        //             .zip(items.into_iter().chain(std::iter::repeat(Value::Nil)))
-        //         {
-        //             self.assign(scope, pattern, value)?;
-        //         }
-
-        //         Ok(None)
-        //     }
-        // }
     }
 
     pub fn declare(
@@ -899,7 +797,7 @@ impl Runtime {
             DeclarePattern::List { elements, rest } => {
                 let value = self.get_value(value).clone();
                 let Value::List(item_type, mut items) = value else {
-                    return RuntimeError(format!("cannot assign to list pattern: {}", value.ty()))
+                    return RuntimeError(format!("cannot declare to list pattern: {}", value.ty()))
                         .into();
                 };
 
@@ -929,8 +827,11 @@ impl Runtime {
             DeclarePattern::Tuple { elements, rest } => {
                 let value = self.get_value(value).clone();
                 let Value::Tuple(mut items) = value else {
-                    return RuntimeError(format!("cannot assign to tiple pattern: {}", value.ty()))
-                        .into();
+                    return RuntimeError(format!(
+                        "cannot declare to tiple pattern: {}",
+                        value.ty()
+                    ))
+                    .into();
                 };
 
                 let assign_rest_later = rest.clone().try_map(|(id, t)| {
@@ -994,7 +895,7 @@ impl Runtime {
 
                 let value = self.ensure_new(value);
 
-                self.assign(scope, assignable, value)?;
+                self.assign(assignable, value)?;
 
                 Ok(self.new_value(Value::Nil))
             }
@@ -1625,133 +1526,11 @@ mod tests {
             Ok(list([tuple([int(1), int(2)]), tuple([int(3), int(4)])]))
         );
 
-        // assert_eq!(
-        //     execute_simple(
-        //         "
-        //         let out = 0;
-        //         for let a in [1,2,3] {
-        //             let i = 0
-        //             while i < 2 {
-        //                 i += 1
-        //                 a += 10
-        //             }
-        //             out += a
-        //         }
-        //         out
-        //         "
-        //     ),
-        //     Ok(int(2))
-        // );
+        assert_eq!(execute_simple("let [a, b] = [1, 2]; a"), Ok(int(1)));
+
+        assert_eq!(
+            execute_simple("let a = 1; let b = 1; [a, b] = [2, 2]; a"),
+            Ok(int(2))
+        );
     }
-
-    //     #[test]
-    //     fn list_literals() {
-    //         assert_eq!(
-    //             execute(&parse_document(r#"[0]"#).unwrap(), "".into()),
-    //             Ok(list(Type::Numeric, vec![int(0)]))
-    //         );
-
-    //         assert_eq!(
-    //             execute(&parse_document(r#"[0, "hello"]"#).unwrap(), "".into()),
-    //             RuntimeError("list contains distinct types".into()).into()
-    //         );
-    //     }
-
-    //     #[test]
-    //     fn bla() {
-    //         assert_eq!(
-    //             execute(&parse_document("range(0, 10)").unwrap(), "".into()),
-    //             Ok(list(Type::Numeric, (0..10).map(int).collect()))
-    //         );
-
-    //         assert_eq!(
-    //             execute(&parse_document("range(6, 2)").unwrap(), "".into()),
-    //             Ok(list(Type::Numeric, vec![]))
-    //         );
-    //     }
-
-    //     #[test]
-    //     fn patterns() {
-    //         assert_eq!(
-    //             execute(
-    //                 &parse_document("let [a, b] = [2, 3]; (a, b)").unwrap(),
-    //                 "".into()
-    //             ),
-    //             Ok(tuple(vec![int(2), int(3)]))
-    //         );
-
-    //         assert_eq!(
-    //             execute(
-    //                 &parse_document("let [a, b] = [2]; (a, b)").unwrap(),
-    //                 "".into()
-    //             ),
-    //             Ok(tuple(vec![int(2), Value::Nil]))
-    //         );
-
-    //         assert_eq!(
-    //             execute(
-    //                 &parse_document("let [a, b] = [2, 3, 4]; (a, b)").unwrap(),
-    //                 "".into()
-    //             ),
-    //             Ok(tuple(vec![int(2), int(3)]))
-    //         );
-
-    //         assert_eq!(
-    //             execute(&parse_document("let [] = [2, 3, 4]").unwrap(), "".into()),
-    //             Ok(Value::Nil)
-    //         );
-
-    //         assert_eq!(
-    //             execute(
-    //                 &parse_document("let a = 4; let b = 5; [a, b] = [1, 2, 3, 4]; (a, b)").unwrap(),
-    //                 "".into()
-    //             ),
-    //             Ok(tuple(vec![int(1), int(2)]))
-    //         );
-    //     }
-
-    //     #[test]
-    //     fn if_declare() {
-    //         assert_eq!(
-    //             execute(
-    //                 &parse_document("if (let answer = 42) { answer }").unwrap(),
-    //                 "".into()
-    //             ),
-    //             Ok(int(42))
-    //         );
-    //     }
-
-    //     #[test]
-    //     fn test_sorting() {
-    //         assert_eq!(
-    //             execute(
-    //                 &parse_document("[1, 9, 3, 2, 7] :sort_by_key |n| { n }").unwrap(),
-    //                 "".into()
-    //             ),
-    //             Ok(list(
-    //                 Type::Numeric,
-    //                 vec![int(1), int(2), int(3), int(7), int(9)]
-    //             ))
-    //         );
-
-    //         assert_eq!(
-    //             execute(
-    //                 &parse_document(
-    //                     "[(nil, 1), (nil, 9), (nil, 3), (nil, 2), (nil, 7)] :sort_by_key |n| { n[1] }"
-    //                 )
-    //                 .unwrap(),
-    //                 "".into()
-    //             ),
-    //             Ok(list(
-    //                 Type::Tuple,
-    //                 vec![
-    //                     tuple(vec![Value::Nil, int(1)]),
-    //                     tuple(vec![Value::Nil, int(2)]),
-    //                     tuple(vec![Value::Nil, int(3)]),
-    //                     tuple(vec![Value::Nil, int(7)]),
-    //                     tuple(vec![Value::Nil, int(9)])
-    //                 ]
-    //             ))
-    //         );
-    //     }
 }
