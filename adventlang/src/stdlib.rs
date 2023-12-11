@@ -1296,8 +1296,6 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                     let i = runtime.get_scope(scope).get_unchecked("i");
 
-                    println!("get list[i], {}, {}", list, i);
-
                     let Value::Numeric(i) = runtime.get_value(i) else {
                         return RuntimeError(format!(
                             "index() i must be an int, is a: {}",

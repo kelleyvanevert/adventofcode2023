@@ -117,20 +117,20 @@ fn solve(input: str) {
     }
   }
 
-  print("  - length: {i}")
   let solution = round(i / 2)
+  print("  - length: {i}, solution: {solution}")
 
   print("- checking inside...")
   let inside = []
 
   let i = 0
   while i < queue:len {
-    if i % 100 == 0 {
+    if i % 1000 == 0 {
       print("  - it {i}/{queue:len}")
     }
     let r = queue[i]
     i += 1
-    //print("r {r}")
+    //print("  - {i}, r = {r}")
     if r :in trail {
       //print(" - not inside")
     } else if r[Y] < 0 || r[X] < 0 || r[Y] >= h || r[X] >= w {
@@ -151,10 +151,11 @@ fn solve(input: str) {
   }
 
   let num_inside = inside:len
-  if is_clockwise(trail) {
+  if is_clockwise(trail:clone) {
     num_inside = w * h - num_inside - trail:len
   }
 
+  print("  - w x h: {w} x {h}, trail len: {trail:len}, clockwise: {is_clockwise(trail)}")
   print("  - inside: {num_inside}, outside: {w * h - num_inside - trail:len}")
 
   (solution, num_inside)
@@ -168,6 +169,5 @@ print("Example 3: {solve(example_3)}")
 
 print("Example 4: {solve(example_4)}")
 
-// ±22s first part
-// bonus errors at 90% after about 15min -- not really sure why
-//print("Solution: {solve(stdin)}")
+// ±2.5s total
+print("Solution: {solve(stdin)}")
