@@ -549,11 +549,17 @@ impl Runtime {
         self.cmp(a, b) == Ordering::Equal
     }
 
-    pub fn display_fmt(&self, f: &mut Formatter, loc: usize) -> fmt::Result {
+    pub fn display_fmt(&self, f: &mut Formatter, loc: usize, toplevel: bool) -> fmt::Result {
         match self.get_value(loc) {
             Value::Nil => write!(f, "nil"),
             Value::Bool(b) => write!(f, "{b}"),
-            Value::Str(str) => write!(f, "{}", str),
+            Value::Str(str) => {
+                if toplevel {
+                    write!(f, "{}", str)
+                } else {
+                    write!(f, "\"{}\"", str)
+                }
+            }
             Value::Numeric(num) => write!(f, "{num}"),
             Value::Regex(r) => write!(f, "/{}/", r.0.as_str()),
             Value::FnDef(_) => write!(f, "[fn]"),
@@ -561,7 +567,7 @@ impl Runtime {
                 write!(f, "[")?;
                 let len = list.len();
                 for (i, item) in list.iter().enumerate() {
-                    self.display_fmt(f, *item)?;
+                    self.display_fmt(f, *item, false)?;
                     if i < len - 1 {
                         write!(f, ", ")?;
                     }
@@ -572,7 +578,7 @@ impl Runtime {
                 write!(f, "(")?;
                 let len = list.len();
                 for (i, item) in list.iter().enumerate() {
-                    self.display_fmt(f, *item)?;
+                    self.display_fmt(f, *item, false)?;
                     if i < len - 1 {
                         write!(f, ", ")?;
                     }
@@ -588,9 +594,9 @@ impl Runtime {
                 let len = pairs.len();
                 for (i, (key, value)) in pairs.iter().enumerate() {
                     write!(f, ".")?;
-                    self.display_fmt(f, *key)?;
+                    self.display_fmt(f, *key, true)?;
                     write!(f, " ")?;
-                    self.display_fmt(f, *value)?;
+                    self.display_fmt(f, *value, false)?;
                     if i < len - 1 {
                         write!(f, ", ")?;
                     }
@@ -603,8 +609,8 @@ impl Runtime {
         }
     }
 
-    pub fn display(&self, loc: usize) -> String {
-        format!("{}", Fmt(|f| self.display_fmt(f, loc)))
+    pub fn display(&self, loc: usize, toplevel: bool) -> String {
+        format!("{}", Fmt(|f| self.display_fmt(f, loc, toplevel)))
     }
 
     pub fn builtin(&mut self, name: &str, signatures: impl IntoIterator<Item = FnSig>) {
@@ -1232,7 +1238,7 @@ impl Runtime {
                         }
                         StrLiteralPiece::Interpolation(expr) => {
                             let value_loc = self.evaluate(scope, expr)?;
-                            build += &format!("{}", self.display(value_loc));
+                            build += &format!("{}", self.display(value_loc, true));
                             // build += &value.auto_coerce_str();
                         }
                     }

@@ -26,7 +26,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
             body: FnBody::Builtin(|runtime, scope| {
                 let text = runtime.get_scope(scope).get_unchecked("text");
 
-                println!("{}", runtime.display(text));
+                println!("{}", runtime.display(text, true));
                 Ok(runtime.new_value(Value::Nil))
             }),
         }],
