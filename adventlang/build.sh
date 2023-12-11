@@ -1,4 +1,9 @@
 #/bin/bash
 
+name=${1:-al}
+
 cargo build --release
-cp ./target/release/adventlang ~/bin/al
+
+echo
+echo "Usage: $name run <file>"
+cp ./target/release/adventlang ~/bin/$name
