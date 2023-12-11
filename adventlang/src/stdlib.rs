@@ -58,7 +58,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                                 return Ok(runtime.new_value(Value::Nil));
                             }
 
-                            match list.iter().min().cloned() {
+                            match list.iter().min_by(|&&a, &&b| runtime.cmp(a, b)).cloned() {
                                 Some(result) => Ok(result),
                                 None => RuntimeError(
                                     "error getting min: could not compare all elements".into(),
@@ -107,7 +107,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                                 return Ok(runtime.new_value(Value::Nil));
                             }
 
-                            match list.iter().max().cloned() {
+                            match list.iter().max_by(|&&a, &&b| runtime.cmp(a, b)).cloned() {
                                 Some(result) => Ok(result),
                                 None => RuntimeError(
                                     "error getting max: could not compare all elements".into(),
