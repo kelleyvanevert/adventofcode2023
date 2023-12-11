@@ -468,6 +468,10 @@ impl Runtime {
         }
     }
 
+    pub fn copy_for_assignment(&mut self, orig: usize) -> usize {
+        self.new_value(self.get_value(orig).clone())
+    }
+
     pub fn clone(&mut self, orig: usize) -> usize {
         match self.get_value(orig).clone() {
             Value::List(t, items) => {
@@ -689,6 +693,7 @@ impl Runtime {
     ) -> EvaluationResult<()> {
         match assignable {
             Location::Single(loc) => {
+                // self.arena[loc] = N::Value(self.get_value(value).clone());
                 self.arena[loc] = self.arena[value].clone();
                 Ok(())
             }
@@ -930,6 +935,7 @@ impl Runtime {
 
                 let assignable = self.resolve(scope, &pattern)?;
 
+                // let value = self.copy_for_assignment(value);
                 self.assign(scope, assignable, value)?;
 
                 Ok(self.new_value(Value::Nil))
@@ -1250,7 +1256,9 @@ impl Runtime {
             Expr::RegexLiteral { regex } => Ok(self.new_value(Value::Regex(regex.clone()))),
             Expr::Variable(id) => {
                 let (_, k) = self.lookup(scope, id)?;
-                Ok(self.new_value(self.get_value(k).clone()))
+
+                let k = self.copy_for_assignment(k);
+                Ok(k)
             }
             Expr::UnaryExpr { expr, op } => {
                 let k = self.evaluate(scope, expr)?;

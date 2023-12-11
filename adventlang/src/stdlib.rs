@@ -1339,8 +1339,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     let result = dict
                         .0
                         .into_iter()
-                        .find(|(k, v)| runtime.eq(*k, key))
-                        .map(|(k, v)| v)
+                        .find(|(k, _)| runtime.eq(*k, key))
+                        .map(|(_, v)| runtime.copy_for_assignment(v))
                         .unwrap_or(runtime.new_value(Value::Nil));
 
                     Ok(result)
@@ -1374,13 +1374,14 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                     let i = i.get_int()?;
 
-                    let el = match i {
+                    let el = (match i {
                         i if i >= 0 => items.get(i as usize).cloned(),
                         i if items.len() as i64 + i >= 0 => {
                             items.get((items.len() as i64 + i) as usize).cloned()
                         }
                         _ => None,
-                    };
+                    })
+                    .map(|v| runtime.copy_for_assignment(v));
 
                     Ok(el.unwrap_or(runtime.new_value(Value::Nil)))
                 }),
@@ -1413,13 +1414,14 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                     let i = i.get_int()?;
 
-                    let el = match i {
+                    let el = (match i {
                         i if i >= 0 => list.get(i as usize).cloned(),
                         i if list.len() as i64 + i >= 0 => {
                             list.get((list.len() as i64 + i) as usize).cloned()
                         }
                         _ => None,
-                    };
+                    })
+                    .map(|v| runtime.copy_for_assignment(v));
 
                     Ok(el.unwrap_or(runtime.new_value(Value::Nil)))
                 }),
