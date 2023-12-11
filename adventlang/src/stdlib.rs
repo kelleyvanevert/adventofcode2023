@@ -1286,7 +1286,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 body: FnBody::Builtin(|runtime, scope| {
                     let list = runtime.get_scope(scope).get_unchecked("list");
 
-                    let Value::List(_, list) = runtime.get_value(list).clone() else {
+                    let Value::List(_, items) = runtime.get_value(list).clone() else {
                         return RuntimeError(format!(
                             "index() list must be a list, is a: {}",
                             runtime.get_ty(list)
@@ -1295,6 +1295,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     };
 
                     let i = runtime.get_scope(scope).get_unchecked("i");
+
+                    println!("get list[i], {}, {}", list, i);
 
                     let Value::Numeric(i) = runtime.get_value(i) else {
                         return RuntimeError(format!(
@@ -1307,9 +1309,9 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     let i = i.get_int()?;
 
                     let el = match i {
-                        i if i >= 0 => list.get(i as usize).cloned(),
-                        i if list.len() as i64 + i >= 0 => {
-                            list.get((list.len() as i64 + i) as usize).cloned()
+                        i if i >= 0 => items.get(i as usize).cloned(),
+                        i if items.len() as i64 + i >= 0 => {
+                            items.get((items.len() as i64 + i) as usize).cloned()
                         }
                         _ => None,
                     };

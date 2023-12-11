@@ -1,4 +1,8 @@
-use std::{cmp::Ordering, collections::HashMap, fmt::Display};
+use std::{
+    cmp::Ordering,
+    collections::HashMap,
+    fmt::{self, Display, Formatter},
+};
 
 use arcstr::Substr;
 use either::Either;
@@ -9,6 +13,7 @@ use crate::{
         AssignPattern, Block, DeclarePattern, Document, Expr, Identifier, Item, Stmt,
         StrLiteralPiece, Type,
     },
+    fmt::Fmt,
     parse::parse_document,
     stdlib::implement_stdlib,
     value::{AlRegex, EvalOther, EvaluationResult, Numeric, RuntimeError},
@@ -536,14 +541,67 @@ impl Runtime {
             _ => panic!("cannot compare values of disparate types"),
         }
     }
-    //             (Value::Nil, Value::Nil) => Some(Ordering::Equal),
-    //             (Value::Bool(a), Value::Bool(b)) => Some(a.cmp(b)),
-    //             (Value::Str(a), Value::Str(b)) => Some(a.cmp(b)),
-    //             (Value::Numeric(a), Value::Numeric(b)) => Some(a.cmp(b)),
-    //             (Value::Regex(a), Value::Regex(b)) => Some(a.cmp(b)),
 
     pub fn eq(&self, a: usize, b: usize) -> bool {
         self.cmp(a, b) == Ordering::Equal
+    }
+
+    pub fn display_fmt(&self, f: &mut Formatter, loc: usize) -> fmt::Result {
+        match self.get_value(loc) {
+            Value::Nil => write!(f, "nil"),
+            Value::Bool(b) => write!(f, "{b}"),
+            Value::Str(str) => write!(f, "{}", str),
+            Value::Numeric(num) => write!(f, "{num}"),
+            Value::Regex(r) => write!(f, "/{}/", r.0.as_str()),
+            Value::FnDef(_) => write!(f, "[fn]"),
+            Value::List(_, list) => {
+                write!(f, "[")?;
+                let len = list.len();
+                for (i, item) in list.iter().enumerate() {
+                    self.display_fmt(f, *item)?;
+                    if i < len - 1 {
+                        write!(f, ", ")?;
+                    }
+                }
+                write!(f, "]")
+            }
+            Value::Tuple(list) => {
+                write!(f, "(")?;
+                let len = list.len();
+                for (i, item) in list.iter().enumerate() {
+                    self.display_fmt(f, *item)?;
+                    if i < len - 1 {
+                        write!(f, ", ")?;
+                    }
+                }
+                if len == 1 {
+                    write!(f, ",")?;
+                }
+                write!(f, ")")
+            }
+            Value::Dict(dict) => {
+                write!(f, "@{{")?;
+                let pairs = dict.0.iter().collect::<Vec<_>>();
+                let len = pairs.len();
+                for (i, (key, value)) in pairs.iter().enumerate() {
+                    write!(f, ".")?;
+                    self.display_fmt(f, *key)?;
+                    write!(f, " ")?;
+                    self.display_fmt(f, *value)?;
+                    if i < len - 1 {
+                        write!(f, ", ")?;
+                    }
+                }
+                if len == 1 {
+                    write!(f, ",")?;
+                }
+                write!(f, "}}")
+            }
+        }
+    }
+
+    pub fn display(&self, loc: usize) -> String {
+        format!("{}", Fmt(|f| self.display_fmt(f, loc)))
     }
 
     pub fn builtin(&mut self, name: &str, signatures: impl IntoIterator<Item = FnSig>) {
@@ -1170,8 +1228,8 @@ impl Runtime {
                             build += fragment;
                         }
                         StrLiteralPiece::Interpolation(expr) => {
-                            let value = self.evaluate(scope, expr)?;
-                            build += &format!("{}", self.get_value(value));
+                            let value_loc = self.evaluate(scope, expr)?;
+                            build += &format!("{}", self.display(value_loc));
                             // build += &value.auto_coerce_str();
                         }
                     }
@@ -1475,6 +1533,16 @@ mod tests {
         assert_eq!(
             execute_simple("let a = 1; if true { a = 2 }; a"),
             Ok(int(2))
+        );
+
+        assert_eq!(
+            execute_simple("let a = []; a []= (1, 2); let i = 0; a[i]"),
+            Ok(tuple([int(1), int(2)]))
+        );
+
+        assert_eq!(
+            execute_simple("let out = []; for let t in [(1,2), (3,4)] { out []= t }; out"),
+            Ok(list([tuple([int(1), int(2)]), tuple([int(3), int(4)])]))
         );
 
         // assert_eq!(
