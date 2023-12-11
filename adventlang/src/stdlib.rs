@@ -1244,6 +1244,74 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     )))
                 }),
             },
+            FnSig {
+                params: vec![
+                    DeclarePattern::Id(id("list"), Some(Type::List(Type::Any.into()))),
+                    DeclarePattern::Id(id("range"), Some(Type::Tuple)),
+                ],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let list = runtime.get_scope(scope).get_unchecked("list");
+
+                    let Value::List(el_type, list) = runtime.get_value(list).clone() else {
+                        return RuntimeError(format!(
+                            "slice() list must be a list, is a: {}",
+                            runtime.get_ty(list)
+                        ))
+                        .into();
+                    };
+
+                    let range = runtime.get_scope(scope).get_unchecked("range");
+
+                    let Value::Tuple(range) = runtime.get_value(range).clone() else {
+                        return RuntimeError(format!(
+                            "slice() range must be an (int, int) range, is a: {}",
+                            runtime.get_ty(range)
+                        ))
+                        .into();
+                    };
+
+                    let Some(start) = range.get(0) else {
+                        return RuntimeError(format!("slice() range must be an (int, int) range"))
+                            .into();
+                    };
+
+                    let Value::Numeric(start) = runtime.get_value(*start) else {
+                        return RuntimeError(format!("slice() range must be an (int, int) range"))
+                            .into();
+                    };
+
+                    let start = start.get_int()?;
+
+                    if start < 0 {
+                        return RuntimeError(format!("slice() range must be an (int, int) range"))
+                            .into();
+                    }
+
+                    let Some(end) = range.get(1) else {
+                        return RuntimeError(format!("slice() range must be an (int, int) range"))
+                            .into();
+                    };
+
+                    let Value::Numeric(end) = runtime.get_value(*end) else {
+                        return RuntimeError(format!("slice() range must be an (int, int) range"))
+                            .into();
+                    };
+
+                    let end = end.get_int()?;
+
+                    if end < 0 {
+                        return RuntimeError(format!("slice() range must be an (int, int) range"))
+                            .into();
+                    }
+
+                    let slice_els = list[(start as usize)..(end as usize).min(list.len())]
+                        .into_iter()
+                        .map(|v| runtime.clone(*v))
+                        .collect::<Vec<_>>();
+
+                    Ok(runtime.new_value(Value::List(el_type, slice_els)))
+                }),
+            },
         ],
     );
 

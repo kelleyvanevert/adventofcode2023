@@ -398,3 +398,7 @@ I had been experimenting with implementing a heap, shared references, and passin
 But the good news: day 10 now runs in ±2.5s 🤘
 
 A bunch of refactoring and debugging lies ahead 😅
+
+## Day 11
+
+Fun and largely uneventful :) The new heap-based runtime still works, albeit not for the examples of day 5 and 7. And the bonus twist pointed out a fun algorithmic trick.

@@ -12,33 +12,26 @@ let example_input = "
 #...#.....
 "
 
-fn solve(input: str) {
-  let input_lines = input :trim :lines
+fn solve(input: str, expansion: int) {
+  let grid = input :trim :lines :map chars
 
-  let is_empty_col = range(0, input_lines[0]:len) :map |i| {
-    input_lines :map |line| { line[i] == "." } :all
+  let row_size = grid :map |row| {
+    if any(row :map |c| { c == "#" }) {
+      1
+    } else {
+      expansion
+    }
   }
 
-  let expanded_grid = input_lines
-    :flat_map |line| {
-      if line :match /#/ {
-        [line]
-      } else {
-        [line, line]
-      }
+  let col_size = range(0, grid[0]:len) :map |i| {
+    if any(grid :map |row| { row[i] == "#" }) {
+      1
+    } else {
+      expansion
     }
-    :map |line| { line :chars }
-    :map |line| {
-      line :enumerate :flat_map |(x, c)| {
-        if is_empty_col[x] {
-          [c, c]
-        } else {
-          [c]
-        }
-      }
-    }
+  }
 
-  let galaxies = expanded_grid
+  let galaxies = grid
     :enumerate
     :flat_map |(y, row)| {
       row :enumerate :flat_map |(x, c)| {
@@ -50,26 +43,29 @@ fn solve(input: str) {
       }
     }
 
-  //print("galaxies at {galaxies}")
+  fn dist((x1, y1), (x2, y2)) {
+    row_size :slice (min(y1, y2), max(y1, y2)) :sum
+    + col_size :slice (min(x1, x2), max(x1, x2)) :sum
+  }
 
   let total = 0
   for let i in range(0, galaxies:len) {
     for let j in range(i + 1, galaxies:len) {
-      let (x1, y1) = galaxies[i]
-      let (x2, y2) = galaxies[j]
-      total += abs(x2 - x1) + abs(y2 - y1)
+      dist(galaxies[i], galaxies[j])
+      total += dist(galaxies[i], galaxies[j])
     }
   }
 
   total
 }
 
-print("Example solution: {solve(example_input)}")
+print("Example solution: {solve(example_input, 2)}")
 
-// ±600ms
-print("Solution: {solve(stdin)}")
+// ±2.7s
+print("Solution: {solve(stdin, 2)}")
 
-//print("Example bonus: {bonus(example_input)}")
+print("Example bonus (expand 10): {solve(example_input, 10)}")
+print("Example bonus (expand 100): {solve(example_input, 100)}")
 
-// ±350ms
-//print("Bonus: {bonus(stdin)}")
+// ±2.7s
+print("Bonus: {solve(stdin, 1000000)}")

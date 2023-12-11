@@ -193,6 +193,9 @@ impl Value {
             Value::Bool(b) => Ok(Value::Bool(!b)),
             Value::Str(_) => RuntimeError(format!("Can't negate str")).into(),
             Value::Numeric(n) => Ok(Value::Numeric(n.negate()?)),
+            Value::Tuple(_) => Ok(Value::Bool(false)),
+            Value::List(_, _) => Ok(Value::Bool(false)),
+            Value::Dict(_) => Ok(Value::Bool(false)),
             _ => RuntimeError(format!("Can't negate {}", self.ty())).into(),
         }
     }
