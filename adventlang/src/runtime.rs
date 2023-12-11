@@ -84,7 +84,6 @@ impl std::hash::Hash for FnBody {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-/// External value, for testing purposes, and maybe in the future to pass data to and from the runtime
 pub enum Ev {
     Nil,
     Bool(bool),
@@ -1286,11 +1285,11 @@ impl Runtime {
                 let mut element_values = vec![];
                 for expr in elements {
                     let expr_value = self.evaluate(scope, expr)?;
-                    if let Some(narrowed) = ty.narrow(&self.get_value(expr_value.0).ty()) {
-                        ty = narrowed;
-                    } else {
-                        return RuntimeError("list contains distinct types".into()).into();
-                    }
+                    // if let Some(narrowed) = ty.narrow(&self.get_value(expr_value.0).ty()) {
+                    //     ty = narrowed;
+                    // } else {
+                    //     return RuntimeError("list contains distinct types".into()).into();
+                    // }
                     element_values.push(expr_value.0);
                 }
 

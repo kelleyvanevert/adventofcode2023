@@ -4,6 +4,7 @@
 #![feature(box_patterns)]
 
 pub mod ast;
+pub mod external;
 pub mod fmt;
 pub mod parse;
 pub mod parser_combinators;
