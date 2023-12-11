@@ -364,7 +364,8 @@ impl Scope {
 
 pub struct Runtime {
     scopes: Vec<Scope>,
-    heap: Vec<Value>,
+    heap: Vec<Option<Value>>,
+    reclaimed: Vec<usize>,
 }
 
 impl Runtime {
@@ -372,6 +373,7 @@ impl Runtime {
         Runtime {
             scopes: vec![Scope::root()],
             heap: vec![],
+            reclaimed: vec![],
         }
     }
 
@@ -393,61 +395,69 @@ impl Runtime {
     }
 
     pub fn get_value(&self, id: usize) -> &Value {
-        &self.heap[id]
+        match self.heap.get(id) {
+            Some(Some(value)) => value,
+            _ => panic!("no value at position: {}", id),
+        }
     }
 
     pub fn get_value_mut(&mut self, id: usize) -> &mut Value {
-        &mut self.heap[id]
+        match self.heap.get_mut(id) {
+            Some(Some(value)) => value,
+            _ => panic!("no value at position: {}", id),
+        }
     }
 
     pub fn get_ty(&self, id: usize) -> Type {
-        self.heap[id].ty()
+        self.get_value(id).ty()
     }
 
     pub fn new_value(&mut self, value: Value) -> usize {
-        let id = self.heap.len();
-        self.heap.push(value);
-        id
+        if let Some(i) = self.reclaimed.pop() {
+            self.heap[i] = Some(value);
+            i
+        } else {
+            let i = self.heap.len();
+            self.heap.push(Some(value));
+            i
+        }
     }
 
     pub fn get_value_ext(&self, loc: usize) -> Result<Ev, String> {
-        match self.heap.get(loc) {
-            None => Err("nothing at location".into()),
-            Some(value) => match value {
-                Value::Nil => Ok(Ev::Nil),
-                Value::Bool(b) => Ok(Ev::Bool(*b)),
-                Value::Str(s) => Ok(Ev::Str(s.to_string())),
-                Value::Numeric(Numeric::Int(n)) => Ok(Ev::Int(*n)),
-                Value::Numeric(Numeric::Double(d)) => Ok(Ev::Double(*d)),
-                Value::Regex(_) => Ok(Ev::Regex),
-                Value::FnDef(_) => Ok(Ev::FnDef),
-                Value::List(_, items) => Ok(Ev::List(
-                    items
-                        .into_iter()
-                        .map(|loc| self.get_value_ext(*loc))
-                        .collect::<Result<Vec<_>, _>>()?,
-                )),
-                Value::Tuple(items) => Ok(Ev::Tuple(
-                    items
-                        .into_iter()
-                        .map(|loc| self.get_value_ext(*loc))
-                        .collect::<Result<Vec<_>, _>>()?,
-                )),
-                Value::Dict(dict) => {
-                    let pairs = dict
-                        .0
-                        .iter()
-                        .map(|(key_loc, value_loc)| {
-                            Ok((
-                                self.get_value_ext(*key_loc)?,
-                                self.get_value_ext(*value_loc)?,
-                            ))
-                        })
-                        .collect::<Result<Vec<_>, String>>()?;
+        match self.get_value(loc) {
+            Value::Nil => Ok(Ev::Nil),
+            Value::Bool(b) => Ok(Ev::Bool(*b)),
+            Value::Str(s) => Ok(Ev::Str(s.to_string())),
+            Value::Numeric(Numeric::Int(n)) => Ok(Ev::Int(*n)),
+            Value::Numeric(Numeric::Double(d)) => Ok(Ev::Double(*d)),
+            Value::Regex(_) => Ok(Ev::Regex),
+            Value::FnDef(_) => Ok(Ev::FnDef),
+            Value::List(_, items) => Ok(Ev::List(
+                items
+                    .into_iter()
+                    .map(|loc| self.get_value_ext(*loc))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
+            Value::Tuple(items) => Ok(Ev::Tuple(
+                items
+                    .into_iter()
+                    .map(|loc| self.get_value_ext(*loc))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
+            Value::Dict(dict) => {
+                let pairs = dict
+                    .0
+                    .iter()
+                    .map(|(key_loc, value_loc)| {
+                        Ok((
+                            self.get_value_ext(*key_loc)?,
+                            self.get_value_ext(*value_loc)?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
 
-                    Ok(Ev::Dict(HashMap::from_iter(pairs.into_iter())))
-                }
-            },
+                Ok(Ev::Dict(HashMap::from_iter(pairs.into_iter())))
+            }
         }
     }
 
@@ -598,6 +608,51 @@ impl Runtime {
 
     pub fn display(&self, loc: usize, toplevel: bool) -> String {
         format!("{}", Fmt(|f| self.display_fmt(f, loc, toplevel)))
+    }
+
+    pub fn gc(&mut self, keep: impl IntoIterator<Item = usize>) {
+        let mut reachable = vec![false; self.heap.len()];
+
+        for v in keep {
+            self.gc_reach(v, &mut reachable);
+        }
+
+        for scope in &self.scopes {
+            for &v in scope.values.values() {
+                self.gc_reach(v, &mut reachable);
+            }
+        }
+
+        for (i, &is_reachable) in reachable.iter().enumerate() {
+            if !is_reachable {
+                self.reclaimed.push(i);
+                self.heap[i] = None;
+            }
+        }
+    }
+
+    fn gc_reach(&self, v: usize, reachable: &mut Vec<bool>) {
+        reachable[v] = true;
+
+        match self.get_value(v) {
+            Value::List(_, els) => {
+                for &el in els {
+                    self.gc_reach(el, reachable);
+                }
+            }
+            Value::Tuple(els) => {
+                for &el in els {
+                    self.gc_reach(el, reachable);
+                }
+            }
+            Value::Dict(dict) => {
+                for &(k, v) in &dict.0 {
+                    self.gc_reach(k, reachable);
+                    self.gc_reach(v, reachable);
+                }
+            }
+            _ => {}
+        }
     }
 
     pub fn builtin(&mut self, name: &str, signatures: impl IntoIterator<Item = FnSig>) {
@@ -1452,7 +1507,9 @@ pub fn execute_simple(code: &str) -> EvaluationResult<Ev> {
         return RuntimeError("could not parse code".into()).into();
     };
 
-    let (runtime, res_loc) = execute(&doc, "".into())?;
+    let (mut runtime, res_loc) = execute(&doc, "".into())?;
+
+    runtime.gc([res_loc]);
 
     let value = match runtime.get_value_ext(res_loc) {
         Err(e) => {
