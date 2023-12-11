@@ -84,6 +84,7 @@ impl std::hash::Hash for FnBody {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// External value, for testing purposes, and maybe in the future to pass data to and from the runtime
 pub enum Ev {
     Nil,
     Bool(bool),
@@ -94,10 +95,43 @@ pub enum Ev {
     FnDef,
     List(Vec<Ev>),
     Tuple(Vec<Ev>),
-    Dict(HashMap<String, Ev>),
+    Dict(HashMap<Ev, Ev>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+impl Eq for Ev {}
+
+impl std::hash::Hash for Ev {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        if self == &Ev::Nil {
+            return "nil".hash(state);
+        } else {
+            "value".hash(state);
+        }
+
+        match self {
+            Ev::Nil => "nil".hash(state),
+            Ev::Bool(b) => b.hash(state),
+            Ev::Str(s) => s.hash(state),
+            Ev::Int(n) => n.hash(state),
+            Ev::Double(_) => panic!("cannot hash f64"),
+            Ev::Regex => panic!("cannot hash regex"),
+            Ev::FnDef => panic!("cannot hash fndef"),
+            Ev::List(els) => {
+                for el in els {
+                    el.hash(state);
+                }
+            }
+            Ev::Tuple(els) => {
+                for el in els {
+                    el.hash(state);
+                }
+            }
+            Ev::Dict(_) => panic!("cannot hash dict"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Nil,
     Bool(bool),
@@ -109,29 +143,6 @@ pub enum Value {
     Tuple(Vec<usize>),
     Dict(Dict),
 }
-
-// impl Ord for Value {
-//     fn cmp(&self, other: &Self) -> Ordering {
-//         match self.partial_cmp(other) {
-//             Some(ord) => ord,
-//             None => panic!("cannot compare {} with {}", self.ty(), other.ty()),
-//         }
-//     }
-// }
-
-// impl PartialOrd for Value {
-//     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-//         match (self, other) {
-//             (Value::Nil, Value::Nil) => Some(Ordering::Equal),
-//             (Value::Bool(a), Value::Bool(b)) => Some(a.cmp(b)),
-//             (Value::Str(a), Value::Str(b)) => Some(a.cmp(b)),
-//             (Value::Numeric(a), Value::Numeric(b)) => Some(a.cmp(b)),
-//             (Value::Regex(a), Value::Regex(b)) => Some(a.cmp(b)),
-
-//             _ => None,
-//         }
-//     }
-// }
 
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -332,7 +343,7 @@ pub enum Location {
     Tuple(Vec<Location>),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug)]
 pub struct Scope {
     pub parent_scope: Option<usize>,
     pub values: HashMap<Identifier, usize>,
@@ -351,83 +362,58 @@ impl Scope {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum N {
-    Scope(Scope),
-    Value(Value),
-}
-
 pub struct Runtime {
-    pub arena: Vec<N>,
+    scopes: Vec<Scope>,
+    heap: Vec<Value>,
 }
 
 impl Runtime {
     pub fn new() -> Runtime {
         Runtime {
-            arena: vec![
-                N::Scope(Scope::root()),
-                N::Value(Value::Nil),
-                N::Value(Value::Bool(true)),
-                N::Value(Value::Bool(false)),
-            ],
+            scopes: vec![Scope::root()],
+            heap: vec![],
         }
     }
 
     pub fn get_scope(&self, id: usize) -> &Scope {
-        match self.arena.get(id) {
-            Some(N::Scope(scope)) => scope,
-            _ => panic!("could not get scope"),
-        }
+        &self.scopes[id]
     }
 
     pub fn get_scope_mut(&mut self, id: usize) -> &mut Scope {
-        match self.arena.get_mut(id) {
-            Some(N::Scope(scope)) => scope,
-            _ => panic!("could not get scope"),
-        }
+        &mut self.scopes[id]
     }
 
     pub fn new_scope(&mut self, parent_id: usize) -> usize {
-        let id = self.arena.len();
-        self.arena.push(N::Scope(Scope {
+        let id = self.scopes.len();
+        self.scopes.push(Scope {
             parent_scope: Some(parent_id),
             values: HashMap::new(),
-        }));
+        });
         id
     }
 
     pub fn get_value(&self, id: usize) -> &Value {
-        match self.arena.get(id) {
-            Some(N::Value(value)) => value,
-            _ => panic!("could not get value"),
-        }
+        &self.heap[id]
     }
 
     pub fn get_value_mut(&mut self, id: usize) -> &mut Value {
-        match self.arena.get_mut(id) {
-            Some(N::Value(value)) => value,
-            _ => panic!("could not get value"),
-        }
+        &mut self.heap[id]
     }
 
     pub fn get_ty(&self, id: usize) -> Type {
-        match self.arena.get(id) {
-            Some(N::Value(value)) => value.ty(),
-            _ => panic!("could not get value"),
-        }
+        self.heap[id].ty()
     }
 
     pub fn new_value(&mut self, value: Value) -> usize {
-        let id = self.arena.len();
-        self.arena.push(N::Value(value));
+        let id = self.heap.len();
+        self.heap.push(value);
         id
     }
 
     pub fn get_value_ext(&self, loc: usize) -> Result<Ev, String> {
-        match self.arena.get(loc) {
+        match self.heap.get(loc) {
             None => Err("nothing at location".into()),
-            Some(N::Scope(_)) => Err("scope at location".into()),
-            Some(N::Value(value)) => match value {
+            Some(value) => match value {
                 Value::Nil => Ok(Ev::Nil),
                 Value::Bool(b) => Ok(Ev::Bool(*b)),
                 Value::Str(s) => Ok(Ev::Str(s.to_string())),
@@ -448,21 +434,18 @@ impl Runtime {
                         .collect::<Result<Vec<_>, _>>()?,
                 )),
                 Value::Dict(dict) => {
-                    return Err("cannot externalize dict".into());
+                    let pairs = dict
+                        .0
+                        .iter()
+                        .map(|(key_loc, value_loc)| {
+                            Ok((
+                                self.get_value_ext(*key_loc)?,
+                                self.get_value_ext(*value_loc)?,
+                            ))
+                        })
+                        .collect::<Result<Vec<_>, String>>()?;
 
-                    // let pairs = dict
-                    //     .0
-                    //     .iter()
-                    //     .map(|(key, value_loc)| {
-                    //         let Value::Str(key) = key else {
-                    //             return Err("cannot externalize non-str dict key".into());
-                    //         };
-
-                    //         Ok((key.to_string(), self.get_value_ext(*value_loc)?))
-                    //     })
-                    //     .collect::<Result<Vec<_>, String>>()?;
-
-                    // Ok(Ev::Dict(HashMap::from_iter(pairs.into_iter())))
+                    Ok(Ev::Dict(HashMap::from_iter(pairs.into_iter())))
                 }
             },
         }
@@ -693,8 +676,7 @@ impl Runtime {
     ) -> EvaluationResult<()> {
         match assignable {
             Location::Single(loc) => {
-                // self.arena[loc] = N::Value(self.get_value(value).clone());
-                self.arena[loc] = self.arena[value].clone();
+                self.heap[loc] = self.heap[value].clone();
                 Ok(())
             }
             Location::List(elements) => todo!("assign list pattern"),
