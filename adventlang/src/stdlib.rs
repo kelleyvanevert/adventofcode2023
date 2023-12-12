@@ -978,6 +978,45 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     );
 
     runtime.builtin(
+        "join",
+        [FnSig {
+            params: vec![
+                idpat_ty("items", Type::List(Type::Any.into())),
+                idpat_ty("glue", Type::Str),
+            ],
+            body: FnBody::Builtin(|runtime, scope| {
+                let items = runtime.get_scope(scope).get_unchecked("items");
+
+                let Value::List(_, items) = runtime.get_value(items).clone() else {
+                    return RuntimeError(format!(
+                        "join() items must be a list, is a: {}",
+                        runtime.get_ty(items)
+                    ))
+                    .into();
+                };
+
+                let glue = runtime.get_scope(scope).get_unchecked("glue");
+
+                let Value::Str(glue) = runtime.get_value(glue).clone() else {
+                    return RuntimeError(format!(
+                        "join() glue must be a string, is a: {}",
+                        runtime.get_ty(glue)
+                    ))
+                    .into();
+                };
+
+                let result = items
+                    .into_iter()
+                    .map(|v| runtime.get_value(v).auto_coerce_str())
+                    .collect::<Vec<_>>()
+                    .join(glue.as_str());
+
+                Ok(runtime.new_value(Value::Str(result.into())))
+            }),
+        }],
+    );
+
+    runtime.builtin(
         "lines",
         [FnSig {
             params: vec![idpat("text")],

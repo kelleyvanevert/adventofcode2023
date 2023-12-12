@@ -541,7 +541,13 @@ impl Runtime {
             (Value::Nil, _) => Ordering::Less,
             (_, Value::Nil) => Ordering::Greater,
 
-            _ => panic!("cannot compare values of disparate types"),
+            (a, b) => panic!(
+                "cannot compare values of disparate types: {} (is a {}) v {} (is a {})",
+                a,
+                a.ty(),
+                b,
+                b.ty()
+            ),
         }
     }
 
@@ -1051,7 +1057,7 @@ impl Runtime {
                         let index_loc = maybe_index_expr
                             .clone()
                             .try_map(|expr| self.evaluate(scope, &expr))?
-                            .map(|(v, i)| v);
+                            .map(|(v, _)| v);
 
                         let index_val = index_loc.map(|i| self.get_value(i)).cloned();
 
@@ -1569,5 +1575,16 @@ mod tests {
         assert_eq!(execute_simple("3 + 4"), Ok(int(7)));
 
         assert_eq!(execute_simple("[3] + [4]"), Ok(list([int(3), int(4)])));
+
+        assert_eq!(
+            execute_simple(
+                r#"
+                    let d = @{}
+                    d["bla"] = 2
+                    d["bla"]
+                "#
+            ),
+            Ok(int(2))
+        );
     }
 }
