@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use cached::proc_macro::cached;
 use rayon::prelude::*;
 use regex::Regex;
 
@@ -12,7 +13,7 @@ fn main() {
     });
 
     time(|| {
-        // ?
+        // ±15s
         println!("Bonus: {}", bonus(input));
     });
 }
@@ -27,8 +28,9 @@ fn solve(input: &str) -> usize {
             arrangements(
                 re.split(records)
                     .filter(|s| s.len() > 0)
+                    .map(|s| s.to_string())
                     .collect::<Vec<_>>(),
-                &ns.split(",")
+                ns.split(",")
                     .map(|n| n.parse::<usize>().unwrap())
                     .collect::<Vec<_>>(),
             )
@@ -57,8 +59,9 @@ fn bonus(input: &str) -> usize {
             let num = arrangements(
                 re.split(&records)
                     .filter(|s| s.len() > 0)
+                    .map(|s| s.to_string())
                     .collect::<Vec<_>>(),
-                &ns.split(",")
+                ns.split(",")
                     .map(|n| n.parse::<usize>().unwrap())
                     .collect::<Vec<_>>(),
             );
@@ -70,7 +73,8 @@ fn bonus(input: &str) -> usize {
         .sum::<usize>()
 }
 
-fn arrangements<'a>(pieces: Vec<&'a str>, ns: &[usize]) -> usize {
+#[cached]
+fn arrangements(pieces: Vec<String>, ns: Vec<usize>) -> usize {
     if ns.is_empty() {
         if pieces.iter().any(|p| p.contains("#")) {
             return 0;
@@ -84,17 +88,18 @@ fn arrangements<'a>(pieces: Vec<&'a str>, ns: &[usize]) -> usize {
     let (ns_le, ns_ri) = split_around(&ns, i);
 
     pieces
-        .par_iter()
+        .iter()
         .enumerate()
         .filter(|(_, piece)| piece.len() >= n)
         .map(|(j, piece)| {
             let (le, ri) = split_around(&pieces, j);
 
-            placements(piece, n)
-                .map(|(_, p_le, p_ri)| {
-                    let num_le = arrangements([le.to_vec(), p_le].concat(), ns_le);
+            placements(piece.to_string(), n)
+                .into_iter()
+                .map(|(p_le, p_ri)| {
+                    let num_le = arrangements([le.to_vec(), p_le].concat(), ns_le.to_vec());
 
-                    let num_ri = arrangements([p_ri, ri.to_vec()].concat(), ns_ri);
+                    let num_ri = arrangements([p_ri, ri.to_vec()].concat(), ns_ri.to_vec());
 
                     num_le * num_ri
                 })
@@ -107,34 +112,34 @@ fn split_around<T>(items: &[T], i: usize) -> (&[T], &[T]) {
     (&items[0..i], &items[(i + 1)..])
 }
 
-fn placements<'a>(
-    piece: &'a str,
-    n: usize,
-) -> impl Iterator<Item = (usize, Vec<&'a str>, Vec<&'a str>)> {
+#[cached]
+fn placements(piece: String, n: usize) -> Vec<(Vec<String>, Vec<String>)> {
     let s = piece.len() - n + 1;
 
-    (0..s).filter_map(move |i| {
-        let left_ok = i <= 0 || &piece[(i - 1)..i] == "?";
-        let right_ok = i + n >= piece.len() || &piece[(i + n)..(i + n + 1)] == "?";
+    (0..s)
+        .filter_map(move |i| {
+            let left_ok = i <= 0 || &piece[(i - 1)..i] == "?";
+            let right_ok = i + n >= piece.len() || &piece[(i + n)..(i + n + 1)] == "?";
 
-        if left_ok && right_ok {
-            let left = if i >= 2 {
-                vec![&piece[0..(i - 1)]]
+            if left_ok && right_ok {
+                let left = if i >= 2 {
+                    vec![piece[0..(i - 1)].to_string()]
+                } else {
+                    vec![]
+                };
+
+                let right = if i + n + 2 <= piece.len() {
+                    vec![piece[(i + n + 1)..].to_string()]
+                } else {
+                    vec![]
+                };
+
+                Some((left, right))
             } else {
-                vec![]
-            };
-
-            let right = if i + n + 2 <= piece.len() {
-                vec![&piece[(i + n + 1)..]]
-            } else {
-                vec![]
-            };
-
-            Some((i, left, right))
-        } else {
-            None
-        }
-    })
+                None
+            }
+        })
+        .collect::<Vec<_>>()
 }
 
 fn time<F>(mut f: F)
