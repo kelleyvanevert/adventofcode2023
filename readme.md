@@ -423,6 +423,18 @@ I can notice how I'm now starting to wade in the territory of optimization. This
 
   And now the time is back down to ±2.5 seconds again, and running _all_ the days in sequence went down from ±20s to ±6s! 🎉
 
+## Day 12
+
+Woww... today was hard! :P
+
+First off, it look a _lot_ of Kelley-time to get the algorithm working to solve part 1. (Solving it in AL was not a problem though, it was just super finicky.)
+
+But then, the bonus ... usually there's some kind of mathematical or programmatic trick that allows you to also solve the bonus with "a normal runtime", if only you figure it out. But .. I had a hard time figuring that out.
+
+Finally, the only thing I could come up with is to just throw parallelism and memoizing at it, in Rust, and that apparently worked. Got it down to 15 seconds.
+
+I also tried the memoizing in AL, but, that would have to rely on some smart dictionary implementation, which I .. don't currently have, so .. that doesn't actually fly at the moment.
+
 ## Adventlang overview
 
 - Mostly value-based, structural equality
