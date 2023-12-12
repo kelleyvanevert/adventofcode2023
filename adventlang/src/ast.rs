@@ -261,6 +261,7 @@ pub enum Expr {
     },
     ListLiteral {
         elements: Vec<Expr>,
+        splat: Option<Box<Expr>>,
     },
     TupleLiteral {
         elements: Vec<Expr>,
@@ -324,6 +325,7 @@ impl From<AssignPattern> for Expr {
             }
             AssignPattern::List { elements } => Expr::ListLiteral {
                 elements: elements.into_iter().map(Expr::from).collect(),
+                splat: None,
             },
             AssignPattern::Tuple { elements } => Expr::TupleLiteral {
                 elements: elements.into_iter().map(Expr::from).collect(),

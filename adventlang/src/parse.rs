@@ -151,6 +151,38 @@ where
     )
 }
 
+fn listy_splat<'a, P, P2, O, O2>(
+    open_tag: &'static str,
+    first: P,
+    rest: P,
+    splat: P2,
+    close_tag: &'static str,
+) -> impl Parser<State<'a>, Output = (Vec<O>, Option<O2>)>
+where
+    P: Parser<State<'a>, Output = O>,
+    P2: Parser<State<'a>, Output = O2>,
+{
+    delimited(
+        seq((tag(open_tag), ws0)),
+        map(
+            optional(seq((
+                first,
+                many0(preceded(seq((ws0, tag(","), ws0)), rest)),
+                ws0,
+                optional(preceded(tag(","), optional(preceded(ws0, splat)))),
+            ))),
+            |opt| match opt {
+                None => (vec![], None),
+                Some((first_el, mut els, _, opt)) => {
+                    els.insert(0, first_el);
+                    (els, opt.flatten())
+                }
+            },
+        ),
+        seq((ws0, tag(close_tag))),
+    )
+}
+
 // TODO
 fn unescape(input: &str) -> String {
     input.replace("\\n", "\n").replace("\\/", "/")
@@ -185,6 +217,7 @@ fn regex_contents(s: State) -> ParseResult<State, String> {
                 contents.push('\n');
                 // etc..
             } else {
+                contents.push('\\');
                 contents.push(c);
             }
             escaped = false;
@@ -391,8 +424,17 @@ fn for_expr(s: State) -> ParseResult<State, Expr> {
 
 fn list_literal(s: State) -> ParseResult<State, Expr> {
     map(
-        listy("[", constrained(false, expr), constrained(false, expr), "]"),
-        |elements| Expr::ListLiteral { elements },
+        listy_splat(
+            "[",
+            constrained(false, expr),
+            constrained(false, expr),
+            preceded(tag(".."), constrained(false, expr)),
+            "]",
+        ),
+        |(elements, splat)| Expr::ListLiteral {
+            elements,
+            splat: splat.map(Box::new),
+        },
     )
     .parse(s)
 }
@@ -1195,7 +1237,6 @@ pub fn parse_document(input: &str) -> Option<Document> {
 
 #[cfg(test)]
 mod tests {
-    use std::process::Output;
 
     use super::*;
     use crate::{
@@ -1213,7 +1254,10 @@ mod tests {
     }
 
     fn list(elements: Vec<Expr>) -> Expr {
-        Expr::ListLiteral { elements }
+        Expr::ListLiteral {
+            elements,
+            splat: None,
+        }
     }
 
     fn tuple(elements: Vec<Expr>) -> Expr {
@@ -1676,7 +1720,7 @@ mod tests {
                 Stmt::Declare {
                     pattern: DeclarePattern::Id(id("v"), None),
                     expr: Expr::RegexLiteral {
-                        regex: AlRegex(Regex::from_str("[0-9/]+").unwrap())
+                        regex: AlRegex(Regex::from_str("[0-9\\/]+").unwrap())
                     }
                     .into()
                 }
@@ -1689,7 +1733,7 @@ mod tests {
                 Stmt::Declare {
                     pattern: DeclarePattern::Id(id("v"), None),
                     expr: Expr::RegexLiteral {
-                        regex: AlRegex(Regex::from_str("[!@^&*#+%$=/]").unwrap())
+                        regex: AlRegex(Regex::from_str("[!@^&*#+%$=\\/]").unwrap())
                     }
                     .into()
                 }
@@ -1727,7 +1771,7 @@ mod tests {
                                     ]
                                 ),
                                 Expr::RegexLiteral {
-                                    regex: AlRegex(Regex::from_str("[!@^&*#+%$=/]").unwrap())
+                                    regex: AlRegex(Regex::from_str("[!@^&*#+%$=\\/]").unwrap())
                                 }
                             ]
                         )

@@ -978,7 +978,7 @@ impl Runtime {
                 "could not find matching signature for {}({:?})",
                 name.map(|n| n.0).unwrap_or("<anonymous>".into()),
                 args.iter()
-                    .map(|arg| format!("{}", self.get_value(arg.1).ty()))
+                    .map(|arg| format!("{}", self.display(arg.1, false)))
                     .collect::<Vec<_>>()
             ))
             .into();
@@ -1251,13 +1251,21 @@ impl Runtime {
 
                 let ri = self.evaluate(scope, right)?;
 
+                match op.as_str() {
+                    "+" => {
+                        let (_, add) = self.lookup(scope, &Identifier("add".into()))?;
+                        return Ok(self.invoke(add, vec![(None, le.0), (None, ri.0)])?);
+                    }
+                    _ => {}
+                }
+
                 let left_value = self.get_value(le.0);
                 let right_value = self.get_value(ri.0);
 
                 match op.as_str() {
                     "^" => return Ok(self.new_value(left_value.pow(right_value)?)),
                     "<<" => return Ok(self.new_value(left_value.left_shift(right_value)?)),
-                    "+" => return Ok(self.new_value(left_value.add(right_value)?)),
+                    // "+" => return Ok(self.new_value(left_value.add(right_value)?)),
                     "-" => return Ok(self.new_value(left_value.sub(right_value)?)),
                     "*" => return Ok(self.new_value(left_value.mul(right_value)?)),
                     "/" => return Ok(self.new_value(left_value.div(right_value)?)),
@@ -1280,7 +1288,7 @@ impl Runtime {
                     _ => RuntimeError(format!("Unknown binary operation: {op}")).into(),
                 }
             }
-            Expr::ListLiteral { elements } => {
+            Expr::ListLiteral { elements, splat } => {
                 let mut ty = Type::Any;
                 let mut element_values = vec![];
                 for expr in elements {
@@ -1291,6 +1299,27 @@ impl Runtime {
                     //     return RuntimeError("list contains distinct types".into()).into();
                     // }
                     element_values.push(expr_value.0);
+                }
+
+                if let Some(splat) = splat {
+                    let splat_value = self.evaluate(scope, splat)?;
+                    match self.get_value(splat_value.0).clone() {
+                        Value::List(_, copy_els) => {
+                            for el in copy_els {
+                                element_values.push(self.ensure_new((el, splat_value.1)));
+                            }
+                        }
+                        Value::Nil => {
+                            // that's OK
+                        }
+                        _ => {
+                            return RuntimeError(format!(
+                                "cannot splat: {}",
+                                self.get_ty(splat_value.0)
+                            ))
+                            .into()
+                        }
+                    }
                 }
 
                 Ok(self.new_value(Value::List(ty, element_values)))
@@ -1531,5 +1560,14 @@ mod tests {
             execute_simple("let a = 1; let b = 1; [a, b] = [2, 2]; a"),
             Ok(int(2))
         );
+
+        assert_eq!(
+            execute_simple("let arr = [3, 4]; [1, 2, ..arr]"),
+            Ok(list([int(1), int(2), int(3), int(4)]))
+        );
+
+        assert_eq!(execute_simple("3 + 4"), Ok(int(7)));
+
+        assert_eq!(execute_simple("[3] + [4]"), Ok(list([int(3), int(4)])));
     }
 }

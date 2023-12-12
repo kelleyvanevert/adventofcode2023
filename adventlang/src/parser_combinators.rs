@@ -17,6 +17,10 @@ where
     }
 }
 
+pub fn none<I, O>(input: I) -> ParseResult<I, Option<O>> {
+    Some((input, None::<O>))
+}
+
 pub fn map<I, O1, O2>(
     mut p1: impl Parser<I, Output = O1>,
     mut f: impl FnMut(O1) -> O2,

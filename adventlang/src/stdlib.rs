@@ -1,5 +1,7 @@
 use std::cmp::Ordering;
 
+use arcstr::Substr;
+
 use crate::{
     ast::{DeclarePattern, Identifier, Type},
     runtime::{Dict, FnBody, FnSig, Runtime, Value},
@@ -140,6 +142,44 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 }),
             },
         ],
+    );
+
+    runtime.builtin(
+        "add",
+        [FnSig {
+            params: vec![idpat("a"), idpat("b")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let a = runtime.get_scope(scope).get_unchecked("a");
+                let b = runtime.get_scope(scope).get_unchecked("b");
+
+                match (runtime.get_value(a).clone(), runtime.get_value(b).clone()) {
+                    (Value::Str(a), Value::Str(b)) => {
+                        let new = Substr::from(a.to_string() + &b);
+                        Ok(runtime.new_value(Value::Str(new)))
+                    }
+                    (Value::Numeric(a), Value::Numeric(b)) => {
+                        Ok(runtime.new_value(Value::Numeric(a.add(&b))))
+                    }
+                    (Value::List(_, a), Value::List(_, b)) => {
+                        let elements = a
+                            .into_iter()
+                            .chain(b.into_iter())
+                            .map(|v| runtime.ensure_new((v, false)))
+                            .collect();
+
+                        Ok(runtime.new_value(Value::List(Type::Any, elements)))
+                    }
+                    _ => {
+                        return RuntimeError(format!(
+                            "can't perform {} + {}",
+                            runtime.get_ty(a),
+                            runtime.get_ty(b)
+                        ))
+                        .into()
+                    }
+                }
+            }),
+        }],
     );
 
     runtime.builtin(
@@ -441,29 +481,62 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "in",
-        [FnSig {
-            params: vec![idpat("needle"), idpat("haystack")],
-            body: FnBody::Builtin(|runtime, scope| {
-                let needle = runtime.get_scope(scope).get_unchecked("needle");
-                let haystack = runtime.get_scope(scope).get_unchecked("haystack");
+        [
+            FnSig {
+                params: vec![
+                    idpat_ty("needle", Type::Str),
+                    idpat_ty("haystack", Type::Str),
+                ],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let needle = runtime.get_scope(scope).get_unchecked("needle");
+                    let haystack = runtime.get_scope(scope).get_unchecked("haystack");
 
-                let Value::List(_, haystack) = runtime.get_value(haystack).clone() else {
-                    return RuntimeError(format!(
-                        "cannot get max of: {}",
-                        runtime.get_ty(haystack)
-                    ))
-                    .into();
-                };
+                    let Value::Str(needle) = runtime.get_value(needle).clone() else {
+                        return RuntimeError(format!(
+                            "in() needle must be a str, is a: {}",
+                            runtime.get_ty(needle)
+                        ))
+                        .into();
+                    };
 
-                for el in haystack {
-                    if runtime.eq(el, needle) {
-                        return Ok(runtime.new_value(Value::Bool(true)));
+                    let Value::Str(haystack) = runtime.get_value(haystack).clone() else {
+                        return RuntimeError(format!(
+                            "in() haystack must be a str, is a: {}",
+                            runtime.get_ty(haystack)
+                        ))
+                        .into();
+                    };
+
+                    Ok(runtime.new_value(Value::Bool(haystack.contains(&needle.as_str()))))
+                }),
+            },
+            FnSig {
+                params: vec![
+                    idpat("needle"),
+                    idpat_ty("haystack", Type::List(Type::Any.into())),
+                ],
+                body: FnBody::Builtin(|runtime, scope| {
+                    let needle = runtime.get_scope(scope).get_unchecked("needle");
+                    let haystack = runtime.get_scope(scope).get_unchecked("haystack");
+
+                    let Value::List(_, haystack) = runtime.get_value(haystack).clone() else {
+                        return RuntimeError(format!(
+                            "cannot get in() of: {}",
+                            runtime.get_ty(haystack)
+                        ))
+                        .into();
+                    };
+
+                    for el in haystack {
+                        if runtime.eq(el, needle) {
+                            return Ok(runtime.new_value(Value::Bool(true)));
+                        }
                     }
-                }
 
-                Ok(runtime.new_value(Value::Bool(false)))
-            }),
-        }],
+                    Ok(runtime.new_value(Value::Bool(false)))
+                }),
+            },
+        ],
     );
 
     runtime.builtin(
@@ -1169,13 +1242,19 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                         .into();
                     };
 
-                    let i = i.get_int()?;
+                    let mut i = i.get_int()?;
+
+                    if i < 0 && text.len() as i64 + i >= 0 {
+                        i = text.len() as i64 + i;
+                    }
 
                     if i < 0 {
                         return RuntimeError(format!("slice() i must be a positive int")).into();
                     }
 
-                    Ok(runtime.new_value(Value::Str(text.substr((i as usize)..))))
+                    // println!("text :slice i -- {}, {} -- {}", text.len(), i, text.len());
+
+                    Ok(runtime.new_value(Value::Str(text.substr((i as usize)..text.len()))))
                 }),
             },
             FnSig {
@@ -1550,6 +1629,22 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     .collect::<Vec<_>>();
 
                 Ok(runtime.new_value(Value::List(Type::Str, items)))
+            }),
+        }],
+    );
+
+    runtime.builtin(
+        "assert",
+        [FnSig {
+            params: vec![idpat("data")],
+            body: FnBody::Builtin(|runtime, scope| {
+                let data = runtime.get_scope(scope).get_unchecked("data");
+
+                if !runtime.get_value(data).truthy()? {
+                    return RuntimeError(format!("assertion failed")).into();
+                }
+
+                Ok(runtime.new_value(Value::Nil))
             }),
         }],
     );
