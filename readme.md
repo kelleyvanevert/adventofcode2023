@@ -433,7 +433,7 @@ But then, the bonus ... usually there's some kind of mathematical or programmati
 
 Finally, the only thing I could come up with is to just throw parallelism and memoizing at it, in Rust, and that apparently worked. Got it down to 15 seconds.
 
-I also tried the memoizing in AL, but, apart from some weird unsolved bug related to storing `0`'s in dicts, I so far have only been able to get it down to .. about 3 hours or so.
+I also tried the memoizing in AL, but, that would have to rely on some smart dictionary implementation, which I .. don't currently have, so .. that doesn't actually fly at the moment.
 
 ## Adventlang overview
 
