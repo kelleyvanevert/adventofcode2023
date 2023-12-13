@@ -161,7 +161,7 @@ print("Example solution: {solve(example_input)}")
 // ±2.5s
 print("Solution: {solve(stdin)}")
 
-// suuper long
+// ± 5 minutes
 //print("Example bonus: {bonus(example_input)}")
 
 // not realistic
