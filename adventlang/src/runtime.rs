@@ -1,7 +1,8 @@
 use std::{
     cmp::Ordering,
-    collections::HashMap,
+    collections::{hash_map::RandomState, HashMap},
     fmt::{self, Display, Formatter},
+    hash::{BuildHasher, Hash, Hasher},
 };
 
 use arcstr::Substr;
@@ -20,7 +21,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Dict(pub Vec<(usize, usize)>);
+pub struct Dict(HashMap<u64, Vec<(usize, usize)>>);
 
 impl std::hash::Hash for Dict {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -30,8 +31,38 @@ impl std::hash::Hash for Dict {
 
 impl Dict {
     pub fn new() -> Dict {
-        Self(vec![])
+        Self(HashMap::new())
     }
+
+    pub fn entries<'a>(&'a self) -> impl Iterator<Item = (usize, usize)> + 'a {
+        self.0
+            .iter()
+            .flat_map(|(_, bucket_entries)| bucket_entries.iter())
+            .map(|(k, v)| (*k, *v))
+    }
+
+    pub fn get(&self, runtime: &Runtime, k: usize) -> Option<(usize, usize)> {
+        if let Some(bucket) = self.0.get(&runtime.hash(k)) {
+            for &(q, v) in bucket {
+                if runtime.eq(k, q) {
+                    return Some((k, v));
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn insert(&mut self, runtime: &Runtime, k: usize, v: usize) {
+        let key_hash = runtime.hash(k);
+        self.0.entry(key_hash).or_default().push((k, v));
+    }
+
+    pub fn insert_known_hash(&mut self, key_hash: u64, k: usize, v: usize) {
+        self.0.entry(key_hash).or_default().push((k, v));
+    }
+
+    // pub fn entry(&self, runtime: &Runtime) {}
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -179,7 +210,7 @@ impl Display for Value {
             }
             Value::Dict(dict) => {
                 write!(f, "@{{")?;
-                let pairs = dict.0.iter().collect::<Vec<_>>();
+                let pairs = dict.entries().collect::<Vec<_>>();
                 let len = pairs.len();
                 for (i, (key, value)) in pairs.iter().enumerate() {
                     write!(f, ".{key} {value}")?;
@@ -362,6 +393,7 @@ impl Scope {
 }
 
 pub struct Runtime {
+    random_state: RandomState,
     scopes: Vec<Scope>,
     heap: Vec<Option<Value>>,
     reclaimed: Vec<usize>,
@@ -370,6 +402,7 @@ pub struct Runtime {
 impl Runtime {
     pub fn new() -> Runtime {
         Runtime {
+            random_state: RandomState::new(),
             scopes: vec![Scope::root()],
             heap: vec![],
             reclaimed: vec![],
@@ -445,13 +478,9 @@ impl Runtime {
             )),
             Value::Dict(dict) => {
                 let pairs = dict
-                    .0
-                    .iter()
+                    .entries()
                     .map(|(key_loc, value_loc)| {
-                        Ok((
-                            self.get_value_ext(*key_loc)?,
-                            self.get_value_ext(*value_loc)?,
-                        ))
+                        Ok((self.get_value_ext(key_loc)?, self.get_value_ext(value_loc)?))
                     })
                     .collect::<Result<Vec<_>, String>>()?;
 
@@ -479,6 +508,43 @@ impl Runtime {
                 self.new_value(Value::Tuple(cloned_items))
             }
             other => self.new_value(other),
+        }
+    }
+
+    pub fn hash(&self, v: usize) -> u64 {
+        let mut h = self.random_state.build_hasher();
+        self.hash_do(&mut h, v);
+        let hash = h.finish();
+        // println!("runtime hash {} => {}", self.display(v, false), hash);
+        hash
+    }
+
+    fn hash_do<H: Hasher>(&self, h: &mut H, v: usize) {
+        match self.get_value(v) {
+            Value::Nil => ().hash(h),
+            Value::Bool(b) => b.hash(h),
+            Value::Str(s) => s.hash(h),
+            Value::Numeric(n) => n.hash(h),
+            Value::Regex(a) => a.hash(h),
+            Value::Tuple(els) => {
+                for &el in els {
+                    self.hash_do(h, el);
+                }
+            }
+            Value::List(_, els) => {
+                for &el in els {
+                    self.hash_do(h, el);
+                }
+            }
+            Value::Dict(dict) => {
+                for (k, v) in dict.entries() {
+                    self.hash_do(h, k);
+                    self.hash_do(h, v);
+                }
+            }
+            Value::FnDef(def) => {
+                panic!("hash fndefs")
+            }
         }
     }
 
@@ -555,7 +621,7 @@ impl Runtime {
         self.cmp(a, b) == Ordering::Equal
     }
 
-    pub fn display_fmt(&self, f: &mut Formatter, loc: usize, toplevel: bool) -> fmt::Result {
+    fn display_fmt(&self, f: &mut Formatter, loc: usize, toplevel: bool) -> fmt::Result {
         match self.get_value(loc) {
             Value::Nil => write!(f, "nil"),
             Value::Bool(b) => write!(f, "{b}"),
@@ -596,18 +662,18 @@ impl Runtime {
             }
             Value::Dict(dict) => {
                 write!(f, "@{{")?;
-                let pairs = dict.0.iter().collect::<Vec<_>>();
-                let len = pairs.len();
-                for (i, (key, value)) in pairs.iter().enumerate() {
-                    write!(f, ".")?;
-                    self.display_fmt(f, *key, true)?;
-                    write!(f, " ")?;
-                    self.display_fmt(f, *value, false)?;
-                    if i < len - 1 {
+                let mut i = 0;
+                for (key, value) in dict.entries() {
+                    if i > 0 {
                         write!(f, ", ")?;
                     }
+                    write!(f, ".")?;
+                    self.display_fmt(f, key, true)?;
+                    write!(f, " ")?;
+                    self.display_fmt(f, value, false)?;
+                    i += 1;
                 }
-                if len == 1 {
+                if i == 1 {
                     write!(f, ",")?;
                 }
                 write!(f, "}}")
@@ -665,7 +731,7 @@ impl Runtime {
                 }
             }
             Value::Dict(dict) => {
-                for &(k, v) in &dict.0 {
+                for (k, v) in dict.entries() {
                     self.gc_reach(k, reachable);
                     self.gc_reach(v, reachable);
                 }
@@ -1064,13 +1130,7 @@ impl Runtime {
                         let nil = self.new_value(Value::Nil).0;
 
                         let matching_dict_key = match (self.get_value(parent), index_loc) {
-                            (Value::Dict(dict), Some(i)) => {
-                                if let Some(pair) = dict.0.iter().find(|(k, v)| self.eq(*k, i)) {
-                                    Some(pair.0)
-                                } else {
-                                    None
-                                }
-                            }
+                            (Value::Dict(dict), Some(i)) => dict.get(&self, i).map(|(key, _)| key),
                             _ => None,
                         };
 
@@ -1085,6 +1145,8 @@ impl Runtime {
                             }
                             _ => None,
                         };
+
+                        let index_value_hash = index_loc.map(|i| self.hash(i));
 
                         match self.get_value_mut(parent) {
                             Value::List(_, items) | Value::Tuple(items) => {
@@ -1118,12 +1180,16 @@ impl Runtime {
                                     ))
                                 }
                             }
-                            Value::Dict(dict) => {
+                            Value::Dict(ref mut dict) => {
                                 if let Some(index_loc) = index_loc {
                                     if let Some(loc) = matching_dict_key {
                                         Ok(Location::Single(loc))
                                     } else {
-                                        dict.0.push((index_loc, nil));
+                                        dict.insert_known_hash(
+                                            index_value_hash.expect("known index hash"),
+                                            index_loc,
+                                            nil,
+                                        );
                                         Ok(Location::Single(nil))
                                     }
                                 } else {
@@ -1195,7 +1261,7 @@ impl Runtime {
 
                     let (expr_value, _) = self.evaluate(scope, value_expr)?;
 
-                    dict.0.push((k, expr_value));
+                    dict.insert(&self, k, expr_value);
                 }
 
                 Ok(self.new_value(Value::Dict(dict)))

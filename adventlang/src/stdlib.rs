@@ -471,7 +471,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                         return RuntimeError(format!("dict() pair without key")).into();
                     };
 
-                    dict.0.push((*key, *value));
+                    dict.insert(runtime, *key, *value);
                 }
 
                 Ok(runtime.new_value(Value::Dict(dict)))
@@ -1454,10 +1454,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     let key = runtime.get_scope(scope).get_unchecked("key");
 
                     let result = dict
-                        .0
-                        .into_iter()
-                        .find(|(k, _)| runtime.eq(*k, key))
-                        .map(|(_, v)| (v, false))
+                        .get(runtime, key)
+                        .map(|(key, value)| (value, false))
                         .unwrap_or(runtime.new_value(Value::Nil));
 
                     Ok(result)

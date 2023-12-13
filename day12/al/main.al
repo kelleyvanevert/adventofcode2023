@@ -9,8 +9,11 @@ let example_input = "
 "
 
 fn solve(input: str) {
-  input :trim :lines
-    :map |line| {
+  let all = input :trim :lines
+  let total = all:len
+  all
+    :enumerate
+    :map |(i, line)| {
       let [records, ns] = line :split " "
       let num = arrangements(
         records :split /\.+/ :filter |b| { b },
@@ -18,7 +21,7 @@ fn solve(input: str) {
         "  "
       )
 
-      //print("{line}   =>   {num}")
+      print("  [{i+1}/{total}] {line}   =>   {num}")
       num
     }
     :sum
@@ -28,23 +31,24 @@ fn hash(pieces, ns) {
   (pieces :join ",") + "__" + (ns :join ",")
 }
 
+let should_memoize = false
 let cache = @{}
 
 fn arrangements(pieces, ns, indent) {
   let h = (pieces, ns)
 
-  if let memoized = cache[h] {
-    return memoized + 0
+  if should_memoize {
+    if let memoized = cache[h] {
+      return memoized + 0
+    }
   }
 
   if ns:len == 0 {
     if pieces :any |p| { "#" :in p } {
-      //print("{indent}arrangements({pieces}) {ns} -> IMPOSSIBLE (0)")
-      //cache[h] = 0
+      if should_memoize { cache[h] = 0 }
       return 0
     }
-    //print("{indent}arrangements({pieces}) {ns} -> done (1)")
-    cache[h] = 1
+    if should_memoize { cache[h] = 1 }
     return 1
   }
 
@@ -90,8 +94,8 @@ fn arrangements(pieces, ns, indent) {
     }
     :sum
 
-  //print("INSERT {h} {indent}{num_possible}")
-  if num_possible > 0 { cache[h] = num_possible }
+  if should_memoize { cache[h] = num_possible }
+
   num_possible
 }
 
@@ -145,29 +149,20 @@ fn bonus(input) {
         "  "
       )
 
-      print("[{i+1}/{total}] {line}   =>   {num}")
+      print("  [{i+1}/{total}] {line}   =>   {num}")
       num
     }
     :sum
 }
 
-//print(solve("???.### 1,1,3")) // 1
-//print(solve(".??..??...?##. 1,1,3")) // 4
-print("Example solution: {solve(example_input)}") // 21
 
-//print("Example bonus: {bonus(example_input)}") // 21
+print("Example solution: {solve(example_input)}")
 
-
-
-//print(solve("????????#?? 7,1"))
-//print(solve("?#???##????#.??? 2,4,4,2"))
-
-//print(hash(["?#", "??"], [1, 2, 3]))
-
-// 9281 is too HIGH
-// 7269 is too LOW
 // ±2.5s
-//print(solve(stdin)) // 7490
+print("Solution: {solve(stdin)}")
 
-print("Bonus: {bonus(stdin)}")
+// suuper long
+//print("Example bonus: {bonus(example_input)}")
 
+// not realistic
+//print("Bonus: {bonus(stdin)}")
