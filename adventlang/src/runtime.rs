@@ -95,6 +95,22 @@ pub struct FnSig {
     pub body: FnBody,
 }
 
+impl Display for FnSig {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "fn(")?;
+        let mut i = 0;
+        for param in &self.params {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", param)?;
+            i += 1;
+        }
+        write!(f, ") <body>")?;
+        Ok(())
+    }
+}
+
 impl std::hash::Hash for FnSig {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.params.hash(state);
@@ -859,16 +875,10 @@ impl Runtime {
         &mut self,
         scope: usize,
         pattern: &DeclarePattern,
-        // fallback: &Option<Expr>,
-        mut value: usize,
+        value: usize,
     ) -> EvaluationResult<()> {
         match pattern {
             DeclarePattern::Id(id, _) => {
-                // if let Some(fallback_expr) = fallback_expr
-                //     && self.get_value(value) == &Value::Nil {
-                //     value = self.evaluate(scope, fallback_expr)?.0;
-                // };
-
                 self.get_scope_mut(scope).values.insert(id.clone(), value);
             }
             DeclarePattern::List { elements, rest } => {
@@ -882,17 +892,22 @@ impl Runtime {
                     Ok::<(Identifier, Option<Type>, Vec<usize>), EvalOther>((
                         id,
                         t,
-                        items.split_off(elements.len()),
+                        items.split_off(elements.len().min(items.len())),
                     ))
                 })?;
 
                 let items = items.clone();
 
-                for (Declarable { pattern, fallback }, value) in elements.into_iter().zip(
+                for (Declarable { pattern, fallback }, mut value) in elements.into_iter().zip(
                     items
                         .into_iter()
                         .chain(std::iter::repeat(self.new_value(Value::Nil).0)),
                 ) {
+                    if let Some(fallback_expr) = fallback
+                        && self.get_value(value) == &Value::Nil {
+                        value = self.evaluate(scope, fallback_expr)?.0;
+                    }
+
                     self.declare(scope, pattern, value)?;
                 }
 
@@ -915,15 +930,20 @@ impl Runtime {
                     Ok::<(Identifier, Option<Type>, Vec<usize>), EvalOther>((
                         id,
                         t,
-                        items.split_off(elements.len()),
+                        items.split_off(elements.len().min(items.len())),
                     ))
                 })?;
 
-                for (Declarable { pattern, fallback }, value) in elements.into_iter().zip(
+                for (Declarable { pattern, fallback }, mut value) in elements.into_iter().zip(
                     items
                         .into_iter()
                         .chain(std::iter::repeat(self.new_value(Value::Nil).0)),
                 ) {
+                    if let Some(fallback_expr) = fallback
+                        && self.get_value(value) == &Value::Nil {
+                        value = self.evaluate(scope, fallback_expr)?.0;
+                    }
+
                     self.declare(scope, pattern, value)?;
                 }
 
@@ -1003,7 +1023,10 @@ impl Runtime {
         //         .join(", ")
         // );
 
-        if sig.params.len() != args.len() {
+        let min_args = sig.params.iter().filter(|p| p.fallback.is_none()).count();
+        let max_args = sig.params.len();
+
+        if args.len() < min_args || args.len() > max_args {
             false
         } else {
             // TODO: find arg that does not fit
@@ -1083,15 +1106,25 @@ impl Runtime {
             matching_signatures.swap_remove(0)
         } else {
             unimplemented!(
-                "todo select fn signature for: {}",
-                name.map(|n| n.0).unwrap_or("<unknown>".into())
+                "todo select fn signature for: {}, arg types: ({}), possible signatures: {}",
+                name.map(|n| n.0).unwrap_or("<unknown>".into()),
+                args.iter()
+                    .map(|arg| format!("{}", self.get_ty(arg.1)))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                matching_signatures
+                    .iter()
+                    .enumerate()
+                    .map(|(i, sig)| format!("#{} {}:", i + 1, sig))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             )
         };
 
         let execution_scope = self.new_scope(parent_scope);
 
         let mut params_remaining = params.clone();
-        for (arg_name, arg_value) in args {
+        for (arg_name, mut arg_value) in args {
             if let Some(name) = arg_name {
                 // assign named param
                 match params_remaining.iter().position(|p| match p {
@@ -1117,6 +1150,12 @@ impl Runtime {
             } else if let Some(decl) = params_remaining.get(0).cloned() {
                 // assign next available param
                 params_remaining.remove(0);
+
+                if let Some(fallback_expr) = decl.fallback
+                    && self.get_value(arg_value) == &Value::Nil {
+                    arg_value = self.evaluate(parent_scope, &fallback_expr)?.0;
+                }
+
                 self.declare(execution_scope, &decl.pattern, arg_value)?;
             } else {
                 // no params left
@@ -1124,12 +1163,14 @@ impl Runtime {
             }
         }
 
-        // for remaining_param in &params_remaining {
-        //     if remaining_param
-        //     //
-        // }
+        for remaining_param in &params_remaining {
+            if let Some(fallback_expr) = &remaining_param.fallback {
+                let fallback_value = self.evaluate(parent_scope, fallback_expr)?.0;
+                self.declare(execution_scope, &remaining_param.pattern, fallback_value)?;
+            }
+        }
 
-        if params_remaining.len() > 0 {
+        if params_remaining.iter().any(|p| p.fallback.is_none()) {
             // unassigned params
             return RuntimeError(format!("unassigned params left")).into();
         }
@@ -1796,6 +1837,90 @@ mod tests {
                 int(12),
                 int(13)
             ]))
+        );
+
+        assert_eq!(
+            execute_simple(
+                r#"
+                    fn greet(name = "kelley") {
+                        "hello {name}"
+                    }
+
+                    greet(nil)
+                "#
+            ),
+            Ok(str("hello kelley"))
+        );
+
+        assert_eq!(
+            execute_simple(
+                r#"
+                    fn greet(name = "kelley") {
+                        "hello {name}"
+                    }
+
+                    greet()
+                "#
+            ),
+            Ok(str("hello kelley"))
+        );
+
+        assert_eq!(
+            execute_simple(
+                r#"
+                    any([1, 2, 3])
+                "#
+            ),
+            Ok(bool(true))
+        );
+
+        assert_eq!(
+            execute_simple(
+                r#"
+                    [1, 2, 3] :any |n| { n > 1 }
+                "#
+            ),
+            Ok(bool(true))
+        );
+
+        assert_eq!(
+            execute_simple(
+                r#"
+                    let [a = 5, b = 6, ..rest] = [1]
+                    (a, b, rest)
+                "#
+            ),
+            Ok(tuple([int(1), int(6), list([])]))
+        );
+
+        assert_eq!(
+            execute_simple(
+                r#"
+                    let [a = 5, b = 6, ..rest] = [1, nil]
+                    (a, b, rest)
+                "#
+            ),
+            Ok(tuple([int(1), int(6), list([])]))
+        );
+
+        assert_eq!(
+            execute_simple(
+                r#"
+                    let [a = 5, b = 6, ..rest] = [1, false]
+                    (a, b, rest)
+                "#
+            ),
+            Ok(tuple([int(1), bool(false), list([])]))
+        );
+
+        assert_eq!(
+            execute_simple(
+                r#"
+                    let [a = 5, b = 6, ..rest] = [1, false, "a", "b"]
+                    (a, b, rest)
+                "#
+            ),
+            Ok(tuple([int(1), bool(false), list([str("a"), str("b")])]))
         );
     }
 }

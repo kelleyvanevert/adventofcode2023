@@ -156,7 +156,7 @@ impl PartialOrd for Type {
                 }
             }
 
-            (Type::Dict(pa), Type::Dict(pb)) => {
+            (Type::Dict(_), Type::Dict(_)) => {
                 // TODO
                 Some(Ordering::Equal)
             }
