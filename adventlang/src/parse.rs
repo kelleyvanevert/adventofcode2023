@@ -130,7 +130,7 @@ fn listy<'a, P, O>(
     first: P,
     rest: P,
     close_tag: &'static str,
-) -> impl Parser<State<'a>, Output = Vec<O>>
+) -> impl Parser<State<'a>, Output = (Vec<O>, bool)>
 where
     P: Parser<State<'a>, Output = O>,
 {
@@ -144,10 +144,10 @@ where
                 optional(tag(",")),
             ))),
             |opt| match opt {
-                None => vec![],
-                Some((first_el, mut els, _, _)) => {
+                None => (vec![], false),
+                Some((first_el, mut els, _, trailing_comma)) => {
                     els.insert(0, first_el);
-                    els
+                    (els, trailing_comma.is_some())
                 }
             },
         ),
@@ -504,7 +504,7 @@ fn dict_pair(s: State) -> ParseResult<State, (Either<Identifier, Expr>, Expr)> {
 fn dict_literal(s: State) -> ParseResult<State, Expr> {
     map(
         preceded(tag("@"), listy("{", dict_pair, dict_pair, "}")),
-        |elements| Expr::DictLiteral { elements },
+        |(elements, _)| Expr::DictLiteral { elements },
     )
     .parse(s)
 }
@@ -553,7 +553,7 @@ fn invocation_args(s: State) -> ParseResult<State, Vec<Argument>> {
         expr: anon.into(),
     });
 
-    if let Some((s, args)) = listy("(", argument, argument, ")").parse(s.clone()) {
+    if let Some((s, (args, _))) = listy("(", argument, argument, ")").parse(s.clone()) {
         let mut seen_named_arg = false;
         for arg in &args {
             if seen_named_arg && arg.name.is_none() {
@@ -964,9 +964,18 @@ fn type_leaf(s: State) -> ParseResult<State, Type> {
         // any N-sized tuple of any's
         map(tag("tuple"), |_| Type::Tuple(None)),
         // (a, b, c, ..)
-        map(listy("(", typespec, typespec, ")"), |ts| {
-            Type::Tuple(Some(ts))
-        }),
+        map(
+            listy("(", typespec, typespec, ")"),
+            |(mut ts, trailing_comma)| {
+                if ts.len() == 1 && !trailing_comma {
+                    // parse "(A)" as the type "A", but "(A,)" as the tuple "(A)"
+                    // (and "()" is still just the empty tuple)
+                    ts.pop().unwrap()
+                } else {
+                    Type::Tuple(Some(ts))
+                }
+            },
+        ),
         // heterogeneous lists: [any]
         map(tag("list"), |_| Type::List(Type::Any.into())),
         // homogeneous lists: [T]
@@ -978,11 +987,25 @@ fn type_leaf(s: State) -> ParseResult<State, Type> {
     .parse(s)
 }
 
+fn type_nullable_stack(s: State) -> ParseResult<State, Type> {
+    map(
+        seq((many0(terminated(tag("?"), ws0)), type_leaf)),
+        |(nullable, mut ty)| {
+            if !nullable.is_empty() {
+                ty = Type::Union(vec![Type::Nil, ty]);
+            }
+
+            ty
+        },
+    )
+    .parse(s)
+}
+
 fn typespec(s: State) -> ParseResult<State, Type> {
     map(
         seq((
-            type_leaf,
-            many0(preceded(seq((ws0, tag("|"), ws0)), type_leaf)),
+            type_nullable_stack,
+            many0(preceded(seq((ws0, tag("|"), ws0)), type_nullable_stack)),
         )),
         |(first, mut rest)| {
             if rest.len() > 0 {
@@ -1019,11 +1042,11 @@ fn assign_pattern(s: State) -> ParseResult<State, AssignPattern> {
         ),
         map(
             listy("[", assign_pattern, assign_pattern, "]"),
-            |elements| AssignPattern::List { elements },
+            |(elements, _)| AssignPattern::List { elements },
         ),
         map(
             listy("(", assign_pattern, assign_pattern, ")"),
-            |elements| AssignPattern::Tuple { elements },
+            |(elements, _)| AssignPattern::Tuple { elements },
         ),
     ))
     .parse(s)
@@ -1289,6 +1312,8 @@ pub fn parse_document(input: &str) -> Option<Document> {
 
 #[cfg(test)]
 mod tests {
+    use std::cmp::Ordering;
+
     use super::*;
     use crate::{
         ast::Identifier,
@@ -1399,6 +1424,55 @@ mod tests {
         parser
             .parse(input.into())
             .map(|(rem, out)| (rem.input, out))
+    }
+
+    fn ty(a: &str) -> Type {
+        parse_type(a).unwrap()
+    }
+
+    fn cmp_ty(a: &str, b: &str) -> Option<Ordering> {
+        ty(a).partial_cmp(&ty(b))
+    }
+
+    #[test]
+    fn parsing_types() {
+        assert_eq!(ty("bool"), Type::Bool);
+
+        assert_eq!(ty("bool | nil"), Type::Union(vec![Type::Bool, Type::Nil]));
+
+        assert_eq!(ty("?bool"), Type::Union(vec![Type::Nil, Type::Bool]));
+
+        assert_eq!(
+            ty("?bool | int"),
+            Type::Union(vec![
+                Type::Union(vec![Type::Nil, Type::Bool]),
+                Type::Numeric
+            ])
+        );
+
+        assert_eq!(
+            ty("?(bool | int)"),
+            Type::Union(vec![
+                Type::Nil,
+                Type::Union(vec![Type::Bool, Type::Numeric]),
+            ])
+        );
+
+        assert_eq!(
+            ty("?(bool | int,)"),
+            Type::Union(vec![
+                Type::Nil,
+                Type::Tuple(Some(vec![Type::Union(vec![Type::Bool, Type::Numeric])]))
+            ])
+        );
+
+        assert_eq!(
+            ty("?((bool | int),)"),
+            Type::Union(vec![
+                Type::Nil,
+                Type::Tuple(Some(vec![Type::Union(vec![Type::Bool, Type::Numeric])]))
+            ])
+        );
     }
 
     #[test]

@@ -549,41 +549,47 @@ mod tests {
         parse_type(a).unwrap()
     }
 
-    fn cmp(a: &str, b: &str) -> Option<Ordering> {
+    fn cmp_ty(a: &str, b: &str) -> Option<Ordering> {
         ty(a).partial_cmp(&ty(b))
     }
 
     #[test]
     fn types_po() {
-        assert_eq!(cmp("bool", "nil"), None);
+        assert_eq!(cmp_ty("bool", "nil"), None);
 
-        assert_eq!(cmp("any", "bool"), Some(Ordering::Greater));
+        assert_eq!(cmp_ty("any", "bool"), Some(Ordering::Greater));
 
-        assert_eq!(cmp("bool", "bool"), Some(Ordering::Equal));
+        assert_eq!(cmp_ty("bool", "bool"), Some(Ordering::Equal));
 
-        assert_eq!(cmp("bool | nil", "bool"), Some(Ordering::Greater));
+        assert_eq!(cmp_ty("bool | nil", "bool"), Some(Ordering::Greater));
 
-        assert_eq!(cmp("bool | fn", "bool"), Some(Ordering::Greater));
-
-        assert_eq!(cmp("bool | [bool | fn]", "bool"), Some(Ordering::Greater));
-
-        assert_eq!(cmp("()", "bool"), None);
-
-        assert_eq!(cmp("(any,)", "(bool,)"), Some(Ordering::Greater));
-
-        assert_eq!(cmp("(any, int)", "(bool, int)"), Some(Ordering::Greater));
+        assert_eq!(cmp_ty("bool | fn", "bool"), Some(Ordering::Greater));
 
         assert_eq!(
-            cmp("(bool | int, int)", "(bool, int)"),
+            cmp_ty("bool | [bool | fn]", "bool"),
             Some(Ordering::Greater)
         );
 
-        assert_eq!(cmp("tuple", "(bool, int)"), Some(Ordering::Greater));
+        assert_eq!(cmp_ty("()", "bool"), None);
 
-        assert_eq!(cmp("tuple", "tuple"), Some(Ordering::Equal));
+        assert_eq!(cmp_ty("(any,)", "(bool,)"), Some(Ordering::Greater));
 
-        assert_eq!(cmp("(int, bool)", "bool"), None);
+        assert_eq!(cmp_ty("(any, int)", "(bool, int)"), Some(Ordering::Greater));
 
-        assert_eq!(cmp("(int, bool) | bool", "bool"), Some(Ordering::Greater));
+        assert_eq!(
+            cmp_ty("(bool | int, int)", "(bool, int)"),
+            Some(Ordering::Greater)
+        );
+
+        assert_eq!(cmp_ty("tuple", "(bool, int)"), Some(Ordering::Greater));
+
+        assert_eq!(cmp_ty("tuple", "tuple"), Some(Ordering::Equal));
+
+        assert_eq!(cmp_ty("(int, bool)", "bool"), None);
+
+        assert_eq!(
+            cmp_ty("(int, bool) | bool", "bool"),
+            Some(Ordering::Greater)
+        );
     }
 }
