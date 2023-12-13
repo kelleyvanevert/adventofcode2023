@@ -15,7 +15,7 @@ pub enum Type {
     Regex,
     FnDef,
     List(Box<Type>),
-    Tuple,
+    Tuple(Option<Vec<Type>>),
     Dict,
     Union(Vec<Type>),
 }
@@ -80,10 +80,25 @@ impl PartialOrd for Type {
             Type::Bool,
             Type::Numeric,
             Type::Str,
-            Type::Tuple,
             Type::Regex,
             Type::Dict,
+            // and these are not "simple" and have to be fully matched below:
+            // Type::Any,
+            // Type::FnDef,
+            // Type::List(_),
+            // Type::Tuple(_),
         ];
+
+        /*
+
+                SIMP  any  fn  list  tuple
+        SIMP     X     X    X   X    X
+        any            X    X   X    X
+        fn                  X   X    X
+        list                    X    X
+        tuple                        X
+
+        */
 
         match (&a, &b) {
             (Type::Any, Type::Any) => Some(Ordering::Equal),
@@ -102,11 +117,52 @@ impl PartialOrd for Type {
             (a, Type::List(_)) if simple.contains(a) => None,
             (Type::List(a), Type::List(b)) => a.partial_cmp(b),
 
+            (Type::Tuple(_), b) if simple.contains(b) => None,
+            (a, Type::Tuple(_)) if simple.contains(a) => None,
+            (Type::Tuple(None), Type::Tuple(None)) => Some(Ordering::Equal),
+            (Type::Tuple(None), Type::Tuple(_)) => Some(Ordering::Greater),
+            (Type::Tuple(_), Type::Tuple(None)) => Some(Ordering::Less),
+            (Type::Tuple(Some(a)), Type::Tuple(Some(b))) => {
+                if a.len() != b.len() {
+                    None
+                } else {
+                    let mut a_gte_b = true;
+                    let mut b_gte_a = true;
+                    for (a, b) in a.iter().zip(b.iter()) {
+                        if a_gte_b && !(a >= b) {
+                            a_gte_b = false;
+                            if !b_gte_a {
+                                return None;
+                            }
+                        }
+                        if b_gte_a && !(b >= a) {
+                            b_gte_a = false;
+                            if !a_gte_b {
+                                return None;
+                            }
+                        }
+                    }
+
+                    if a_gte_b && b_gte_a {
+                        Some(Ordering::Equal)
+                    } else if a_gte_b {
+                        Some(Ordering::Greater)
+                    } else if b_gte_a {
+                        Some(Ordering::Less)
+                    } else {
+                        None
+                    }
+                }
+            }
+
+            (Type::Tuple(_), Type::List(_)) => None,
+            (Type::List(_), Type::Tuple(_)) => None,
+
             // TODO make fn types comparable as well
             (Type::FnDef, _) => None,
             (_, Type::FnDef) => None,
 
-            (_, _) => {
+            (Type::Union(_), _) | (_, Type::Union(_)) => {
                 let a_types = a.flatten_unions();
                 let b_types = b.flatten_unions();
 
@@ -117,7 +173,7 @@ impl PartialOrd for Type {
                     // disprove that a >= b
                     if a_gte_b && !a_types.iter().any(|a| a >= b) {
                         a_gte_b = false;
-                        println!("found b {} not in A {:?}", b, a_types);
+                        // println!("found b {} not in A {:?}", b, a_types);
                         if !b_gte_a {
                             return None;
                         }
@@ -127,7 +183,7 @@ impl PartialOrd for Type {
                 for a in &a_types {
                     // try to find any other type that is not covered in my types
                     if b_gte_a && !b_types.iter().any(|b| b >= a) {
-                        println!("found a {} not in B {:?}", a, b_types);
+                        // println!("found a {} not in B {:?}", a, b_types);
                         b_gte_a = false;
                         if !a_gte_b {
                             return None;
@@ -135,7 +191,7 @@ impl PartialOrd for Type {
                     }
                 }
 
-                println!("res a >= b {a_gte_b}, b >= a {b_gte_a}");
+                // println!("res a >= b {a_gte_b}, b >= a {b_gte_a}");
                 if a_gte_b && b_gte_a {
                     Some(Ordering::Equal)
                 } else if a_gte_b {
@@ -146,6 +202,11 @@ impl PartialOrd for Type {
                     None
                 }
             }
+
+            (_, _) => panic!(
+                "unexpected type comparison (should never happen): {} ?= {}",
+                self, other
+            ),
         }
     }
 }
@@ -153,16 +214,34 @@ impl PartialOrd for Type {
 impl Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Type::Any => write!(f, "Any"),
-            Type::Nil => write!(f, "Nil"),
-            Type::Bool => write!(f, "Bool"),
-            Type::Str => write!(f, "Str"),
-            Type::Numeric => write!(f, "Numeric"),
-            Type::Regex => write!(f, "Regex"),
-            Type::FnDef => write!(f, "FnDef"),
-            Type::List(t) => write!(f, "List[{t}]"),
-            Type::Tuple => write!(f, "Tuple"),
-            Type::Dict => write!(f, "Dict"),
+            Type::Any => write!(f, "any"),
+            Type::Nil => write!(f, "nil"),
+            Type::Bool => write!(f, "bool"),
+            Type::Str => write!(f, "str"),
+            Type::Numeric => write!(f, "num"),
+            Type::Regex => write!(f, "regex"),
+            Type::FnDef => write!(f, "fn"),
+            Type::List(t) => write!(f, "[{t}]"),
+            Type::Tuple(opt) => {
+                if let Some(ts) = opt {
+                    write!(f, "(")?;
+                    let mut i = 0;
+                    for t in ts {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{t}")?;
+                        i += 1;
+                    }
+                    if ts.len() == 1 {
+                        write!(f, ",")?;
+                    }
+                    write!(f, ")")
+                } else {
+                    write!(f, "tuple")
+                }
+            }
+            Type::Dict => write!(f, "dict"),
             Type::Union(types) => {
                 if types.len() == 0 {
                     write!(f, "!")
@@ -208,6 +287,62 @@ pub enum DeclarePattern {
         elements: Vec<DeclarePattern>,
         rest: Option<(Identifier, Option<Type>)>,
     },
+}
+
+impl Display for DeclarePattern {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DeclarePattern::Id(id, t) => {
+                write!(f, "{}", id)?;
+                if let Some(t) = t {
+                    write!(f, ": {}", t)?;
+                }
+                Ok(())
+            }
+            DeclarePattern::List { elements, rest } => {
+                write!(f, "[")?;
+                let mut i = 0;
+                for el in elements {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", el)?;
+                    i += 1;
+                }
+                if let Some((id, t)) = rest {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", id)?;
+                    if let Some(t) = t {
+                        write!(f, ": {}", t)?;
+                    }
+                }
+                write!(f, "]")
+            }
+            DeclarePattern::Tuple { elements, rest } => {
+                write!(f, "(")?;
+                let mut i = 0;
+                for el in elements {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", el)?;
+                    i += 1;
+                }
+                if let Some((id, t)) = rest {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", id)?;
+                    if let Some(t) = t {
+                        write!(f, ": {}", t)?;
+                    }
+                }
+                write!(f, ")")
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -384,38 +519,49 @@ pub struct Document {
 
 #[cfg(test)]
 mod tests {
+    use crate::parse::parse_type;
+
     use super::*;
+
+    fn ty(a: &str) -> Type {
+        parse_type(a).unwrap()
+    }
+
+    fn cmp(a: &str, b: &str) -> Option<Ordering> {
+        ty(a).partial_cmp(&ty(b))
+    }
 
     #[test]
     fn types_po() {
-        assert_eq!(Type::Bool.partial_cmp(&Type::Bool), Some(Ordering::Equal));
+        assert_eq!(cmp("bool", "nil"), None);
 
-        assert_eq!(Type::Bool.partial_cmp(&Type::Nil), None);
+        assert_eq!(cmp("any", "bool"), Some(Ordering::Greater));
 
-        assert_eq!(Type::Any.partial_cmp(&Type::Bool), Some(Ordering::Greater));
+        assert_eq!(cmp("bool", "bool"), Some(Ordering::Equal));
+
+        assert_eq!(cmp("bool | nil", "bool"), Some(Ordering::Greater));
+
+        assert_eq!(cmp("bool | fn", "bool"), Some(Ordering::Greater));
+
+        assert_eq!(cmp("bool | [bool | fn]", "bool"), Some(Ordering::Greater));
+
+        assert_eq!(cmp("()", "bool"), None);
+
+        assert_eq!(cmp("(any,)", "(bool,)"), Some(Ordering::Greater));
+
+        assert_eq!(cmp("(any, int)", "(bool, int)"), Some(Ordering::Greater));
 
         assert_eq!(
-            Type::Union(vec![Type::Bool]).partial_cmp(&Type::Bool),
-            Some(Ordering::Equal)
-        );
-
-        assert_eq!(
-            Type::Union(vec![Type::Bool, Type::Nil]).partial_cmp(&Type::Bool),
+            cmp("(bool | int, int)", "(bool, int)"),
             Some(Ordering::Greater)
         );
 
-        assert_eq!(
-            Type::Union(vec![Type::Bool, Type::FnDef]).partial_cmp(&Type::Bool),
-            Some(Ordering::Greater)
-        );
+        assert_eq!(cmp("tuple", "(bool, int)"), Some(Ordering::Greater));
 
-        assert_eq!(
-            Type::Union(vec![
-                Type::Bool,
-                Type::List(Type::Union(vec![Type::Bool, Type::FnDef]).into())
-            ])
-            .partial_cmp(&Type::List(Type::Bool.into())),
-            Some(Ordering::Greater)
-        );
+        assert_eq!(cmp("tuple", "tuple"), Some(Ordering::Equal));
+
+        assert_eq!(cmp("(int, bool)", "bool"), None);
+
+        assert_eq!(cmp("(int, bool) | bool", "bool"), Some(Ordering::Greater));
     }
 }

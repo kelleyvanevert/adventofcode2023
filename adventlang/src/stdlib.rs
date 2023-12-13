@@ -281,9 +281,9 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                         list.reverse();
                         Ok(runtime.new_value(Value::List(t, list)))
                     }
-                    Value::Tuple(mut list) => {
+                    Value::Tuple(ts, mut list) => {
                         list.reverse();
-                        Ok(runtime.new_value(Value::Tuple(list)))
+                        Ok(runtime.new_value(Value::Tuple(ts, list)))
                     }
                     _ => {
                         return RuntimeError(format!(
@@ -306,23 +306,33 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let ys = runtime.get_scope(scope).get_unchecked("ys");
 
                 match (runtime.get_value(xs).clone(), runtime.get_value(ys).clone()) {
-                    (Value::List(_, x_els), Value::List(_, y_els)) => {
+                    (Value::List(x_t, x_els), Value::List(y_t, y_els)) => {
                         let zipped_items = x_els
                             .into_iter()
                             .zip(y_els.into_iter())
-                            .map(|(x, y)| runtime.new_value(Value::Tuple(vec![x, y])).0)
+                            .map(|(x, y)| {
+                                runtime
+                                    .new_value(Value::Tuple(
+                                        Some(vec![x_t.clone(), y_t.clone()]),
+                                        vec![x, y],
+                                    ))
+                                    .0
+                            })
                             .collect();
 
-                        Ok(runtime.new_value(Value::List(Type::Tuple, zipped_items)))
+                        Ok(runtime.new_value(Value::List(
+                            Type::Tuple(Some(vec![x_t, y_t])),
+                            zipped_items,
+                        )))
                     }
-                    (Value::Tuple(x_els), Value::Tuple(y_els)) => {
+                    (Value::Tuple(x_t, x_els), Value::Tuple(y_t, y_els)) => {
                         let zipped_items = x_els
                             .into_iter()
                             .zip(y_els.into_iter())
-                            .map(|(x, y)| runtime.new_value(Value::Tuple(vec![x, y])).0)
+                            .map(|(x, y)| runtime.new_value(Value::Tuple(None, vec![x, y])).0)
                             .collect();
 
-                        Ok(runtime.new_value(Value::Tuple(zipped_items)))
+                        Ok(runtime.new_value(Value::Tuple(None, zipped_items)))
                     }
                     _ => {
                         return RuntimeError(format!(
@@ -352,7 +362,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                             runtime.invoke(cb, vec![(None, acc.0), (None, el.clone())])
                         })?)
                     }
-                    Value::Tuple(els) => {
+                    Value::Tuple(_, els) => {
                         Ok(els.clone().into_iter().try_fold((init, false), |acc, el| {
                             runtime.invoke(cb, vec![(None, acc.0), (None, el.clone())])
                         })?)
@@ -453,7 +463,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let mut dict = Dict::new();
 
                 for pair in pairs {
-                    let Value::Tuple(elements) = runtime.get_value(pair) else {
+                    let Value::Tuple(_, elements) = runtime.get_value(pair) else {
                         return RuntimeError(format!(
                             "each dict() pair must be a tuple, is a: {}",
                             runtime.get_ty(pair)
@@ -828,7 +838,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let items = runtime.get_scope(scope).get_unchecked("items");
 
                 Ok(match runtime.get_value(items).clone() {
-                    Value::List(_, list) => {
+                    Value::List(t, list) => {
                         let new_items = list
                             .iter()
                             .cloned()
@@ -837,16 +847,21 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                                 let index =
                                     runtime.new_value(Value::Numeric(Numeric::Int(i as i64)));
 
-                                runtime.new_value(Value::Tuple(vec![index.0, item])).0
+                                runtime
+                                    .new_value(Value::Tuple(
+                                        Some(vec![Type::Numeric, t.clone()]),
+                                        vec![index.0, item],
+                                    ))
+                                    .0
                             })
                             .collect::<Vec<_>>();
 
                         runtime.new_value(Value::List(
-                            Type::Tuple, // TODO generic tuple types
+                            Type::Tuple(Some(vec![Type::Numeric, t])),
                             new_items,
                         ))
                     }
-                    Value::Tuple(list) => {
+                    Value::Tuple(ts, list) => {
                         let new_items = list
                             .iter()
                             .cloned()
@@ -855,11 +870,11 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                                 let index =
                                     runtime.new_value(Value::Numeric(Numeric::Int(i as i64)));
 
-                                runtime.new_value(Value::Tuple(vec![index.0, item])).0
+                                runtime.new_value(Value::Tuple(None, vec![index.0, item])).0
                             })
                             .collect::<Vec<_>>();
 
-                        runtime.new_value(Value::Tuple(new_items))
+                        runtime.new_value(Value::Tuple(None, new_items))
                     }
                     _ => {
                         return RuntimeError(format!(
@@ -882,7 +897,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                 let list = match runtime.get_value(items) {
                     Value::List(_, list) => list,
-                    Value::Tuple(list) => list,
+                    Value::Tuple(_, list) => list,
                     _ => {
                         return RuntimeError(format!(
                             "cannot get max of: {}",
@@ -1073,7 +1088,10 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                         let matched_part = runtime.new_value(Value::Str(m.as_str().into()));
                         let offset =
                             runtime.new_value(Value::Numeric(Numeric::Int(m.start() as i64)));
-                        Ok(runtime.new_value(Value::Tuple(vec![matched_part.0, offset.0])))
+                        Ok(runtime.new_value(Value::Tuple(
+                            Some(vec![Type::Str, Type::Numeric]),
+                            vec![matched_part.0, offset.0],
+                        )))
                     }
                     None => Ok(runtime.new_value(Value::Nil)),
                 }
@@ -1115,11 +1133,19 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                         let offset =
                             runtime.new_value(Value::Numeric(Numeric::Int(m.start() as i64)));
 
-                        runtime.new_value(Value::Tuple(vec![matched.0, offset.0])).0
+                        runtime
+                            .new_value(Value::Tuple(
+                                Some(vec![Type::Str, Type::Numeric]),
+                                vec![matched.0, offset.0],
+                            ))
+                            .0
                     })
                     .collect::<Vec<_>>();
 
-                Ok(runtime.new_value(Value::List(Type::Tuple, items)))
+                Ok(runtime.new_value(Value::List(
+                    Type::Tuple(Some(vec![Type::Str, Type::Numeric])),
+                    items,
+                )))
             }),
         }],
     );
@@ -1171,7 +1197,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                 let def = runtime.get_scope(scope).get_unchecked("def");
 
-                let Value::Tuple(def) = runtime.get_value(def) else {
+                let Value::Tuple(_, def) = runtime.get_value(def) else {
                     return RuntimeError(format!(
                         "replace() def must be a tuple, is a: {}",
                         runtime.get_ty(def)
@@ -1299,7 +1325,11 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
             FnSig {
                 params: vec![
                     DeclarePattern::Id(id("text"), Some(Type::Str)),
-                    DeclarePattern::Id(id("range"), Some(Type::Tuple)),
+                    DeclarePattern::Id(
+                        id("range"),
+                        //Some(Type::Tuple(Some(vec![Type::Numeric, Type::Numeric]))),
+                        Some(Type::Tuple(None)),
+                    ),
                 ],
                 body: FnBody::Builtin(|runtime, scope| {
                     let text = runtime.get_scope(scope).get_unchecked("text");
@@ -1314,7 +1344,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                     let range = runtime.get_scope(scope).get_unchecked("range");
 
-                    let Value::Tuple(range) = runtime.get_value(range).clone() else {
+                    let Value::Tuple(_, range) = runtime.get_value(range).clone() else {
                         return RuntimeError(format!(
                             "slice() range must be an (int, int) range, is a: {}",
                             runtime.get_ty(range)
@@ -1364,7 +1394,11 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
             FnSig {
                 params: vec![
                     DeclarePattern::Id(id("list"), Some(Type::List(Type::Any.into()))),
-                    DeclarePattern::Id(id("range"), Some(Type::Tuple)),
+                    DeclarePattern::Id(
+                        id("range"),
+                        //Some(Type::Tuple(Some(vec![Type::Numeric, Type::Numeric]))),
+                        Some(Type::Tuple(None)),
+                    ),
                 ],
                 body: FnBody::Builtin(|runtime, scope| {
                     let list = runtime.get_scope(scope).get_unchecked("list");
@@ -1379,7 +1413,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                     let range = runtime.get_scope(scope).get_unchecked("range");
 
-                    let Value::Tuple(range) = runtime.get_value(range).clone() else {
+                    let Value::Tuple(_, range) = runtime.get_value(range).clone() else {
                         return RuntimeError(format!(
                             "slice() range must be an (int, int) range, is a: {}",
                             runtime.get_ty(range)
@@ -1441,6 +1475,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     idpat("key"),
                 ],
                 body: FnBody::Builtin(|runtime, scope| {
+                    println!("dict index access");
                     let dict = runtime.get_scope(scope).get_unchecked("dict");
 
                     let Value::Dict(dict) = runtime.get_value(dict).clone() else {
@@ -1467,6 +1502,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     idpat("i"),
                 ],
                 body: FnBody::Builtin(|runtime, scope| {
+                    // println!("list index access");
                     let list = runtime.get_scope(scope).get_unchecked("list");
 
                     let Value::List(_, items) = runtime.get_value(list).clone() else {
@@ -1504,16 +1540,17 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
             },
             FnSig {
                 params: vec![
-                    DeclarePattern::Id(id("list"), Some(Type::Tuple)),
+                    DeclarePattern::Id(id("tup"), Some(Type::Tuple(None))),
                     idpat("i"),
                 ],
                 body: FnBody::Builtin(|runtime, scope| {
-                    let list = runtime.get_scope(scope).get_unchecked("list");
+                    // println!("tuple index access");
+                    let tup = runtime.get_scope(scope).get_unchecked("tup");
 
-                    let Value::Tuple(list) = runtime.get_value(list) else {
+                    let Value::Tuple(_, tup) = runtime.get_value(tup) else {
                         return RuntimeError(format!(
-                            "index() list must be a tuple, is a: {}",
-                            runtime.get_ty(list)
+                            "index() tup must be a tuple, is a: {}",
+                            runtime.get_ty(tup)
                         ))
                         .into();
                     };
@@ -1531,9 +1568,9 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     let i = i.get_int()?;
 
                     let el = (match i {
-                        i if i >= 0 => list.get(i as usize).cloned(),
-                        i if list.len() as i64 + i >= 0 => {
-                            list.get((list.len() as i64 + i) as usize).cloned()
+                        i if i >= 0 => tup.get(i as usize).cloned(),
+                        i if tup.len() as i64 + i >= 0 => {
+                            tup.get((tup.len() as i64 + i) as usize).cloned()
                         }
                         _ => None,
                     })
@@ -1546,6 +1583,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
             FnSig {
                 params: vec![DeclarePattern::Id(id("text"), Some(Type::Str)), idpat("i")],
                 body: FnBody::Builtin(|runtime, scope| {
+                    // println!("str index access");
                     let text = runtime.get_scope(scope).get_unchecked("text");
 
                     let Value::Str(text) = runtime.get_value(text) else {
@@ -1630,7 +1668,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let len = match runtime.get_value(data) {
                     Value::Str(text) => text.len(),
                     Value::List(_, list) => list.len(),
-                    Value::Tuple(tuple) => tuple.len(),
+                    Value::Tuple(_, tuple) => tuple.len(),
                     _ => {
                         return RuntimeError(format!(
                             "cannot get len of: {}",

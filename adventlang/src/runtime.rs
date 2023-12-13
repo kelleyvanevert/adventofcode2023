@@ -170,7 +170,7 @@ pub enum Value {
     Regex(AlRegex),
     FnDef(FnDef),
     List(Type, Vec<usize>),
-    Tuple(Vec<usize>),
+    Tuple(Option<Vec<Type>>, Vec<usize>),
     Dict(Dict),
 }
 
@@ -194,7 +194,7 @@ impl Display for Value {
                 }
                 write!(f, "]")
             }
-            Value::Tuple(list) => {
+            Value::Tuple(_, list) => {
                 write!(f, "(")?;
                 let len = list.len();
                 for (i, item) in list.iter().enumerate() {
@@ -234,7 +234,7 @@ impl Value {
             Value::Bool(b) => Ok(Value::Bool(!b)),
             Value::Str(_) => RuntimeError(format!("Can't negate str")).into(),
             Value::Numeric(n) => Ok(Value::Numeric(n.negate()?)),
-            Value::Tuple(_) => Ok(Value::Bool(false)),
+            Value::Tuple(_, _) => Ok(Value::Bool(false)),
             Value::List(_, _) => Ok(Value::Bool(false)),
             Value::Dict(_) => Ok(Value::Bool(false)),
             _ => RuntimeError(format!("Can't negate {}", self.ty())).into(),
@@ -312,7 +312,7 @@ impl Value {
             Value::Regex(r) => format!("/{}/", r.0.as_str()),
             Value::FnDef(_) => "<fn>".into(),
             Value::List(_, _) => "<list>".into(),
-            Value::Tuple(_) => "<tuple>".into(),
+            Value::Tuple(_, _) => "<tuple>".into(),
             Value::Dict(_) => "<dict>".into(),
         }
     }
@@ -347,7 +347,7 @@ impl Value {
             Value::Regex(_) => Type::Regex,
             Value::FnDef(_) => Type::FnDef,
             Value::List(t, _) => Type::List(t.clone().into()),
-            Value::Tuple(_) => Type::Tuple,
+            Value::Tuple(ts, _) => Type::Tuple(ts.clone()),
             Value::Dict(_) => Type::Dict,
         }
     }
@@ -357,7 +357,7 @@ impl Value {
             Value::Nil => Ok(false),
             Value::Bool(b) => Ok(*b),
             Value::List(_, _) => Ok(true),
-            Value::Tuple(_) => Ok(true),
+            Value::Tuple(_, _) => Ok(true),
             Value::Dict(_) => Ok(true),
             Value::Numeric(n) => Ok(n != &Numeric::Int(0) && n != &Numeric::Double(0.0)),
             Value::Str(str) => Ok(str.len() > 0),
@@ -470,7 +470,7 @@ impl Runtime {
                     .map(|loc| self.get_value_ext(*loc))
                     .collect::<Result<Vec<_>, _>>()?,
             )),
-            Value::Tuple(items) => Ok(Ev::Tuple(
+            Value::Tuple(_, items) => Ok(Ev::Tuple(
                 items
                     .into_iter()
                     .map(|loc| self.get_value_ext(*loc))
@@ -503,9 +503,9 @@ impl Runtime {
                 let cloned_items = items.into_iter().map(|item| self.clone(item).0).collect();
                 self.new_value(Value::List(t, cloned_items))
             }
-            Value::Tuple(items) => {
+            Value::Tuple(ts, items) => {
                 let cloned_items = items.into_iter().map(|item| self.clone(item).0).collect();
-                self.new_value(Value::Tuple(cloned_items))
+                self.new_value(Value::Tuple(ts, cloned_items))
             }
             other => self.new_value(other),
         }
@@ -526,7 +526,7 @@ impl Runtime {
             Value::Str(s) => s.hash(h),
             Value::Numeric(n) => n.hash(h),
             Value::Regex(a) => a.hash(h),
-            Value::Tuple(els) => {
+            Value::Tuple(_, els) => {
                 for &el in els {
                     self.hash_do(h, el);
                 }
@@ -555,7 +555,7 @@ impl Runtime {
             (Value::Str(a), Value::Str(b)) => a.cmp(b),
             (Value::Numeric(a), Value::Numeric(b)) => a.cmp(b),
             (Value::Regex(a), Value::Regex(b)) => a.0.as_str().cmp(b.0.as_str()),
-            (Value::Tuple(a), Value::Tuple(b)) => {
+            (Value::Tuple(_, a), Value::Tuple(_, b)) => {
                 for (a, b) in a.into_iter().zip(b.into_iter()) {
                     match self.cmp(*a, *b) {
                         Ordering::Equal => {}
@@ -646,7 +646,7 @@ impl Runtime {
                 }
                 write!(f, "]")
             }
-            Value::Tuple(list) => {
+            Value::Tuple(_, list) => {
                 write!(f, "(")?;
                 let len = list.len();
                 for (i, item) in list.iter().enumerate() {
@@ -725,7 +725,7 @@ impl Runtime {
                     self.gc_reach(el, reachable);
                 }
             }
-            Value::Tuple(els) => {
+            Value::Tuple(_, els) => {
                 for &el in els {
                     self.gc_reach(el, reachable);
                 }
@@ -837,7 +837,7 @@ impl Runtime {
             }
             Location::Tuple(elements) => {
                 let value = self.get_value(value).clone();
-                let Value::Tuple(items) = value else {
+                let Value::Tuple(_, items) = value else {
                     return RuntimeError(format!("cannot assign to tuple pattern: {}", value.ty()))
                         .into();
                 };
@@ -897,7 +897,7 @@ impl Runtime {
             }
             DeclarePattern::Tuple { elements, rest } => {
                 let value = self.get_value(value).clone();
-                let Value::Tuple(mut items) = value else {
+                let Value::Tuple(ts, mut items) = value else {
                     return RuntimeError(format!(
                         "cannot declare to tiple pattern: {}",
                         value.ty()
@@ -922,7 +922,7 @@ impl Runtime {
                 }
 
                 if let Some((id, t, items)) = assign_rest_later {
-                    let (tuple, _) = self.new_value(Value::Tuple(items));
+                    let (tuple, _) = self.new_value(Value::Tuple(ts, items));
                     self.declare(scope, &DeclarePattern::Id(id, t), tuple)?;
                 }
             }
@@ -981,15 +981,29 @@ impl Runtime {
         sig: &FnSig,
         args: &Vec<(Option<Identifier>, usize)>,
     ) -> bool {
+        // println!(
+        //     "does this sig match? fn: {}, args: ({}), sig: ({})",
+        //     name.as_ref().map(|id| id.0.as_str()).unwrap_or("<unknown>"),
+        //     args.iter()
+        //         .map(|(_, arg)| self.display(*arg, false))
+        //         .collect::<Vec<_>>()
+        //         .join(", "),
+        //     sig.params
+        //         .iter()
+        //         .map(|t| { format!("{}", t) })
+        //         .collect::<Vec<_>>()
+        //         .join(", ")
+        // );
+
         if sig.params.len() != args.len() {
             false
         } else {
             // TODO: find arg that does not fit
             for (pat, (_, arg)) in sig.params.iter().zip(args) {
                 let value = self.get_value(*arg);
-                // if name == &Some(Identifier("slice".into())) {
-                //     println!("fits? pattern {:?} value {:?}", pat, value);
-                // }
+                if name == &Some(Identifier("slice".into())) {
+                    // println!("fits? pattern {:?} value {:?}", pat, value);
+                }
                 match pat {
                     DeclarePattern::List { .. } => {
                         if !(Type::List(Type::Any.into()) >= value.ty()) {
@@ -998,7 +1012,7 @@ impl Runtime {
                         }
                     }
                     DeclarePattern::Tuple { .. } => {
-                        if !(Type::Tuple >= value.ty()) {
+                        if !(Type::Tuple(None) >= value.ty()) {
                             // println!("[{name:?}] does not match sig: tuple");
                             return false;
                         }
@@ -1008,7 +1022,7 @@ impl Runtime {
                             // println!(
                             //     "[{name:?}] does not match sig: type, because NOT {} >= {}",
                             //     param_type,
-                            //     arg.ty()
+                            //     value.ty()
                             // );
                             return false;
                         }
@@ -1017,6 +1031,7 @@ impl Runtime {
                 }
             }
 
+            // println!("  sure");
             true
         }
     }
@@ -1048,11 +1063,12 @@ impl Runtime {
 
         let FnSig { params, body } = if matching_signatures.len() == 0 {
             return RuntimeError(format!(
-                "could not find matching signature for {}({:?})",
-                name.map(|n| n.0).unwrap_or("<anonymous>".into()),
+                "could not find matching signature, fn: {}, arg types: ({})",
+                name.map(|n| n.0).unwrap_or("<unknown>".into()),
                 args.iter()
-                    .map(|arg| format!("{}", self.display(arg.1, false)))
+                    .map(|arg| format!("{}", self.get_ty(arg.1)))
                     .collect::<Vec<_>>()
+                    .join(", ")
             ))
             .into();
         } else if matching_signatures.len() == 1 {
@@ -1060,7 +1076,7 @@ impl Runtime {
         } else {
             unimplemented!(
                 "todo select fn signature for: {}",
-                name.map(|n| n.0).unwrap_or("<anonymous>".into())
+                name.map(|n| n.0).unwrap_or("<unknown>".into())
             )
         };
 
@@ -1140,7 +1156,7 @@ impl Runtime {
                                 els.push(nil);
                                 Some(nil)
                             }
-                            (Value::Tuple(els), None) => {
+                            (Value::Tuple(_, els), None) => {
                                 els.push(nil);
                                 Some(nil)
                             }
@@ -1150,7 +1166,7 @@ impl Runtime {
                         let index_value_hash = index_loc.map(|i| self.hash(i));
 
                         match self.get_value_mut(parent) {
-                            Value::List(_, items) | Value::Tuple(items) => {
+                            Value::List(_, items) | Value::Tuple(_, items) => {
                                 if let Some(index) = index_val {
                                     let Value::Numeric(Numeric::Int(index)) = index else {
                                         return RuntimeError(format!(
@@ -1405,13 +1421,15 @@ impl Runtime {
                 Ok(self.new_value(Value::List(ty, element_values)))
             }
             Expr::TupleLiteral { elements } => {
+                let ts = None;
+
                 let mut element_values = vec![];
                 for expr in elements {
                     let expr_value = self.evaluate(scope, expr)?;
                     element_values.push(expr_value.0);
                 }
 
-                Ok(self.new_value(Value::Tuple(element_values)))
+                Ok(self.new_value(Value::Tuple(ts, element_values)))
             }
             Expr::Invocation { expr, args } => {
                 let fn_expr_value = self.evaluate(scope, expr)?;
@@ -1532,7 +1550,7 @@ impl Runtime {
 
                 let range = match range_value {
                     Value::List(_, values) => values,
-                    Value::Tuple(values) => values,
+                    Value::Tuple(_, values) => values,
                     _ => {
                         return RuntimeError(format!("cannot for-loop over {}", range_value.ty()))
                             .into();
@@ -1623,6 +1641,12 @@ mod tests {
     }
 
     #[test]
+    fn list_index_stack_overflow() {
+        // stack overflow, why?!
+        assert_eq!(execute_simple("let a = [2]; a[0]"), Ok(int(2)));
+    }
+
+    #[test]
     fn some_simple_tests() {
         assert_eq!(
             execute_simple("[1, 2, 3]"),
@@ -1669,6 +1693,10 @@ mod tests {
         );
 
         assert_eq!(execute_simple("let a = 1; let b = a; a = 2; b"), Ok(int(1)));
+
+        assert_eq!(execute_simple("(1, 2)"), Ok(tuple([int(1), int(2)])));
+
+        assert_eq!(execute_simple("let a = []; a []= (1, 2); 2"), Ok(int(2)));
 
         assert_eq!(
             execute_simple("let a = []; a []= (1, 2); let i = 0; a[i]"),

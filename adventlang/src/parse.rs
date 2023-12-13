@@ -948,9 +948,17 @@ fn type_leaf(s: State) -> ParseResult<State, Type> {
         map(tag("str"), |_| Type::Str),
         map(tag("int"), |_| Type::Numeric),
         map(tag("double"), |_| Type::Numeric),
-        // TODO fns
-        map(tag("list"), |_| Type::List(Type::Any.into())),
-        map(tag("tuple"), |_| Type::Tuple),
+        map(tag("fn"), |_| Type::FnDef),
+        map(tag("dict"), |_| Type::Dict),
+        map(tag("list"), |_| Type::List(Type::Any.into())), // [any]
+        map(tag("tuple"), |_| Type::Tuple(None)),           // any N-sized tuple of any's
+        map(listy("(", typespec, typespec, ")"), |ts| {
+            Type::Tuple(Some(ts))
+        }),
+        map(
+            delimited(seq((tag("["), ws0)), typespec, seq((ws0, tag("]")))),
+            |t| Type::List(t.into()),
+        ),
     ))
     .parse(s)
 }
@@ -1244,6 +1252,12 @@ fn document(s: State) -> ParseResult<State, Document> {
     .parse(s)
 }
 
+pub fn parse_type(input: &str) -> Option<Type> {
+    terminated(typespec, eof)
+        .parse(input.trim().into())
+        .map(|(_, t)| t)
+}
+
 pub fn parse_document(input: &str) -> Option<Document> {
     let input = input
         .lines()
@@ -1260,7 +1274,6 @@ pub fn parse_document(input: &str) -> Option<Document> {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use crate::{
         ast::Identifier,

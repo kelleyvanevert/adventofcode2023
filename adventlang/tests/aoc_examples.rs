@@ -57,7 +57,7 @@ let nums = [
 ]
 
 fn solve(input) {
-  let values = input :lines :map |line| {
+  let values = input :lines :map |line: str| {
     let digits = line :chars :filter is_digit
     int(digits[0] + digits[-1])
   }
@@ -65,7 +65,7 @@ fn solve(input) {
   values :sum
 }
 
-fn bonus(input) {
+fn bonus(input: str) {
   let values = input :lines :map |line| {
     let digits = range(0, line :len)
       :filter_map |i| {
@@ -1271,12 +1271,12 @@ fn solve(input: str) {
     :sum
 }
 
-fn hash(pieces, ns) {
+fn hash(pieces: [str], ns: [int]) {
   (pieces :join ",") + "__" + (ns :join ",")
 }
 
 let should_memoize = false
-let cache = @{}
+let cache: dict = @{}
 
 fn arrangements(pieces, ns, indent) {
   let h = (pieces, ns)
