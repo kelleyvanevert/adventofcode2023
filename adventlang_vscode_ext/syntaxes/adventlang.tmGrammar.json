@@ -7,6 +7,9 @@
     "statements": {
       "patterns": [
         {
+          "include": "#label"
+        },
+        {
           "include": "#comment"
         },
         {
@@ -14,6 +17,9 @@
         },
         {
           "include": "#break-stmt"
+        },
+        {
+          "include": "#continue-stmt"
         },
         {
           "include": "#string"
@@ -36,6 +42,10 @@
     "break-stmt": {
       "name": "keyword.control.flow.ts",
       "match": "(?<!\\.|\\$)\\b(break)\\b(?!\\$)"
+    },
+    "continue-stmt": {
+      "name": "keyword.control.flow.ts",
+      "match": "(?<!\\.|\\$)\\b(continue)\\b(?!\\$)"
     },
     "declaration": {
       "name": "meta.declaration.al",
@@ -215,7 +225,7 @@
       "match": "(?<!\\.|\\$)\\b(str|num|int|double|bool|nil|any|list|tuple|regex)\\b(?!\\$)"
     },
     "function-call-without-args": {
-      "begin": "([_$[:alpha:]][_$[:alnum:]]*)\\s*(?=\\()",
+      "begin": "([_$[:alpha:]][_$[:alnum:]]*)(?=\\()",
       "beginCaptures": {
         "1": {
           "name": "entity.name.function.al"
@@ -242,6 +252,9 @@
         },
         {
           "include": "#punctuation-semicolon"
+        },
+        {
+          "include": "#punctuation-brackets"
         }
       ]
     },
@@ -252,6 +265,34 @@
     "punctuation-semicolon": {
       "name": "punctuation.terminator.statement.al",
       "match": ";"
+    },
+    "punctuation-brackets": {
+      "patterns": [
+        {
+          "name": "punctuation.brackets.square.begin.al",
+          "match": "\\["
+        },
+        {
+          "name": "punctuation.brackets.square.end.al",
+          "match": "\\]"
+        },
+        {
+          "name": "punctuation.brackets.round.begin.al",
+          "match": "\\("
+        },
+        {
+          "name": "punctuation.brackets.round.end.al",
+          "match": "\\)"
+        },
+        {
+          "name": "punctuation.brackets.curly.begin.al",
+          "match": "\\{"
+        },
+        {
+          "name": "punctuation.brackets.curly.end.al",
+          "match": "\\}"
+        }
+      ]
     },
     "literal": {
       "name": "literal.al",
@@ -266,6 +307,17 @@
           "include": "#nil-literal"
         }
       ]
+    },
+    "dict-literal": {
+      "match": "(@)(\\{)",
+      "captures": {
+        "1": {
+          "name": "punctuation.other.al"
+        },
+        "2": {
+          "name": "punctuation.brackets.curly.begin.al"
+        }
+      }
     },
     "numeric-literal": {
       "patterns": [
@@ -354,9 +406,26 @@
         }
       ]
     },
+    "label": {
+      "match": "(')([_[:alpha:]][_[:alnum:]]*)\\s*(:)?",
+      "captures": {
+        "1": {
+          "name": "punctuation.other.al"
+        },
+        "2": {
+          "name": "entity.name.label.al"
+        },
+        "3": {
+          "name": "punctuation.other.al"
+        }
+      }
+    },
     "expression": {
       "name": "meta.expression.al",
       "patterns": [
+        {
+          "include": "#label"
+        },
         {
           "include": "#string"
         },
@@ -374,6 +443,9 @@
         },
         {
           "include": "#literal"
+        },
+        {
+          "include": "#dict-literal"
         },
         {
           "include": "#declaration"
