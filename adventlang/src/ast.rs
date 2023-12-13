@@ -284,17 +284,21 @@ pub enum Expr {
         els: Option<Block>,
     },
     While {
+        label: Option<Identifier>,
         cond: Box<Expr>,
         body: Block,
     },
     DoWhile {
+        label: Option<Identifier>,
         body: Block,
         cond: Option<Box<Expr>>,
     },
     Loop {
+        label: Option<Identifier>,
         body: Block,
     },
     For {
+        label: Option<Identifier>,
         pattern: DeclarePattern,
         range: Box<Expr>,
         body: Block,
@@ -347,6 +351,9 @@ pub enum Item {
 pub enum Stmt {
     Break {
         expr: Option<Expr>,
+    },
+    Continue {
+        label: Option<Identifier>,
     },
     Return {
         expr: Option<Expr>,

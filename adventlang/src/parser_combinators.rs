@@ -46,6 +46,20 @@ pub fn cond<I, O>(
     }
 }
 
+pub fn check<I, O>(
+    mut p: impl Parser<I, Output = O>,
+    check: impl Fn(&O) -> bool,
+) -> impl Parser<I, Output = O> {
+    move |input: I| {
+        let (input, r) = p.parse(input)?;
+        if check(&r) {
+            Some((input, r))
+        } else {
+            None
+        }
+    }
+}
+
 macro_rules! succ (
   ( 0, $submac:ident!($($rest:tt)*)) => ($submac!( 1, $($rest)*));
   ( 1, $submac:ident!($($rest:tt)*)) => ($submac!( 2, $($rest)*));

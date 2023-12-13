@@ -2,6 +2,8 @@ use std::{cmp::Ordering, fmt::Display};
 
 use regex::Regex;
 
+use crate::ast::Identifier;
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeError(pub String);
 
@@ -10,6 +12,7 @@ pub type EvaluationResult<T> = Result<T, EvalOther>;
 #[derive(Debug, PartialEq)]
 pub enum EvalOther {
     RuntimeError(RuntimeError),
+    Continue(Option<Identifier>),
     Break((usize, bool)),
     Return((usize, bool)),
 }

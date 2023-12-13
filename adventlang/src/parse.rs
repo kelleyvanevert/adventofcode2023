@@ -9,8 +9,8 @@ use crate::{
         StrLiteralPiece, Type,
     },
     parser_combinators::{
-        alt, delimited, many0, map, optional, optional_if, preceded, seq, terminated, ParseResult,
-        Parser,
+        alt, check, delimited, many0, map, optional, optional_if, preceded, seq, terminated,
+        ParseResult, Parser,
     },
     value::{AlRegex, Numeric},
 };
@@ -80,21 +80,25 @@ fn regex<'a>(re: &'static str) -> impl Parser<State<'a>, Output = &'a str> {
     }
 }
 
-fn identifier(s: State) -> ParseResult<State, Identifier> {
-    let (s, id) = map(regex(r"^[_a-zA-Z][_a-zA-Z0-9]*"), |id| {
+fn raw_identifier(s: State) -> ParseResult<State, Identifier> {
+    map(regex(r"^[_a-zA-Z][_a-zA-Z0-9]*"), |id| {
         Identifier(id.into())
     })
-    .parse(s)?;
+    .parse(s)
+}
 
-    if [
-        "fn", "if", "else", "then", "while", "do", "for", "let", "loop", "true", "false",
-    ]
-    .contains(&id.0.as_str())
-    {
-        return None;
-    }
+fn identifier(s: State) -> ParseResult<State, Identifier> {
+    check(raw_identifier, |id| {
+        ![
+            "fn", "if", "else", "then", "while", "do", "for", "let", "loop", "true", "false",
+        ]
+        .contains(&id.0.as_str())
+    })
+    .parse(s)
+}
 
-    Some((s, id))
+fn label(s: State) -> ParseResult<State, Identifier> {
+    preceded(tag("'"), raw_identifier).parse(s)
 }
 
 fn slws0(s: State) -> ParseResult<State, &str> {
@@ -351,6 +355,7 @@ fn if_expr(s: State) -> ParseResult<State, Expr> {
 fn do_while_expr(s: State) -> ParseResult<State, Expr> {
     map(
         seq((
+            optional(terminated(label, seq((tag(":"), ws0)))),
             tag("do"),
             ws0,
             delimited(seq((tag("{"), ws0)), block_contents, seq((ws0, tag("}")))),
@@ -359,7 +364,8 @@ fn do_while_expr(s: State) -> ParseResult<State, Expr> {
                 maybe_parenthesized(constrained(true, expr)),
             )),
         )),
-        |(_, _, body, cond)| Expr::DoWhile {
+        |(label, _, _, body, cond)| Expr::DoWhile {
+            label,
             cond: cond.map(Box::new),
             body,
         },
@@ -370,11 +376,12 @@ fn do_while_expr(s: State) -> ParseResult<State, Expr> {
 fn loop_expr(s: State) -> ParseResult<State, Expr> {
     map(
         seq((
+            optional(terminated(label, seq((tag(":"), ws0)))),
             tag("loop"),
             ws0,
             delimited(seq((tag("{"), ws0)), block_contents, seq((ws0, tag("}")))),
         )),
-        |(_, _, body)| Expr::Loop { body },
+        |(label, _, _, body)| Expr::Loop { label, body },
     )
     .parse(s)
 }
@@ -382,13 +389,15 @@ fn loop_expr(s: State) -> ParseResult<State, Expr> {
 fn while_expr(s: State) -> ParseResult<State, Expr> {
     map(
         seq((
+            optional(terminated(label, seq((tag(":"), ws0)))),
             tag("while"),
             ws1,
             maybe_parenthesized(constrained(true, expr)),
             ws0,
             delimited(seq((tag("{"), ws0)), block_contents, seq((ws0, tag("}")))),
         )),
-        |(_, _, cond, _, body)| Expr::While {
+        |(label, _, _, cond, _, body)| Expr::While {
+            label,
             cond: cond.into(),
             body,
         },
@@ -399,6 +408,7 @@ fn while_expr(s: State) -> ParseResult<State, Expr> {
 fn for_expr(s: State) -> ParseResult<State, Expr> {
     map(
         seq((
+            optional(terminated(label, seq((tag(":"), ws0)))),
             tag("for"),
             ws1,
             maybe_parenthesized(seq((
@@ -413,7 +423,8 @@ fn for_expr(s: State) -> ParseResult<State, Expr> {
             ws0,
             delimited(seq((tag("{"), ws0)), block_contents, seq((ws0, tag("}")))),
         )),
-        |(_, _, (_, _, pattern, _, _, _, range), _, body)| Expr::For {
+        |(label, _, _, (_, _, pattern, _, _, _, range), _, body)| Expr::For {
+            label,
             pattern,
             range: range.into(),
             body,
@@ -850,6 +861,7 @@ fn or_expr_stack(s: State) -> ParseResult<State, Expr> {
                 ws0,
                 alt((
                     tag("||"),
+                    tag("??"),
                     //
                 )),
                 ws0,
@@ -906,6 +918,16 @@ fn break_stmt(s: State) -> ParseResult<State, Stmt> {
             optional(preceded(slws1, constrained(false, expr))),
         )),
         |(_, expr)| Stmt::Break { expr: expr.into() },
+    )
+    .parse(s)
+}
+
+fn continue_stmt(s: State) -> ParseResult<State, Stmt> {
+    map(
+        seq((tag("continue"), optional(preceded(ws1, label)))),
+        |(_, label)| Stmt::Continue {
+            label: label.into(),
+        },
     )
     .parse(s)
 }
@@ -1122,6 +1144,7 @@ fn assign_stmt(s: State) -> ParseResult<State, Stmt> {
 
 fn stmt(s: State) -> ParseResult<State, Stmt> {
     alt((
+        continue_stmt,
         break_stmt,
         return_stmt,
         declare_stmt,
@@ -2094,6 +2117,7 @@ mod tests {
                 " ?",
                 Stmt::Expr {
                     expr: Expr::For {
+                        label: None,
                         pattern: DeclarePattern::Id(id("i"), None),
                         range: simple_invocation("range", vec![int(1), int(2)]).into(),
                         body: Block {

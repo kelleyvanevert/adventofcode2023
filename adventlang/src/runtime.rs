@@ -933,6 +933,7 @@ impl Runtime {
 
     pub fn execute(&mut self, scope: usize, stmt: &Stmt) -> EvaluationResult<(usize, bool)> {
         match stmt {
+            Stmt::Continue { label } => Err(EvalOther::Continue(label.clone())),
             Stmt::Break { expr } => {
                 let value = expr
                     .clone()
@@ -1318,6 +1319,13 @@ impl Runtime {
                             return Ok(self.evaluate(scope, right)?);
                         }
                     }
+                    "??" => {
+                        if self.get_value(le.0) != &Value::Nil {
+                            return Ok(le);
+                        } else {
+                            return Ok(self.evaluate(scope, right)?);
+                        }
+                    }
                     _ => {}
                 }
 
@@ -1450,7 +1458,7 @@ impl Runtime {
 
                 Ok(result)
             }
-            Expr::While { cond, body } => {
+            Expr::While { label, cond, body } => {
                 let mut result = self.new_value(Value::Nil);
                 loop {
                     let cond_value = self.evaluate(scope, cond)?;
@@ -1458,12 +1466,37 @@ impl Runtime {
                         return Ok(result);
                     }
 
-                    result = self.execute_block(scope, body)?;
+                    match self.execute_block(scope, body) {
+                        Ok(res) => {
+                            result = res;
+                        }
+                        Err(EvalOther::Break(res)) => {
+                            result = res;
+                            return Ok(result);
+                        }
+                        Err(EvalOther::Continue(continue_label))
+                            if continue_label.is_none()
+                                || continue_label.is_some() && continue_label == *label =>
+                        {
+                            continue;
+                        }
+                        Err(err) => return Err(err),
+                    }
                 }
             }
-            Expr::DoWhile { cond, body } => loop {
+            Expr::DoWhile { label, cond, body } => loop {
                 loop {
-                    let result = self.execute_block(scope, body)?;
+                    let result = match self.execute_block(scope, body) {
+                        Ok(res) => res,
+                        Err(EvalOther::Break(res)) => res,
+                        Err(EvalOther::Continue(continue_label))
+                            if continue_label.is_none()
+                                || continue_label.is_some() && continue_label == *label =>
+                        {
+                            continue;
+                        }
+                        Err(err) => return Err(err),
+                    };
 
                     if let Some(cond) = cond {
                         let cond_value = self.evaluate(scope, cond)?;
@@ -1475,14 +1508,21 @@ impl Runtime {
                     }
                 }
             },
-            Expr::Loop { body } => Ok(loop {
+            Expr::Loop { label, body } => Ok(loop {
                 match self.execute_block(scope, body) {
-                    Err(EvalOther::Break(value)) => break value,
-                    Err(other) => return Err(other),
                     Ok(_) => {}
+                    Err(EvalOther::Break(value)) => break value,
+                    Err(EvalOther::Continue(continue_label))
+                        if continue_label.is_none()
+                            || continue_label.is_some() && continue_label == *label =>
+                    {
+                        continue;
+                    }
+                    Err(other) => return Err(other),
                 }
             }),
             Expr::For {
+                label,
                 pattern,
                 range,
                 body,
@@ -1499,15 +1539,29 @@ impl Runtime {
                     }
                 };
 
+                let mut result = None;
                 for item in range {
                     let execution_scope = self.new_scope(scope);
 
                     self.declare(execution_scope, pattern, item)?;
 
-                    let _ = self.execute_block(execution_scope, body)?;
+                    match self.execute_block(execution_scope, body) {
+                        Ok(_) => {}
+                        Err(EvalOther::Break(res)) => {
+                            result = Some(res);
+                            break;
+                        }
+                        Err(EvalOther::Continue(continue_label))
+                            if continue_label.is_none()
+                                || continue_label.is_some() && continue_label == *label =>
+                        {
+                            continue;
+                        }
+                        Err(err) => return Err(err),
+                    }
                 }
 
-                Ok(self.new_value(Value::Nil))
+                Ok(result.unwrap_or_else(|| self.new_value(Value::Nil)))
             }
         }
     }
@@ -1651,6 +1705,51 @@ mod tests {
                 "#
             ),
             Ok(int(2))
+        );
+
+        assert_eq!(
+            execute_simple(
+                r#"
+                    let res = []
+                    for let i in range(0, 6) {
+                        if i == 4 {
+                            continue
+                        }
+
+                        res []= i
+                    }
+                    res
+                "#
+            ),
+            Ok(list([int(0), int(1), int(2), int(3), int(5)]))
+        );
+
+        assert_eq!(
+            execute_simple(
+                r#"
+                    let res = []
+                    'outer: for let y in [0, 10] {
+                        for let i in range(0, 6) {
+                            if i == 4 {
+                                continue 'outer
+                            }
+
+                            res []= y + i
+                        }
+                    }
+                    res
+                "#
+            ),
+            Ok(list([
+                int(0),
+                int(1),
+                int(2),
+                int(3),
+                int(10),
+                int(11),
+                int(12),
+                int(13)
+            ]))
         );
     }
 }
