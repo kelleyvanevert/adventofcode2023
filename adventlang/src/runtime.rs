@@ -11,7 +11,7 @@ use try_map::FallibleMapExt;
 
 use crate::{
     ast::{
-        AssignPattern, Block, DeclarePattern, Document, Expr, Identifier, Item, Stmt,
+        AssignPattern, Block, Declarable, DeclarePattern, Document, Expr, Identifier, Item, Stmt,
         StrLiteralPiece, Type,
     },
     fmt::Fmt,
@@ -91,7 +91,7 @@ impl std::hash::Hash for FnDef {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FnSig {
-    pub params: Vec<DeclarePattern>,
+    pub params: Vec<Declarable>,
     pub body: FnBody,
 }
 
@@ -859,10 +859,16 @@ impl Runtime {
         &mut self,
         scope: usize,
         pattern: &DeclarePattern,
-        value: usize,
+        // fallback: &Option<Expr>,
+        mut value: usize,
     ) -> EvaluationResult<()> {
         match pattern {
             DeclarePattern::Id(id, _) => {
+                // if let Some(fallback_expr) = fallback_expr
+                //     && self.get_value(value) == &Value::Nil {
+                //     value = self.evaluate(scope, fallback_expr)?.0;
+                // };
+
                 self.get_scope_mut(scope).values.insert(id.clone(), value);
             }
             DeclarePattern::List { elements, rest } => {
@@ -882,7 +888,7 @@ impl Runtime {
 
                 let items = items.clone();
 
-                for (pattern, value) in elements.into_iter().zip(
+                for (Declarable { pattern, fallback }, value) in elements.into_iter().zip(
                     items
                         .into_iter()
                         .chain(std::iter::repeat(self.new_value(Value::Nil).0)),
@@ -913,7 +919,7 @@ impl Runtime {
                     ))
                 })?;
 
-                for (pattern, value) in elements.into_iter().zip(
+                for (Declarable { pattern, fallback }, value) in elements.into_iter().zip(
                     items
                         .into_iter()
                         .chain(std::iter::repeat(self.new_value(Value::Nil).0)),
@@ -974,7 +980,9 @@ impl Runtime {
         }
     }
 
-    // TODO
+    // TODO:
+    // - fallback parameters are not required to be passed
+    // - better type checking in general
     pub fn matches_signature(
         &self,
         name: &Option<Identifier>,
@@ -999,12 +1007,12 @@ impl Runtime {
             false
         } else {
             // TODO: find arg that does not fit
-            for (pat, (_, arg)) in sig.params.iter().zip(args) {
+            for (Declarable { pattern, fallback }, (_, arg)) in sig.params.iter().zip(args) {
                 let value = self.get_value(*arg);
                 if name == &Some(Identifier("slice".into())) {
                     // println!("fits? pattern {:?} value {:?}", pat, value);
                 }
-                match pat {
+                match pattern {
                     DeclarePattern::List { .. } => {
                         if !(Type::List(Type::Any.into()) >= value.ty()) {
                             // println!("[{name:?}] does not match sig: list");
@@ -1087,7 +1095,10 @@ impl Runtime {
             if let Some(name) = arg_name {
                 // assign named param
                 match params_remaining.iter().position(|p| match p {
-                    DeclarePattern::Id(n, _) => n == &name,
+                    Declarable {
+                        pattern: DeclarePattern::Id(n, _),
+                        ..
+                    } => n == &name,
                     _ => false,
                 }) {
                     Some(i) => {
@@ -1103,15 +1114,20 @@ impl Runtime {
                         .into();
                     }
                 }
-            } else if let Some(pattern) = params_remaining.get(0).cloned() {
+            } else if let Some(decl) = params_remaining.get(0).cloned() {
                 // assign next available param
                 params_remaining.remove(0);
-                self.declare(execution_scope, &pattern, arg_value)?;
+                self.declare(execution_scope, &decl.pattern, arg_value)?;
             } else {
                 // no params left
                 return RuntimeError(format!("no param to pass arg to")).into();
             }
         }
+
+        // for remaining_param in &params_remaining {
+        //     if remaining_param
+        //     //
+        // }
 
         if params_remaining.len() > 0 {
             // unassigned params

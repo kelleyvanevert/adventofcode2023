@@ -3,28 +3,17 @@ use std::cmp::Ordering;
 use arcstr::Substr;
 
 use crate::{
-    ast::{DeclarePattern, Identifier, Type},
+    ast::Type,
+    parse::parse_declarable,
     runtime::{Dict, FnBody, FnSig, Runtime, Value},
     value::{Numeric, RuntimeError},
 };
-
-fn id(id: &str) -> Identifier {
-    Identifier(id.into())
-}
-
-fn idpat(id: &str) -> DeclarePattern {
-    DeclarePattern::Id(Identifier(id.into()), None)
-}
-
-fn idpat_ty(id: &str, ty: Type) -> DeclarePattern {
-    DeclarePattern::Id(Identifier(id.into()), Some(ty))
-}
 
 pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "print",
         [FnSig {
-            params: vec![idpat("text")],
+            params: vec![parse_declarable("text")],
             body: FnBody::Builtin(|runtime, scope| {
                 let text = runtime.get_scope(scope).get_unchecked("text");
 
@@ -37,7 +26,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "run",
         [FnSig {
-            params: vec![idpat("f")],
+            params: vec![parse_declarable("f")],
             body: FnBody::Builtin(|runtime, scope| {
                 let f = runtime.get_scope(scope).get_unchecked("f");
 
@@ -50,7 +39,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         "min",
         [
             FnSig {
-                params: vec![idpat_ty("items", Type::List(Type::Any.into()))],
+                params: vec![parse_declarable("items: [any]")],
                 body: FnBody::Builtin(|runtime, scope| {
                     let items = runtime.get_scope(scope).get_unchecked("items");
 
@@ -74,7 +63,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 }),
             },
             FnSig {
-                params: vec![idpat_ty("a", Type::Any), idpat_ty("b", Type::Any)],
+                params: vec![parse_declarable("a"), parse_declarable("b")],
                 body: FnBody::Builtin(|runtime, scope| {
                     let a = runtime.get_scope(scope).get_unchecked("a");
                     let b = runtime.get_scope(scope).get_unchecked("b");
@@ -99,7 +88,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         "max",
         [
             FnSig {
-                params: vec![idpat_ty("items", Type::List(Type::Any.into()))],
+                params: vec![parse_declarable("items: [any]")],
                 body: FnBody::Builtin(|runtime, scope| {
                     let items = runtime.get_scope(scope).get_unchecked("items");
 
@@ -123,7 +112,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 }),
             },
             FnSig {
-                params: vec![idpat_ty("a", Type::Any), idpat_ty("b", Type::Any)],
+                params: vec![parse_declarable("a"), parse_declarable("b")],
                 body: FnBody::Builtin(|runtime, scope| {
                     let a = runtime.get_scope(scope).get_unchecked("a");
                     let b = runtime.get_scope(scope).get_unchecked("b");
@@ -147,7 +136,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "add",
         [FnSig {
-            params: vec![idpat("a"), idpat("b")],
+            params: vec![parse_declarable("a"), parse_declarable("b")],
             body: FnBody::Builtin(|runtime, scope| {
                 let a = runtime.get_scope(scope).get_unchecked("a");
                 let b = runtime.get_scope(scope).get_unchecked("b");
@@ -186,8 +175,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         "chunks",
         [FnSig {
             params: vec![
-                DeclarePattern::Id("items".into(), Some(Type::List(Type::Any.into()))),
-                DeclarePattern::Id("size".into(), Some(Type::Numeric)),
+                parse_declarable("items: [any]"),
+                parse_declarable("size: int"),
             ],
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.get_scope(scope).get_unchecked("items");
@@ -231,7 +220,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "sort_by_key",
         [FnSig {
-            params: vec![idpat("items"), idpat("cb")],
+            params: vec![parse_declarable("items"), parse_declarable("cb")],
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.get_scope(scope).get_unchecked("items");
 
@@ -271,7 +260,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "reverse",
         [FnSig {
-            params: vec![idpat("items")],
+            params: vec![parse_declarable("items")],
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.get_scope(scope).get_unchecked("items");
                 let items = runtime.clone(items);
@@ -300,7 +289,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "zip",
         [FnSig {
-            params: vec![idpat("xs"), idpat("ys")],
+            params: vec![parse_declarable("xs"), parse_declarable("ys")],
             body: FnBody::Builtin(|runtime, scope| {
                 let xs = runtime.get_scope(scope).get_unchecked("xs");
                 let ys = runtime.get_scope(scope).get_unchecked("ys");
@@ -350,7 +339,11 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "fold",
         [FnSig {
-            params: vec![idpat("items"), idpat("init"), idpat("cb")],
+            params: vec![
+                parse_declarable("items"),
+                parse_declarable("init"),
+                parse_declarable("cb"),
+            ],
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.get_scope(scope).get_unchecked("items");
                 let cb = runtime.get_scope(scope).get_unchecked("cb");
@@ -384,7 +377,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "map",
         [FnSig {
-            params: vec![idpat("items"), idpat("cb")],
+            params: vec![parse_declarable("items"), parse_declarable("cb")],
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.get_scope(scope).get_unchecked("items");
 
@@ -409,7 +402,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "flat_map",
         [FnSig {
-            params: vec![idpat("items"), idpat("cb")],
+            params: vec![parse_declarable("items"), parse_declarable("cb")],
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.get_scope(scope).get_unchecked("items");
 
@@ -445,10 +438,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "dict",
         [FnSig {
-            params: vec![DeclarePattern::Id(
-                id("pairs"),
-                Some(Type::List(Type::Any.into())),
-            )],
+            params: vec![parse_declarable("pairs: [any]")],
             body: FnBody::Builtin(|runtime, scope| {
                 let pairs = runtime.get_scope(scope).get_unchecked("pairs");
 
@@ -494,8 +484,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         [
             FnSig {
                 params: vec![
-                    idpat_ty("needle", Type::Str),
-                    idpat_ty("haystack", Type::Str),
+                    parse_declarable("needle: str"),
+                    parse_declarable("haystack: str"),
                 ],
                 body: FnBody::Builtin(|runtime, scope| {
                     let needle = runtime.get_scope(scope).get_unchecked("needle");
@@ -522,8 +512,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
             },
             FnSig {
                 params: vec![
-                    idpat("needle"),
-                    idpat_ty("haystack", Type::List(Type::Any.into())),
+                    parse_declarable("needle"),
+                    parse_declarable("haystack: [any]"),
                 ],
                 body: FnBody::Builtin(|runtime, scope| {
                     let needle = runtime.get_scope(scope).get_unchecked("needle");
@@ -552,7 +542,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "filter",
         [FnSig {
-            params: vec![idpat("items"), idpat("cb")],
+            params: vec![parse_declarable("items"), parse_declarable("cb")],
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.get_scope(scope).get_unchecked("items");
 
@@ -582,7 +572,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "filter_map",
         [FnSig {
-            params: vec![idpat("items"), idpat("cb")],
+            params: vec![parse_declarable("items"), parse_declarable("cb")],
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.get_scope(scope).get_unchecked("items");
 
@@ -618,7 +608,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         "any",
         [
             FnSig {
-                params: vec![idpat("items"), idpat("cb")],
+                params: vec![parse_declarable("items"), parse_declarable("cb")],
                 body: FnBody::Builtin(|runtime, scope| {
                     let items = runtime.get_scope(scope).get_unchecked("items");
 
@@ -643,7 +633,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 }),
             },
             FnSig {
-                params: vec![idpat("items")],
+                params: vec![parse_declarable("items")],
                 body: FnBody::Builtin(|runtime, scope| {
                     let items = runtime.get_scope(scope).get_unchecked("items");
 
@@ -671,7 +661,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         "all",
         [
             FnSig {
-                params: vec![idpat("items"), idpat("cb")],
+                params: vec![parse_declarable("items"), parse_declarable("cb")],
                 body: FnBody::Builtin(|runtime, scope| {
                     let items = runtime.get_scope(scope).get_unchecked("items");
 
@@ -698,7 +688,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 }),
             },
             FnSig {
-                params: vec![idpat("items")],
+                params: vec![parse_declarable("items")],
                 body: FnBody::Builtin(|runtime, scope| {
                     let items = runtime.get_scope(scope).get_unchecked("items");
 
@@ -727,7 +717,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "find_map",
         [FnSig {
-            params: vec![idpat("items"), idpat("cb")],
+            params: vec![parse_declarable("items"), parse_declarable("cb")],
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.get_scope(scope).get_unchecked("items");
 
@@ -755,7 +745,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "find",
         [FnSig {
-            params: vec![idpat("items"), idpat("cb")],
+            params: vec![parse_declarable("items"), parse_declarable("cb")],
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.get_scope(scope).get_unchecked("items");
 
@@ -783,7 +773,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "range",
         [FnSig {
-            params: vec![idpat("start"), idpat("end")],
+            params: vec![parse_declarable("start"), parse_declarable("end")],
             body: FnBody::Builtin(|runtime, scope| {
                 let start = runtime.get_scope(scope).get_unchecked("start");
 
@@ -833,7 +823,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "enumerate",
         [FnSig {
-            params: vec![idpat("items")],
+            params: vec![parse_declarable("items")],
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.get_scope(scope).get_unchecked("items");
 
@@ -891,7 +881,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "sum",
         [FnSig {
-            params: vec![idpat("items")],
+            params: vec![parse_declarable("items")],
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.get_scope(scope).get_unchecked("items");
 
@@ -921,10 +911,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         "split",
         [
             FnSig {
-                params: vec![
-                    DeclarePattern::Id("text".into(), Some(Type::Str)),
-                    DeclarePattern::Id("sep".into(), Some(Type::Str)),
-                ],
+                params: vec![parse_declarable("text: str"), parse_declarable("sep: str")],
                 body: FnBody::Builtin(|runtime, scope| {
                     let text = runtime.get_scope(scope).get_unchecked("text");
 
@@ -956,8 +943,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
             },
             FnSig {
                 params: vec![
-                    DeclarePattern::Id("text".into(), Some(Type::Str)),
-                    DeclarePattern::Id("sep".into(), Some(Type::Regex)),
+                    parse_declarable("text: str"),
+                    parse_declarable("sep: regex"),
                 ],
                 body: FnBody::Builtin(|runtime, scope| {
                     let text = runtime.get_scope(scope).get_unchecked("text");
@@ -996,8 +983,8 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         "join",
         [FnSig {
             params: vec![
-                idpat_ty("items", Type::List(Type::Any.into())),
-                idpat_ty("glue", Type::Str),
+                parse_declarable("items: [any]"),
+                parse_declarable("glue: str"),
             ],
             body: FnBody::Builtin(|runtime, scope| {
                 let items = runtime.get_scope(scope).get_unchecked("items");
@@ -1034,7 +1021,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "lines",
         [FnSig {
-            params: vec![idpat("text")],
+            params: vec![parse_declarable("text: str")],
             body: FnBody::Builtin(|runtime, scope| {
                 let text = runtime.get_scope(scope).get_unchecked("text");
 
@@ -1060,7 +1047,10 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "match",
         [FnSig {
-            params: vec![idpat("text"), idpat("regex")],
+            params: vec![
+                parse_declarable("text: str"),
+                parse_declarable("regex: regex"),
+            ],
             body: FnBody::Builtin(|runtime, scope| {
                 let text = runtime.get_scope(scope).get_unchecked("text");
 
@@ -1102,7 +1092,10 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "match_all",
         [FnSig {
-            params: vec![idpat("text"), idpat("regex")],
+            params: vec![
+                parse_declarable("text: str"),
+                parse_declarable("regex: regex"),
+            ],
             body: FnBody::Builtin(|runtime, scope| {
                 let text = runtime.get_scope(scope).get_unchecked("text");
 
@@ -1153,7 +1146,10 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "starts_with",
         [FnSig {
-            params: vec![idpat("text"), idpat("substr")],
+            params: vec![
+                parse_declarable("text: str"),
+                parse_declarable("substr: str"),
+            ],
             body: FnBody::Builtin(|runtime, scope| {
                 let text = runtime.get_scope(scope).get_unchecked("text");
 
@@ -1183,7 +1179,10 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "replace",
         [FnSig {
-            params: vec![idpat("text"), idpat("def")],
+            params: vec![
+                parse_declarable("text: str"),
+                parse_declarable("def: tuple"),
+            ],
             body: FnBody::Builtin(|runtime, scope| {
                 let text = runtime.get_scope(scope).get_unchecked("text");
 
@@ -1244,10 +1243,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         "slice",
         [
             FnSig {
-                params: vec![
-                    DeclarePattern::Id(id("list"), Some(Type::List(Type::Any.into()))),
-                    DeclarePattern::Id(id("i"), Some(Type::Numeric)),
-                ],
+                params: vec![parse_declarable("list: [any]"), parse_declarable("i: int")],
                 body: FnBody::Builtin(|runtime, scope| {
                     let list = runtime.get_scope(scope).get_unchecked("list");
 
@@ -1282,10 +1278,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 }),
             },
             FnSig {
-                params: vec![
-                    DeclarePattern::Id(id("text"), Some(Type::Str)),
-                    DeclarePattern::Id(id("i"), Some(Type::Numeric)),
-                ],
+                params: vec![parse_declarable("text: str"), parse_declarable("i: int")],
                 body: FnBody::Builtin(|runtime, scope| {
                     let text = runtime.get_scope(scope).get_unchecked("text");
 
@@ -1324,11 +1317,9 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
             },
             FnSig {
                 params: vec![
-                    DeclarePattern::Id(id("text"), Some(Type::Str)),
-                    DeclarePattern::Id(
-                        id("range"),
-                        //Some(Type::Tuple(Some(vec![Type::Numeric, Type::Numeric]))),
-                        Some(Type::Tuple(None)),
+                    parse_declarable("text: str"),
+                    parse_declarable(
+                        "range: tuple", // (int, int)
                     ),
                 ],
                 body: FnBody::Builtin(|runtime, scope| {
@@ -1393,11 +1384,9 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
             },
             FnSig {
                 params: vec![
-                    DeclarePattern::Id(id("list"), Some(Type::List(Type::Any.into()))),
-                    DeclarePattern::Id(
-                        id("range"),
-                        //Some(Type::Tuple(Some(vec![Type::Numeric, Type::Numeric]))),
-                        Some(Type::Tuple(None)),
+                    parse_declarable("list: [any]"),
+                    parse_declarable(
+                        "range: tuple", // (int, int)
                     ),
                 ],
                 body: FnBody::Builtin(|runtime, scope| {
@@ -1470,12 +1459,9 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         "index",
         [
             FnSig {
-                params: vec![
-                    DeclarePattern::Id(id("dict"), Some(Type::Dict(None))),
-                    idpat("key"),
-                ],
+                params: vec![parse_declarable("dict: dict"), parse_declarable("key")],
                 body: FnBody::Builtin(|runtime, scope| {
-                    println!("dict index access");
+                    // println!("dict index access");
                     let dict = runtime.get_scope(scope).get_unchecked("dict");
 
                     let Value::Dict(_, dict) = runtime.get_value(dict).clone() else {
@@ -1497,10 +1483,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 }),
             },
             FnSig {
-                params: vec![
-                    DeclarePattern::Id(id("list"), Some(Type::List(Type::Any.into()))),
-                    idpat("i"),
-                ],
+                params: vec![parse_declarable("list: [any]"), parse_declarable("i: int")],
                 body: FnBody::Builtin(|runtime, scope| {
                     // println!("list index access");
                     let list = runtime.get_scope(scope).get_unchecked("list");
@@ -1539,10 +1522,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 }),
             },
             FnSig {
-                params: vec![
-                    DeclarePattern::Id(id("tup"), Some(Type::Tuple(None))),
-                    idpat("i"),
-                ],
+                params: vec![parse_declarable("tup: tuple"), parse_declarable("i: int")],
                 body: FnBody::Builtin(|runtime, scope| {
                     // println!("tuple index access");
                     let tup = runtime.get_scope(scope).get_unchecked("tup");
@@ -1581,7 +1561,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 }),
             },
             FnSig {
-                params: vec![DeclarePattern::Id(id("text"), Some(Type::Str)), idpat("i")],
+                params: vec![parse_declarable("text: str"), parse_declarable("i: int")],
                 body: FnBody::Builtin(|runtime, scope| {
                     // println!("str index access");
                     let text = runtime.get_scope(scope).get_unchecked("text");
@@ -1629,7 +1609,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "clone",
         [FnSig {
-            params: vec![idpat("data")],
+            params: vec![parse_declarable("data")],
             body: FnBody::Builtin(|runtime, scope| {
                 let data = runtime.get_scope(scope).get_unchecked("data");
 
@@ -1641,7 +1621,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "trim",
         [FnSig {
-            params: vec![idpat("text")],
+            params: vec![parse_declarable("text: str")],
             body: FnBody::Builtin(|runtime, scope| {
                 let text = runtime.get_scope(scope).get_unchecked("text");
 
@@ -1661,7 +1641,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "len",
         [FnSig {
-            params: vec![idpat("data")],
+            params: vec![parse_declarable("data: list | tuple | str")],
             body: FnBody::Builtin(|runtime, scope| {
                 let data = runtime.get_scope(scope).get_unchecked("data");
 
@@ -1686,7 +1666,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "chars",
         [FnSig {
-            params: vec![idpat("text")],
+            params: vec![parse_declarable("text: str")],
             body: FnBody::Builtin(|runtime, scope| {
                 let text = runtime.get_scope(scope).get_unchecked("text");
 
@@ -1711,7 +1691,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "assert",
         [FnSig {
-            params: vec![idpat("data")],
+            params: vec![parse_declarable("data")],
             body: FnBody::Builtin(|runtime, scope| {
                 let data = runtime.get_scope(scope).get_unchecked("data");
 
@@ -1727,7 +1707,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "int",
         [FnSig {
-            params: vec![idpat("data")],
+            params: vec![parse_declarable("data")],
             body: FnBody::Builtin(|runtime, scope| {
                 let data = runtime.get_scope(scope).get_unchecked("data");
 
@@ -1741,7 +1721,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "sqrt",
         [FnSig {
-            params: vec![DeclarePattern::Id("num".into(), Some(Type::Numeric))],
+            params: vec![parse_declarable("num: num")],
             body: FnBody::Builtin(|runtime, scope| {
                 let num = runtime.get_scope(scope).get_unchecked("num");
 
@@ -1761,7 +1741,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "ceil",
         [FnSig {
-            params: vec![DeclarePattern::Id("num".into(), Some(Type::Numeric))],
+            params: vec![parse_declarable("num: num")],
             body: FnBody::Builtin(|runtime, scope| {
                 let num = runtime.get_scope(scope).get_unchecked("num");
 
@@ -1781,7 +1761,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "floor",
         [FnSig {
-            params: vec![DeclarePattern::Id("num".into(), Some(Type::Numeric))],
+            params: vec![parse_declarable("num: num")],
             body: FnBody::Builtin(|runtime, scope| {
                 let num = runtime.get_scope(scope).get_unchecked("num");
 
@@ -1801,7 +1781,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "abs",
         [FnSig {
-            params: vec![DeclarePattern::Id("num".into(), Some(Type::Numeric))],
+            params: vec![parse_declarable("num: num")],
             body: FnBody::Builtin(|runtime, scope| {
                 let num = runtime.get_scope(scope).get_unchecked("num");
 
@@ -1826,7 +1806,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "round",
         [FnSig {
-            params: vec![DeclarePattern::Id("num".into(), Some(Type::Numeric))],
+            params: vec![parse_declarable("num: num")],
             body: FnBody::Builtin(|runtime, scope| {
                 let num = runtime.get_scope(scope).get_unchecked("num");
 

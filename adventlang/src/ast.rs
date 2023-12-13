@@ -299,14 +299,30 @@ impl Display for Identifier {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
+pub struct Declarable {
+    pub pattern: DeclarePattern,
+    pub fallback: Option<Expr>,
+}
+
+impl Display for Declarable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.pattern)?;
+        if let Some(_) = &self.fallback {
+            write!(f, " = <fallback>")?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub enum DeclarePattern {
     Id(Identifier, Option<Type>),
     List {
-        elements: Vec<DeclarePattern>,
+        elements: Vec<Declarable>,
         rest: Option<(Identifier, Option<Type>)>,
     },
     Tuple {
-        elements: Vec<DeclarePattern>,
+        elements: Vec<Declarable>,
         rest: Option<(Identifier, Option<Type>)>,
     },
 }
@@ -367,7 +383,7 @@ impl Display for DeclarePattern {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub enum AssignPattern {
     Id(Identifier),
     Index(Box<AssignPattern>, Option<Box<Expr>>),
@@ -383,19 +399,19 @@ pub enum AssignPattern {
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub enum StrLiteralPiece {
     Fragment(String),
     Interpolation(Expr),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub struct Argument {
     pub name: Option<Identifier>,
     pub expr: Expr,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub enum Expr {
     StrLiteral {
         pieces: Vec<StrLiteralPiece>,
@@ -431,7 +447,7 @@ pub enum Expr {
         args: Vec<Argument>,
     },
     AnonymousFn {
-        params: Vec<DeclarePattern>,
+        params: Vec<Declarable>,
         body: Block,
     },
     If {
@@ -495,16 +511,16 @@ impl From<AssignPattern> for Expr {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub enum Item {
     NamedFn {
         name: Identifier,
-        params: Vec<DeclarePattern>,
+        params: Vec<Declarable>,
         body: Block,
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub enum Stmt {
     Break {
         expr: Option<Expr>,
@@ -528,13 +544,13 @@ pub enum Stmt {
     }, // ...
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub struct Block {
     pub items: Vec<Item>,
     pub stmts: Vec<Stmt>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Hash)]
 pub struct Document {
     pub body: Block,
 }
@@ -545,12 +561,8 @@ mod tests {
 
     use super::*;
 
-    fn ty(a: &str) -> Type {
-        parse_type(a).unwrap()
-    }
-
     fn cmp_ty(a: &str, b: &str) -> Option<Ordering> {
-        ty(a).partial_cmp(&ty(b))
+        parse_type(a).partial_cmp(&parse_type(b))
     }
 
     #[test]

@@ -5,8 +5,8 @@ use regex::Regex;
 
 use crate::{
     ast::{
-        Argument, AssignPattern, Block, DeclarePattern, Document, Expr, Identifier, Item, Stmt,
-        StrLiteralPiece, Type,
+        Argument, AssignPattern, Block, Declarable, DeclarePattern, Document, Expr, Identifier,
+        Item, Stmt, StrLiteralPiece, Type,
     },
     parser_combinators::{
         alt, check, delimited, many0, map, optional, optional_if, preceded, seq, terminated,
@@ -886,8 +886,8 @@ fn expr(s: State) -> ParseResult<State, Expr> {
     alt((if_expr, or_expr_stack)).parse(s)
 }
 
-fn parameter_list(mut s: State) -> ParseResult<State, Vec<DeclarePattern>> {
-    if let Some((rem, id)) = declare_pattern.parse(s.clone()) {
+fn parameter_list(mut s: State) -> ParseResult<State, Vec<Declarable>> {
+    if let Some((rem, id)) = declarable.parse(s.clone()) {
         let mut ids = vec![];
         let mut seen_comma = false;
 
@@ -895,7 +895,7 @@ fn parameter_list(mut s: State) -> ParseResult<State, Vec<DeclarePattern>> {
         s = rem;
 
         loop {
-            if seen_comma && let Some((rem, id)) = preceded(ws0, declare_pattern).parse(s.clone()) {
+            if seen_comma && let Some((rem, id)) = preceded(ws0, declarable).parse(s.clone()) {
                 ids.push(id);
                 s = rem;
                 seen_comma = false;
@@ -948,6 +948,8 @@ fn type_leaf(s: State) -> ParseResult<State, Type> {
         map(tag("str"), |_| Type::Str),
         map(tag("int"), |_| Type::Numeric),
         map(tag("double"), |_| Type::Numeric),
+        map(tag("num"), |_| Type::Numeric),
+        map(tag("regex"), |_| Type::Regex),
         map(tag("fn"), |_| Type::FnDef),
         // "dict" or "dict[K, V]"
         map(
@@ -1052,6 +1054,17 @@ fn assign_pattern(s: State) -> ParseResult<State, AssignPattern> {
     .parse(s)
 }
 
+fn declarable(s: State) -> ParseResult<State, Declarable> {
+    map(
+        seq((
+            declare_pattern,
+            optional(preceded(seq((ws0, tag("="), ws0)), constrained(true, expr))),
+        )),
+        |(pattern, fallback)| Declarable { pattern, fallback },
+    )
+    .parse(s)
+}
+
 fn declare_pattern(s: State) -> ParseResult<State, DeclarePattern> {
     alt((
         map(
@@ -1065,8 +1078,8 @@ fn declare_pattern(s: State) -> ParseResult<State, DeclarePattern> {
             seq((tag("["), ws0)),
             map(
                 optional(seq((
-                    declare_pattern,
-                    many0(preceded(seq((ws0, tag(","), ws0)), declare_pattern)),
+                    declarable,
+                    many0(preceded(seq((ws0, tag(","), ws0)), declarable)),
                     ws0,
                     optional(preceded(
                         tag(","),
@@ -1100,8 +1113,8 @@ fn declare_pattern(s: State) -> ParseResult<State, DeclarePattern> {
             seq((tag("("), ws0)),
             map(
                 optional(seq((
-                    declare_pattern,
-                    many0(preceded(seq((ws0, tag(","), ws0)), declare_pattern)),
+                    declarable,
+                    many0(preceded(seq((ws0, tag(","), ws0)), declarable)),
                     ws0,
                     optional(preceded(
                         tag(","),
@@ -1290,10 +1303,18 @@ fn document(s: State) -> ParseResult<State, Document> {
     .parse(s)
 }
 
-pub fn parse_type(input: &str) -> Option<Type> {
+pub fn parse_declarable(input: &str) -> Declarable {
+    terminated(declarable, eof)
+        .parse(input.trim().into())
+        .map(|(_, t)| t)
+        .expect("parse declarable")
+}
+
+pub fn parse_type(input: &str) -> Type {
     terminated(typespec, eof)
         .parse(input.trim().into())
         .map(|(_, t)| t)
+        .expect("parse type")
 }
 
 pub fn parse_document(input: &str) -> Option<Document> {
@@ -1379,12 +1400,16 @@ mod tests {
         }
     }
 
+    fn declarable(name: &str) -> Declarable {
+        Declarable {
+            pattern: DeclarePattern::Id(Identifier(name.into()), None),
+            fallback: None,
+        }
+    }
+
     fn anon_expr(params: Vec<&str>, expr: Expr) -> Expr {
         Expr::AnonymousFn {
-            params: params
-                .iter()
-                .map(|&name| DeclarePattern::Id(Identifier(name.into()), None))
-                .collect(),
+            params: params.into_iter().map(declarable).collect(),
             body: Block {
                 items: vec![],
                 stmts: vec![Stmt::Expr { expr: expr.into() }],
@@ -1426,24 +1451,26 @@ mod tests {
             .map(|(rem, out)| (rem.input, out))
     }
 
-    fn ty(a: &str) -> Type {
-        parse_type(a).unwrap()
-    }
-
     fn cmp_ty(a: &str, b: &str) -> Option<Ordering> {
-        ty(a).partial_cmp(&ty(b))
+        parse_type(a).partial_cmp(&parse_type(b))
     }
 
     #[test]
     fn parsing_types() {
-        assert_eq!(ty("bool"), Type::Bool);
-
-        assert_eq!(ty("bool | nil"), Type::Union(vec![Type::Bool, Type::Nil]));
-
-        assert_eq!(ty("?bool"), Type::Union(vec![Type::Nil, Type::Bool]));
+        assert_eq!(parse_type("bool"), Type::Bool);
 
         assert_eq!(
-            ty("?bool | int"),
+            parse_type("bool | nil"),
+            Type::Union(vec![Type::Bool, Type::Nil])
+        );
+
+        assert_eq!(
+            parse_type("?bool"),
+            Type::Union(vec![Type::Nil, Type::Bool])
+        );
+
+        assert_eq!(
+            parse_type("?bool | int"),
             Type::Union(vec![
                 Type::Union(vec![Type::Nil, Type::Bool]),
                 Type::Numeric
@@ -1451,7 +1478,7 @@ mod tests {
         );
 
         assert_eq!(
-            ty("?(bool | int)"),
+            parse_type("?(bool | int)"),
             Type::Union(vec![
                 Type::Nil,
                 Type::Union(vec![Type::Bool, Type::Numeric]),
@@ -1459,7 +1486,7 @@ mod tests {
         );
 
         assert_eq!(
-            ty("?(bool | int,)"),
+            parse_type("?(bool | int,)"),
             Type::Union(vec![
                 Type::Nil,
                 Type::Tuple(Some(vec![Type::Union(vec![Type::Bool, Type::Numeric])]))
@@ -1467,7 +1494,7 @@ mod tests {
         );
 
         assert_eq!(
-            ty("?((bool | int),)"),
+            parse_type("?((bool | int),)"),
             Type::Union(vec![
                 Type::Nil,
                 Type::Tuple(Some(vec![Type::Union(vec![Type::Bool, Type::Numeric])]))
@@ -1506,28 +1533,16 @@ mod tests {
         );
         assert_eq!(
             test_parse(parameter_list, "blue , kelley"),
-            Some((
-                "",
-                vec![
-                    DeclarePattern::Id(id("blue"), None),
-                    DeclarePattern::Id(id("kelley"), None)
-                ]
-            ))
+            Some(("", vec![declarable("blue"), declarable("kelley")]))
         );
         assert_eq!(
             test_parse(parameter_list, "kelley ,,"),
-            Some((",", vec![DeclarePattern::Id(id("kelley"), None)]))
+            Some((",", vec![declarable("kelley")]))
         );
 
         assert_eq!(
             test_parse(parameter_list, "kelley , blue , )"),
-            Some((
-                " )",
-                vec![
-                    DeclarePattern::Id(id("kelley"), None),
-                    DeclarePattern::Id(id("blue"), None)
-                ]
-            ))
+            Some((" )", vec![declarable("kelley"), declarable("blue")]))
         );
         assert_eq!(
             test_parse(constrained(false, expr), "kelley ?"),
@@ -1692,7 +1707,7 @@ mod tests {
             Some((
                 " ?",
                 Expr::AnonymousFn {
-                    params: vec![DeclarePattern::Id(id("a"), None)],
+                    params: vec![declarable("a")],
                     body: Block {
                         items: vec![],
                         stmts: vec![]
@@ -1705,12 +1720,12 @@ mod tests {
             Some((
                 " ?",
                 Expr::AnonymousFn {
-                    params: vec![DeclarePattern::Tuple {
-                        elements: vec![
-                            DeclarePattern::Id(id("a"), None),
-                            DeclarePattern::Id(id("b"), None)
-                        ],
-                        rest: None,
+                    params: vec![Declarable {
+                        pattern: DeclarePattern::Tuple {
+                            elements: vec![declarable("a"), declarable("b")],
+                            rest: None,
+                        },
+                        fallback: None,
                     }],
                     body: Block {
                         items: vec![],
@@ -2026,7 +2041,7 @@ mod tests {
                 "",
                 Item::NamedFn {
                     name: id("make_counter"),
-                    params: vec![DeclarePattern::Id(id("start"), None)],
+                    params: vec![declarable("start")],
                     body: Block {
                         items: vec![],
                         stmts: vec![
@@ -2036,7 +2051,7 @@ mod tests {
                             },
                             Stmt::Expr {
                                 expr: Expr::AnonymousFn {
-                                    params: vec![DeclarePattern::Id(id("d"), None)],
+                                    params: vec![declarable("d")],
                                     body: Block {
                                         items: vec![],
                                         stmts: vec![Stmt::Expr {
