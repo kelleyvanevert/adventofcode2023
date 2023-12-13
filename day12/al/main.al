@@ -106,7 +106,15 @@ fn split_around(arr, i) {
   )
 }
 
+// caching of placements improves the runtime by .. 2% :P
+// what the hell, why not
+let placements_cache = @{}
+
 fn placements(piece, n) {
+  if let memoized = placements_cache[(piece, n)] {
+    return memoized
+  }
+
   let s = piece:len - n + 1
   let placements = range(0, s) :filter_map |i| {
     let left_ok = i <= 0 || piece[i-1] == "?"
@@ -128,6 +136,8 @@ fn placements(piece, n) {
       (i, left, right)
     }
   }
+
+  placements_cache[(piece, n)] = placements
 
   placements
 }
