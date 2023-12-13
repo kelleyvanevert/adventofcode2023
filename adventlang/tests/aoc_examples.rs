@@ -1230,3 +1230,291 @@ fn solve(input: str, expansion: int) {
         Ok(tuple([int(374), int(1030), int(8410)]))
     );
 }
+
+#[test]
+fn aoc_day12() {
+    let document = r##"
+
+let example_input = "
+???.### 1,1,3
+.??..??...?##. 1,1,3
+?#?#?#?#?#?#?#? 1,3,1,6
+????.#...#... 4,1,1
+????.######..#####. 1,6,5
+?###???????? 3,2,1
+"
+
+let example_input_less = "
+???.### 1,1,3
+.??..??...?##. 1,1,3
+?#?#?#?#?#?#?#? 1,3,1,6
+????.#...#... 4,1,1
+????.######..#####. 1,6,5
+"
+
+fn solve(input: str) {
+  let all = input :trim :lines
+  let total = all:len
+  all
+    :enumerate
+    :map |(i, line)| {
+      let [records, ns] = line :split " "
+      let num = arrangements(
+        records :split /\.+/ :filter |b| { b },
+        ns :split "," :map int,
+        "  "
+      )
+
+      print("  [{i+1}/{total}] {line}   =>   {num}")
+      num
+    }
+    :sum
+}
+
+fn hash(pieces, ns) {
+  (pieces :join ",") + "__" + (ns :join ",")
+}
+
+let should_memoize = false
+let cache = @{}
+
+fn arrangements(pieces, ns, indent) {
+  let h = (pieces, ns)
+
+  if should_memoize {
+    if let memoized = cache[h] {
+      return memoized + 0
+    }
+  }
+
+  if ns:len == 0 {
+    if pieces :any |p| { "#" :in p } {
+      if should_memoize { cache[h] = 0 }
+      return 0
+    }
+    if should_memoize { cache[h] = 1 }
+    return 1
+  }
+
+  // find next number
+  let (i, n) = ns :enumerate :fold (nil, 0), |(i, n), (j, m)| {
+    if m > n { (j, m) } else { (i, n) }
+  }
+
+  //print("{indent}arrangements({pieces}) {ns}  check ({i}, {n}) -> {split_around(ns, i)}")
+  let (ns_le, ns_ri) = split_around(ns, i)
+
+  let num_possible = pieces
+    :enumerate
+    :filter |(j, piece)| {
+      piece:len >= n
+    }
+    :map |(j, piece)| {
+      let (le, ri) = split_around(pieces, j)
+      let num = placements(piece, n)
+        :map |(i, p_le, p_ri)| {
+          //print("{indent}  place at {i}")
+          //print("{indent}    checking left {le + p_le} {ns_le}")
+          let num_le = arrangements(
+            le + p_le,
+            ns_le,
+            indent + "      "
+          )
+
+          //print("{indent}    checking right {ri + p_ri} {ns_ri}")
+          let num_ri = arrangements(
+            p_ri + ri,
+            ns_ri,
+            indent + "      "
+          )
+
+          //print("{indent}    {num_le * num_ri}")
+          num_le * num_ri
+        }
+        :sum
+      
+      //print("{indent}  {num}")
+      num
+    }
+    :sum
+
+  if should_memoize { cache[h] = num_possible }
+
+  num_possible
+}
+
+fn split_around(arr, i) {
+  (
+    arr :slice (0, i),
+    arr :slice (i + 1)
+  )
+}
+
+// caching of placements improves the runtime by .. 2% :P
+// what the hell, why not
+let placements_cache = @{}
+
+fn placements(piece, n) {
+  if let memoized = placements_cache[(piece, n)] {
+    return memoized
+  }
+
+  let s = piece:len - n + 1
+  let placements = range(0, s) :filter_map |i| {
+    let left_ok = i <= 0 || piece[i-1] == "?"
+    let right_ok = i+n >= piece:len || piece[i+n] == "?"
+
+    if left_ok && right_ok {
+      let left = if i >= 2 {
+        [piece :slice (0, i-1)]
+      } else {
+        []
+      }
+
+      let right = if i+n+2 <= piece:len {
+        [piece :slice (i+n+1)]
+      } else {
+        []
+      }
+
+      (i, left, right)
+    }
+  }
+
+  placements_cache[(piece, n)] = placements
+
+  placements
+}
+
+fn bonus(input) {
+  let all = input :trim :lines
+  let total = all:len
+  all
+    :enumerate
+    :map |(i, line)| {
+      let [records, ns] = line :split " "
+      let [records, ns] = [
+        records + "?" + records + "?" + records + "?" + records + "?" + records,
+        ns + "," + ns + "," + ns + "," + ns + "," + ns,
+      ]
+      let num = arrangements(
+        records :split /\.+/ :filter |b| { b },
+        ns :split "," :map int,
+        "  "
+      )
+
+      print("  [{i+1}/{total}] {line}   =>   {num}")
+      num
+    }
+    :sum
+}
+
+(
+  solve(example_input),
+  bonus(example_input_less),
+)
+
+"##;
+
+    assert_eq!(execute_simple(document), Ok(tuple([int(21), int(18902)])));
+}
+
+#[test]
+fn aoc_day13() {
+    let document = r##"
+
+let example_input = "
+#.##..##.
+..#.##.#.
+##......#
+##......#
+..#.##.#.
+..##..##.
+#.#.##.#.
+
+#...##..#
+#....#..#
+..##..###
+#####.##.
+#####.##.
+..##..###
+#....#..#
+"
+
+fn detect(pattern: str, detect_smudges: int) {
+  let grid = pattern :lines
+  let h = grid:len
+  let w = grid[0]:len
+
+  fn find_vertical() {
+    // vertical line mirroring @ x ?
+    'find: for let x in range(1, w) {
+      let found_smudges = 0
+      // find counterexample
+      // if for ANY y in (0..height), i in (0..(width-x))
+      //   grid[y][x-i-1] != grid[y][x+i]
+      // then NO
+      for let y in range(0, h) {
+        for let i in range(0, w-x) {
+          if x-i-1 >= 0 && x+i < w && grid[y][x-i-1] != grid[y][x+i] {
+            found_smudges += 1
+            if found_smudges > detect_smudges {
+              continue 'find
+            }
+          }
+        }
+      }
+
+      //print("  found vertical line mirror around {x}")
+      if found_smudges == detect_smudges {
+        return x
+      }
+    }
+  }
+
+  fn find_horizontal() {
+    // horizontal line mirroring @ y ?
+    'find: for let y in range(1, h) {
+      let found_smudges = 0
+      // find counterexample
+      // if for ANY x in (0..width), i in (0..(height-y))
+      //   grid[y-i-1][x] != grid[y+i][x]
+      // then NO
+      for let x in range(0, w) {
+        for let i in range(0, h-y) {
+          if y-i-1 >= 0 && y+i < h && grid[y-i-1][x] != grid[y+i][x] {
+            found_smudges += 1
+            if found_smudges > detect_smudges {
+              continue 'find
+            }
+          }
+        }
+      }
+
+      //print("  found horizontal line mirror around {y}")
+      if found_smudges == detect_smudges {
+        return y * 100
+      }
+    }
+  }
+
+  find_vertical() ?? find_horizontal() ?? print("NONE FOUND") ?? 0
+}
+
+fn solve(input: str) {
+  input :trim :split "\n\n" :map |pattern| { detect(pattern, 0) } :sum
+}
+
+fn bonus(input: str) {
+  input :trim :split "\n\n" :map |pattern| { detect(pattern, 1) } :sum
+}
+
+(
+  solve(example_input),
+  bonus(example_input),
+)
+
+"##;
+
+    assert_eq!(execute_simple(document), Ok(tuple([int(405), int(400)])));
+}
