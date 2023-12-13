@@ -444,6 +444,7 @@ What a refreshingly fun and simple challenge today was! So easy and lightweight 
 - Mostly value-based, structural equality
 - Postfix and infix function notation: `left :func right`
 - Dynamically typed, functions are resolved at runtime based on types, best match wins
+- Untagged union types, like in TypeScript (e.g. `?int` is just shorthand for `nil | int`)
 - Garbage collected
 - Syntax that looks mostly like Rust, but without the language complexities of course
 - Trailing inline function arguments don't require parentheses, like in Kotlin. But also, with infix function notation, they're not necessary anyway
