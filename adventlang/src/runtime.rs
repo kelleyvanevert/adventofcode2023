@@ -171,7 +171,7 @@ pub enum Value {
     FnDef(FnDef),
     List(Type, Vec<usize>),
     Tuple(Option<Vec<Type>>, Vec<usize>),
-    Dict(Dict),
+    Dict(Option<(Type, Type)>, Dict),
 }
 
 impl Display for Value {
@@ -208,7 +208,7 @@ impl Display for Value {
                 }
                 write!(f, ")")
             }
-            Value::Dict(dict) => {
+            Value::Dict(_, dict) => {
                 write!(f, "@{{")?;
                 let pairs = dict.entries().collect::<Vec<_>>();
                 let len = pairs.len();
@@ -236,7 +236,7 @@ impl Value {
             Value::Numeric(n) => Ok(Value::Numeric(n.negate()?)),
             Value::Tuple(_, _) => Ok(Value::Bool(false)),
             Value::List(_, _) => Ok(Value::Bool(false)),
-            Value::Dict(_) => Ok(Value::Bool(false)),
+            Value::Dict(_, _) => Ok(Value::Bool(false)),
             _ => RuntimeError(format!("Can't negate {}", self.ty())).into(),
         }
     }
@@ -313,7 +313,7 @@ impl Value {
             Value::FnDef(_) => "<fn>".into(),
             Value::List(_, _) => "<list>".into(),
             Value::Tuple(_, _) => "<tuple>".into(),
-            Value::Dict(_) => "<dict>".into(),
+            Value::Dict(_, _) => "<dict>".into(),
         }
     }
 
@@ -348,7 +348,7 @@ impl Value {
             Value::FnDef(_) => Type::FnDef,
             Value::List(t, _) => Type::List(t.clone().into()),
             Value::Tuple(ts, _) => Type::Tuple(ts.clone()),
-            Value::Dict(_) => Type::Dict,
+            Value::Dict(_, _) => Type::Dict(None),
         }
     }
 
@@ -358,7 +358,7 @@ impl Value {
             Value::Bool(b) => Ok(*b),
             Value::List(_, _) => Ok(true),
             Value::Tuple(_, _) => Ok(true),
-            Value::Dict(_) => Ok(true),
+            Value::Dict(_, _) => Ok(true),
             Value::Numeric(n) => Ok(n != &Numeric::Int(0) && n != &Numeric::Double(0.0)),
             Value::Str(str) => Ok(str.len() > 0),
             _ => RuntimeError(format!("cannot check truthiness of {}", self.ty())).into(),
@@ -476,7 +476,7 @@ impl Runtime {
                     .map(|loc| self.get_value_ext(*loc))
                     .collect::<Result<Vec<_>, _>>()?,
             )),
-            Value::Dict(dict) => {
+            Value::Dict(_, dict) => {
                 let pairs = dict
                     .entries()
                     .map(|(key_loc, value_loc)| {
@@ -536,7 +536,7 @@ impl Runtime {
                     self.hash_do(h, el);
                 }
             }
-            Value::Dict(dict) => {
+            Value::Dict(_, dict) => {
                 for (k, v) in dict.entries() {
                     self.hash_do(h, k);
                     self.hash_do(h, v);
@@ -585,7 +585,7 @@ impl Runtime {
 
                 a.len().cmp(&b.len())
             }
-            (Value::Dict(a), Value::Dict(b)) => {
+            (Value::Dict(_, a), Value::Dict(_, b)) => {
                 todo!("comparing dicts")
                 // a.0.len() == b.0.len()
                 //     && a.0.iter().all(|(k, v)| {
@@ -660,7 +660,7 @@ impl Runtime {
                 }
                 write!(f, ")")
             }
-            Value::Dict(dict) => {
+            Value::Dict(_, dict) => {
                 write!(f, "@{{")?;
                 let mut i = 0;
                 for (key, value) in dict.entries() {
@@ -730,7 +730,7 @@ impl Runtime {
                     self.gc_reach(el, reachable);
                 }
             }
-            Value::Dict(dict) => {
+            Value::Dict(_, dict) => {
                 for (k, v) in dict.entries() {
                     self.gc_reach(k, reachable);
                     self.gc_reach(v, reachable);
@@ -1147,7 +1147,9 @@ impl Runtime {
                         let nil = self.new_value(Value::Nil).0;
 
                         let matching_dict_key = match (self.get_value(parent), index_loc) {
-                            (Value::Dict(dict), Some(i)) => dict.get(&self, i).map(|(key, _)| key),
+                            (Value::Dict(_, dict), Some(i)) => {
+                                dict.get(&self, i).map(|(key, _)| key)
+                            }
                             _ => None,
                         };
 
@@ -1197,7 +1199,7 @@ impl Runtime {
                                     ))
                                 }
                             }
-                            Value::Dict(ref mut dict) => {
+                            Value::Dict(_, ref mut dict) => {
                                 if let Some(index_loc) = index_loc {
                                     if let Some(loc) = matching_dict_key {
                                         Ok(Location::Single(loc))
@@ -1281,7 +1283,7 @@ impl Runtime {
                     dict.insert(&self, k, expr_value);
                 }
 
-                Ok(self.new_value(Value::Dict(dict)))
+                Ok(self.new_value(Value::Dict(None, dict)))
             }
             Expr::StrLiteral { pieces } => {
                 let mut build = "".to_string();

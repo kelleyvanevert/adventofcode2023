@@ -949,12 +949,27 @@ fn type_leaf(s: State) -> ParseResult<State, Type> {
         map(tag("int"), |_| Type::Numeric),
         map(tag("double"), |_| Type::Numeric),
         map(tag("fn"), |_| Type::FnDef),
-        map(tag("dict"), |_| Type::Dict),
-        map(tag("list"), |_| Type::List(Type::Any.into())), // [any]
-        map(tag("tuple"), |_| Type::Tuple(None)),           // any N-sized tuple of any's
+        // "dict" or "dict[K, V]"
+        map(
+            preceded(
+                tag("dict"),
+                optional(delimited(
+                    seq((tag("["), ws0)),
+                    seq((typespec, ws0, tag(","), ws0, typespec)),
+                    seq((ws0, tag("]"))),
+                )),
+            ),
+            |opt| Type::Dict(opt.map(|(k, _, _, _, v)| (k.into(), v.into()))),
+        ),
+        // any N-sized tuple of any's
+        map(tag("tuple"), |_| Type::Tuple(None)),
+        // (a, b, c, ..)
         map(listy("(", typespec, typespec, ")"), |ts| {
             Type::Tuple(Some(ts))
         }),
+        // heterogeneous lists: [any]
+        map(tag("list"), |_| Type::List(Type::Any.into())),
+        // homogeneous lists: [T]
         map(
             delimited(seq((tag("["), ws0)), typespec, seq((ws0, tag("]")))),
             |t| Type::List(t.into()),

@@ -1276,7 +1276,7 @@ fn hash(pieces: [str], ns: [int]) {
 }
 
 let should_memoize = false
-let cache: dict = @{}
+let cache: dict[any, int] = @{}
 
 fn arrangements(pieces, ns, indent) {
   let h = (pieces, ns)

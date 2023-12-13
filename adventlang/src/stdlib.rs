@@ -484,7 +484,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     dict.insert(runtime, *key, *value);
                 }
 
-                Ok(runtime.new_value(Value::Dict(dict)))
+                Ok(runtime.new_value(Value::Dict(None, dict)))
             }),
         }],
     );
@@ -1471,14 +1471,14 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         [
             FnSig {
                 params: vec![
-                    DeclarePattern::Id(id("dict"), Some(Type::Dict)),
+                    DeclarePattern::Id(id("dict"), Some(Type::Dict(None))),
                     idpat("key"),
                 ],
                 body: FnBody::Builtin(|runtime, scope| {
                     println!("dict index access");
                     let dict = runtime.get_scope(scope).get_unchecked("dict");
 
-                    let Value::Dict(dict) = runtime.get_value(dict).clone() else {
+                    let Value::Dict(_, dict) = runtime.get_value(dict).clone() else {
                         return RuntimeError(format!(
                             "index() dict must be a dict, is a: {}",
                             runtime.get_ty(dict)

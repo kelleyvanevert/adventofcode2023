@@ -16,7 +16,7 @@ pub enum Type {
     FnDef,
     List(Box<Type>),
     Tuple(Option<Vec<Type>>),
-    Dict,
+    Dict(Option<(Box<Type>, Box<Type>)>),
     Union(Vec<Type>),
 }
 
@@ -81,22 +81,23 @@ impl PartialOrd for Type {
             Type::Numeric,
             Type::Str,
             Type::Regex,
-            Type::Dict,
             // and these are not "simple" and have to be fully matched below:
             // Type::Any,
             // Type::FnDef,
             // Type::List(_),
             // Type::Tuple(_),
+            // Type::Dict(_, _),
         ];
 
         /*
 
-                SIMP  any  fn  list  tuple
-        SIMP     X     X    X   X    X
-        any            X    X   X    X
-        fn                  X   X    X
-        list                    X    X
-        tuple                        X
+                SIMP  any  fn  list  tuple  dict
+        SIMP     X     X    X   X    X      X
+        any            X    X   X    X      X
+        fn                  X   X    X      X
+        list                    X    X      X
+        tuple                        X      X
+        dict                                X
 
         */
 
@@ -155,8 +156,22 @@ impl PartialOrd for Type {
                 }
             }
 
+            (Type::Dict(pa), Type::Dict(pb)) => {
+                // TODO
+                Some(Ordering::Equal)
+            }
+
+            (Type::Dict(_), b) if simple.contains(b) => None,
+            (a, Type::Dict(_)) if simple.contains(a) => None,
+
             (Type::Tuple(_), Type::List(_)) => None,
             (Type::List(_), Type::Tuple(_)) => None,
+
+            (Type::Dict(_), Type::List(_)) => None,
+            (Type::List(_), Type::Dict(_)) => None,
+
+            (Type::Dict(_), Type::Tuple(_)) => None,
+            (Type::Tuple(_), Type::Dict(_)) => None,
 
             // TODO make fn types comparable as well
             (Type::FnDef, _) => None,
@@ -241,7 +256,14 @@ impl Display for Type {
                     write!(f, "tuple")
                 }
             }
-            Type::Dict => write!(f, "dict"),
+            Type::Dict(p) => {
+                write!(f, "dict")?;
+                if let Some((k, v)) = p {
+                    write!(f, "[{}, {}]", k, v)?;
+                }
+
+                Ok(())
+            }
             Type::Union(types) => {
                 if types.len() == 0 {
                     write!(f, "!")
