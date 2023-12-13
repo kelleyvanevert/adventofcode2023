@@ -435,6 +435,10 @@ Finally, the only thing I could come up with is to just throw parallelism and me
 
 I also tried the memoizing in AL, but, that would have to rely on some smart dictionary implementation, which I .. don't currently have, so .. that doesn't actually fly at the moment.
 
+## Day 13
+
+What a refreshingly fun and simple challenge today was! So easy and lightweight in terms of performance, in comparison with yesterday :P The algorithm was cute, and the bonus generalization also, and I can compute both in AL together in ±160ms. The only thing I needed to add to AL was `continue 'label` statements, which I had prepared for already anyway. Doei!
+
 ## Adventlang overview
 
 - Mostly value-based, structural equality
