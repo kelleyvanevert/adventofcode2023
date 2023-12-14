@@ -6,7 +6,12 @@ use std::{
     time::Instant,
 };
 
-use adventlang::{parse::parse_document, runtime::Runtime, value::EvalOther};
+use adventlang::{
+    parse::parse_document,
+    repl::{self, repl},
+    runtime::Runtime,
+    value::EvalOther,
+};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -31,6 +36,9 @@ enum Commands {
         /// File to run
         file: PathBuf,
     },
+
+    /// Run a REPL
+    Repl {},
 }
 
 fn main() {
@@ -68,7 +76,7 @@ fn main() {
             }
 
             let t0 = Instant::now();
-            let result = runtime.execute_document(&doc, stdin);
+            let result = runtime.execute_document(&doc, Some(stdin));
             if timings {
                 eprintln!("Executed in {:?}", t0.elapsed());
             }
@@ -84,5 +92,6 @@ fn main() {
                 eprintln!("GC'd in {:?}", t0.elapsed());
             }
         }
+        Commands::Repl {} => repl(),
     }
 }

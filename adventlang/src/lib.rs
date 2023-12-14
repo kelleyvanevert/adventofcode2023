@@ -8,6 +8,7 @@ pub mod external;
 pub mod fmt;
 pub mod parse;
 pub mod parser_combinators;
+pub mod repl;
 pub mod runtime;
 pub mod stdlib;
 pub mod types;

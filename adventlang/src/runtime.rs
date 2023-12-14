@@ -145,6 +145,65 @@ pub enum Ev {
     Dict(HashMap<Ev, Ev>),
 }
 
+impl Display for Ev {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Ev::Nil => write!(f, "nil"),
+            Ev::Bool(b) => write!(f, "{b}"),
+            Ev::Str(s) => {
+                write!(f, "\"{}\"", s)
+            }
+            Ev::Int(n) => write!(f, "{n}"),
+            Ev::Double(d) => write!(f, "{d}"),
+            Ev::Regex => write!(f, "[regex]",),
+            Ev::FnDef => write!(f, "[fn]"),
+            Ev::List(list) => {
+                write!(f, "[")?;
+                let len = list.len();
+                for (i, item) in list.iter().enumerate() {
+                    write!(f, "{item}")?;
+                    if i < len - 1 {
+                        write!(f, ", ")?;
+                    }
+                }
+                write!(f, "]")
+            }
+            Ev::Tuple(list) => {
+                write!(f, "(")?;
+                let len = list.len();
+                for (i, item) in list.iter().enumerate() {
+                    write!(f, "{item}")?;
+                    if i < len - 1 {
+                        write!(f, ", ")?;
+                    }
+                }
+                if len == 1 {
+                    write!(f, ",")?;
+                }
+                write!(f, ")")
+            }
+            Ev::Dict(dict) => {
+                write!(f, "@{{")?;
+                let mut i = 0;
+                for (key, value) in dict.iter() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, ".")?;
+                    write!(f, "{key}")?;
+                    write!(f, " ")?;
+                    write!(f, "{value}")?;
+                    i += 1;
+                }
+                if i == 1 {
+                    write!(f, ",")?;
+                }
+                write!(f, "}}")
+            }
+        }
+    }
+}
+
 impl Eq for Ev {}
 
 impl std::hash::Hash for Ev {
@@ -430,9 +489,15 @@ impl Runtime {
         runtime
     }
 
-    pub fn execute_document(&mut self, doc: &Document, stdin: String) -> EvaluationResult<Ev> {
-        let stdin_loc = self.new_value(Value::Str(Substr::from(stdin))).0;
-        self.get_scope_mut(0).values.insert(id("stdin"), stdin_loc);
+    pub fn execute_document(
+        &mut self,
+        doc: &Document,
+        stdin: Option<String>,
+    ) -> EvaluationResult<Ev> {
+        if let Some(stdin) = stdin {
+            let stdin_loc = self.new_value(Value::Str(Substr::from(stdin))).0;
+            self.get_scope_mut(0).values.insert(id("stdin"), stdin_loc);
+        }
 
         let res_loc = self.execute_block(0, &doc.body)?.0;
 
@@ -1107,20 +1172,21 @@ impl Runtime {
         if matches.len() == 1 {
             matches.pop()
         } else {
-            unimplemented!(
-                "todo select best fn signature for: {}, arg types: ({}), possible signatures: {}",
-                name.map(|n| n.0).unwrap_or("<unknown>".into()),
-                args.iter()
-                    .map(|(_, ty)| format!("{}", ty))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                matches
-                    .iter()
-                    .enumerate()
-                    .map(|(i, (sig, _))| format!("#{} {}:", i + 1, sig))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
+            None
+            // unimplemented!(
+            //     "todo select best fn signature for: {}, arg types: ({}), possible signatures: {}",
+            //     name.map(|n| n.0).unwrap_or("<unknown>".into()),
+            //     args.iter()
+            //         .map(|(_, ty)| format!("{}", ty))
+            //         .collect::<Vec<_>>()
+            //         .join(", "),
+            //     matches
+            //         .iter()
+            //         .enumerate()
+            //         .map(|(i, (sig, _))| format!("#{} {}:", i + 1, sig))
+            //         .collect::<Vec<_>>()
+            //         .join(", ")
+            // )
         }
     }
 
@@ -1660,7 +1726,7 @@ pub fn execute_simple(code: &str) -> EvaluationResult<Ev> {
 
     let mut runtime = Runtime::new();
 
-    let value = runtime.execute_document(&doc, "".into())?;
+    let value = runtime.execute_document(&doc, None)?;
 
     // runtime.gc([res_loc]);
 
