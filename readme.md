@@ -439,6 +439,10 @@ I also tried the memoizing in AL, but, that would have to rely on some smart dic
 
 What a refreshingly fun and simple challenge today was! So easy and lightweight in terms of performance, in comparison with yesterday :P The algorithm was cute, and the bonus generalization also, and I can compute both in AL together in ±160ms. The only thing I needed to add to AL was `continue 'label` statements, which I had prepared for already anyway. Doei!
 
+## Day 14
+
+Today was fun :) I'm quite happy with my little tilting algorithm (which only needs a single pass per column/row, instead of a nested loop per movable rock). And the bonus trick was a classic cycle-detection, which I was able to write in AL (it runs in just under a minute).
+
 ## Adventlang overview
 
 - Mostly value-based, structural equality

@@ -1460,6 +1460,15 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     );
 
     runtime.builtin(
+        "hash",
+        [signature(["data"], |runtime, scope| {
+            let data = runtime.get_scope(scope).get_unchecked("data");
+
+            Ok(runtime.new_value(Value::Numeric(Numeric::Int(runtime.hash(data) as i64))))
+        })],
+    );
+
+    runtime.builtin(
         "trim",
         [signature(["text: str"], |runtime, scope| {
             let text = runtime.get_scope(scope).get_unchecked("text");

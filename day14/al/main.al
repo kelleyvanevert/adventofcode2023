@@ -96,7 +96,9 @@ fn solve(input: str, bonus: bool) {
     while i < N {
       print(" - it {i}")
       cycle()
-      hs []= grid :map |line| { line :join "" } :join "\n"
+      hs []= grid :hash
+      // could alse be `:clone`, or `:map |line| { line :join "" } :join "\n"`,
+      //  doesn't seem to matter much at all for performance
 
       let cycle_length = range(1, i) :find |j| { hs[i] == hs[i-j] }
       if cycle_length != nil {
