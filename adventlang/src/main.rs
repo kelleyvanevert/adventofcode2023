@@ -6,7 +6,7 @@ use std::{
     time::Instant,
 };
 
-use adventlang::{parse::parse_document, runtime::execute, value::EvalOther};
+use adventlang::{parse::parse_document, runtime::Runtime, value::EvalOther};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -58,13 +58,26 @@ fn main() {
             };
 
             let t0 = Instant::now();
-            let result = execute(&doc, stdin);
+            let mut runtime = Runtime::new();
+            if timings {
+                eprintln!("Initialized runtime in {:?}", t0.elapsed());
+            }
+
+            let t0 = Instant::now();
+            let result = runtime.execute_document(&doc, stdin);
             if timings {
                 eprintln!("Executed in {:?}", t0.elapsed());
             }
             if let Err(EvalOther::RuntimeError(runtime_err)) = result {
                 eprintln!("Runtime error: {}", runtime_err.0);
                 exit(3);
+            }
+
+            // (mostly just a proof-of-concept atm)
+            let t0 = Instant::now();
+            runtime.gc([]);
+            if timings {
+                eprintln!("GC'd in {:?}", t0.elapsed());
             }
         }
     }

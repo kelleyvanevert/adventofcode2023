@@ -6,7 +6,6 @@ use std::{
 };
 
 use arcstr::Substr;
-use cached::proc_macro::cached;
 use either::Either;
 use try_map::FallibleMapExt;
 
@@ -419,12 +418,32 @@ pub struct Runtime {
 
 impl Runtime {
     pub fn new() -> Runtime {
-        Runtime {
+        let mut runtime = Runtime {
             random_state: RandomState::new(),
             scopes: vec![Scope::root()],
             heap: vec![],
             reclaimed: vec![],
-        }
+        };
+
+        implement_stdlib(&mut runtime);
+
+        runtime
+    }
+
+    pub fn execute_document(&mut self, doc: &Document, stdin: String) -> EvaluationResult<Ev> {
+        let stdin_loc = self.new_value(Value::Str(Substr::from(stdin))).0;
+        self.get_scope_mut(0).values.insert(id("stdin"), stdin_loc);
+
+        let res_loc = self.execute_block(0, &doc.body)?.0;
+
+        let value = match self.get_value_ext(res_loc) {
+            Err(e) => {
+                return RuntimeError(format!("could not externalize runtime result: {}", e)).into();
+            }
+            Ok(value) => value,
+        };
+
+        Ok(value)
     }
 
     pub fn get_scope(&self, id: usize) -> &Scope {
@@ -1634,33 +1653,16 @@ impl Runtime {
     }
 }
 
-pub fn execute(doc: &Document, stdin: String) -> EvaluationResult<(Runtime, usize)> {
-    let mut runtime = Runtime::new();
-
-    implement_stdlib(&mut runtime);
-
-    let s = runtime.new_value(Value::Str(Substr::from(stdin)));
-    runtime.get_scope_mut(0).values.insert(id("stdin"), s.0);
-
-    let r = runtime.execute_block(0, &doc.body)?;
-    Ok((runtime, r.0))
-}
-
 pub fn execute_simple(code: &str) -> EvaluationResult<Ev> {
     let Some(doc) = parse_document(code) else {
         return RuntimeError("could not parse code".into()).into();
     };
 
-    let (mut runtime, res_loc) = execute(&doc, "".into())?;
+    let mut runtime = Runtime::new();
 
-    runtime.gc([res_loc]);
+    let value = runtime.execute_document(&doc, "".into())?;
 
-    let value = match runtime.get_value_ext(res_loc) {
-        Err(e) => {
-            return RuntimeError(format!("could not get runtime result: {}", e)).into();
-        }
-        Ok(value) => value,
-    };
+    // runtime.gc([res_loc]);
 
     Ok(value)
 }
