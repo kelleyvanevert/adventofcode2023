@@ -24,6 +24,10 @@ enum Commands {
         /// Print out how long parsing and executing took
         timings: bool,
 
+        #[arg(short, long)]
+        /// Do a garbage collection run at the end
+        gc: bool,
+
         /// File to run
         file: PathBuf,
     },
@@ -33,7 +37,7 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Run { timings, file } => {
+        Commands::Run { timings, file, gc } => {
             let Ok(contents) = fs::read_to_string(&file) else {
                 eprintln!("Could not read file: {}", file.display());
                 exit(1);
@@ -73,10 +77,10 @@ fn main() {
                 exit(3);
             }
 
-            // (mostly just a proof-of-concept atm)
-            let t0 = Instant::now();
-            runtime.gc([]);
-            if timings {
+            if gc {
+                // (mostly just a proof-of-concept atm)
+                let t0 = Instant::now();
+                runtime.gc([]);
                 eprintln!("GC'd in {:?}", t0.elapsed());
             }
         }
