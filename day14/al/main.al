@@ -19,9 +19,8 @@ fn solve(input: str, bonus: bool) {
 
   fn tilt_north() {
     for let x in range(0, w) {
-      let y = 0
       let num_empty = 0
-      while y < h {
+      for let y in range(0, h) {
         if grid[y][x] == "." {
           num_empty += 1
         } else if grid[y][x] == "#" {
@@ -30,16 +29,14 @@ fn solve(input: str, bonus: bool) {
           grid[y][x] = "."
           grid[y - num_empty][x] = "O"
         }
-        y += 1
       }
     }
   }
 
   fn tilt_south() {
     for let x in range(0, w) {
-      let y = h-1
       let num_empty = 0
-      while y >= 0 {
+      for let y in range(0, h) :reverse {
         if grid[y][x] == "." {
           num_empty += 1
         } else if grid[y][x] == "#" {
@@ -48,16 +45,14 @@ fn solve(input: str, bonus: bool) {
           grid[y][x] = "."
           grid[y + num_empty][x] = "O"
         }
-        y -= 1
       }
     }
   }
 
   fn tilt_west() {
     for let y in range(0, h) {
-      let x = 0
       let num_empty = 0
-      while x < w {
+      for let x in range(0, w) {
         if grid[y][x] == "." {
           num_empty += 1
         } else if grid[y][x] == "#" {
@@ -66,16 +61,14 @@ fn solve(input: str, bonus: bool) {
           grid[y][x] = "."
           grid[y][x - num_empty] = "O"
         }
-        x += 1
       }
     }
   }
 
   fn tilt_east() {
     for let y in range(0, h) {
-      let x = w-1
       let num_empty = 0
-      while x >= 0 {
+      for let x in range(0, w) :reverse {
         if grid[y][x] == "." {
           num_empty += 1
         } else if grid[y][x] == "#" {
@@ -84,7 +77,6 @@ fn solve(input: str, bonus: bool) {
           grid[y][x] = "."
           grid[y][x + num_empty] = "O"
         }
-        x -= 1
       }
     }
   }
@@ -135,7 +127,7 @@ fn solve(input: str, bonus: bool) {
 
 print("Example solution: {solve(example_input, false)}")
 
-// ±100ms
+// ±80ms
 print("Solution: {solve(stdin, false)}")
 
 print("Example bonus: {solve(example_input, true)}")
