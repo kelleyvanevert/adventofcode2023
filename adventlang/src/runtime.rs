@@ -6,6 +6,7 @@ use std::{
 };
 
 use arcstr::Substr;
+use cached::proc_macro::cached;
 use either::Either;
 use try_map::FallibleMapExt;
 
@@ -17,6 +18,7 @@ use crate::{
     fmt::Fmt,
     parse::parse_document,
     stdlib::implement_stdlib,
+    types::param_permits_arg,
     value::{AlRegex, EvalOther, EvaluationResult, Numeric, RuntimeError},
 };
 
@@ -1000,70 +1002,106 @@ impl Runtime {
         }
     }
 
-    // TODO:
-    // - fallback parameters are not required to be passed
-    // - better type checking in general
-    pub fn matches_signature(
+    pub fn select_signature(
         &self,
-        name: &Option<Identifier>,
-        sig: &FnSig,
-        args: &Vec<(Option<Identifier>, usize)>,
-    ) -> bool {
-        // println!(
-        //     "does this sig match? fn: {}, args: ({}), sig: ({})",
-        //     name.as_ref().map(|id| id.0.as_str()).unwrap_or("<unknown>"),
-        //     args.iter()
-        //         .map(|(_, arg)| self.display(*arg, false))
-        //         .collect::<Vec<_>>()
-        //         .join(", "),
-        //     sig.params
-        //         .iter()
-        //         .map(|t| { format!("{}", t) })
-        //         .collect::<Vec<_>>()
-        //         .join(", ")
-        // );
+        name: Option<Identifier>,
+        signatures: Vec<FnSig>,
+        args: Vec<(&Option<Identifier>, Type)>,
+    ) -> Option<(FnSig, Vec<Option<usize>>)> {
+        let mut matches = signatures
+            .into_iter()
+            .filter_map(|sig| {
+                // println!(
+                //     "does this sig match? fn: {}, args: ({}), sig: ({})",
+                //     name.as_ref().map(|id| id.0.as_str()).unwrap_or("<unknown>"),
+                //     args.iter()
+                //         .map(|(_, arg)| self.display(*arg, false))
+                //         .collect::<Vec<_>>()
+                //         .join(", "),
+                //     sig.params
+                //         .iter()
+                //         .map(|t| { format!("{}", t) })
+                //         .collect::<Vec<_>>()
+                //         .join(", ")
+                // );
 
-        let min_args = sig.params.iter().filter(|p| p.fallback.is_none()).count();
-        let max_args = sig.params.len();
+                let min_args = sig.params.iter().filter(|p| p.fallback.is_none()).count();
+                let max_args = sig.params.len();
 
-        if args.len() < min_args || args.len() > max_args {
-            false
+                // index of param => index of arg to be assigned to it (none if default)
+                let mut assign_params = vec![None; sig.params.len()];
+
+                if args.len() < min_args || args.len() > max_args {
+                    return None;
+                }
+
+                // try to assign and type each arg:
+                for (arg_index, (name, ty)) in args.iter().enumerate() {
+                    let param_index;
+
+                    // try to assign it
+                    if let Some(name) = name {
+                        // if named, assign to the name (if doesn't exist, fail)
+                        if let Some(i) = sig.params.iter().position(|p| match p {
+                            Declarable {
+                                pattern: DeclarePattern::Id(n, _),
+                                ..
+                            } => n == name,
+                            _ => false,
+                        }) {
+                            param_index = i;
+                            assign_params[param_index] = Some(arg_index);
+                            // (we could also check if double-assigning named param,
+                            //  but, ideally that's already detected during parse)
+                        } else {
+                            // cannot pass named arg, because no param with that name
+                            return None;
+                        }
+                    } else {
+                        // else if unnamed, assign to next slot
+                        if let Some(i) = assign_params.iter().position(|p| p.is_none()) {
+                            param_index = i;
+                            assign_params[param_index] = Some(arg_index);
+                        } else {
+                            // cannot pass arg, because no params remaining
+                            return None;
+                        }
+                    }
+
+                    // type-check it
+                    if !param_permits_arg(&sig.params[param_index].pattern, ty) {
+                        return None;
+                    }
+                }
+
+                for i in 0..assign_params.len() {
+                    if assign_params[i].is_none() && sig.params[i].fallback.is_none() {
+                        // param remained unassigned and there's no fallback
+                        return None;
+                    }
+                }
+
+                Some((sig, assign_params))
+            })
+            .collect::<Vec<_>>();
+
+        if matches.len() == 1 {
+            matches.pop()
         } else {
-            // TODO: find arg that does not fit
-            for (Declarable { pattern, fallback }, (_, arg)) in sig.params.iter().zip(args) {
-                let value = self.get_value(*arg);
-                if name == &Some(Identifier("slice".into())) {
-                    // println!("fits? pattern {:?} value {:?}", pat, value);
-                }
-                match pattern {
-                    DeclarePattern::List { .. } => {
-                        if !(Type::List(Type::Any.into()) >= value.ty()) {
-                            // println!("[{name:?}] does not match sig: list");
-                            return false;
-                        }
-                    }
-                    DeclarePattern::Tuple { .. } => {
-                        if !(Type::Tuple(None) >= value.ty()) {
-                            // println!("[{name:?}] does not match sig: tuple");
-                            return false;
-                        }
-                    }
-                    DeclarePattern::Id(_, Some(param_type)) => {
-                        if !(*param_type >= value.ty()) {
-                            // println!(
-                            //     "[{name:?}] does not match sig: type, because NOT {} >= {}",
-                            //     param_type,
-                            //     value.ty()
-                            // );
-                            return false;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            // println!("  sure");
-            true
+            unimplemented!(
+                "todo select best fn signature for: {}, arg types: ({}), possible signatures: {}",
+                name.map(|n| n.0).unwrap_or("<unknown>".into()),
+                args.iter()
+                    .map(|(_, ty)| format!("{}", ty))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                matches
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (sig, _))| format!("#{} {}:", i + 1, sig))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
         }
     }
 
@@ -1081,18 +1119,20 @@ impl Runtime {
             .into();
         };
 
+        // todo find a way to not have to clone this
         let FnDef {
             name,
             parent_scope,
             signatures,
         } = def.clone();
 
-        let mut matching_signatures = signatures
-            .into_iter()
-            .filter(|sig| self.matches_signature(&name, sig, &args))
-            .collect::<Vec<_>>();
-
-        let FnSig { params, body } = if matching_signatures.len() == 0 {
+        let Some((FnSig { params, body }, assignments)) = self.select_signature(
+            name.clone(),
+            signatures,
+            args.iter()
+                .map(|(id, v)| (id, self.get_ty(*v)))
+                .collect::<Vec<_>>(),
+        ) else {
             return RuntimeError(format!(
                 "could not find matching signature, fn: {}, arg types: ({})",
                 name.map(|n| n.0).unwrap_or("<unknown>".into()),
@@ -1102,77 +1142,27 @@ impl Runtime {
                     .join(", ")
             ))
             .into();
-        } else if matching_signatures.len() == 1 {
-            matching_signatures.swap_remove(0)
-        } else {
-            unimplemented!(
-                "todo select fn signature for: {}, arg types: ({}), possible signatures: {}",
-                name.map(|n| n.0).unwrap_or("<unknown>".into()),
-                args.iter()
-                    .map(|arg| format!("{}", self.get_ty(arg.1)))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                matching_signatures
-                    .iter()
-                    .enumerate()
-                    .map(|(i, sig)| format!("#{} {}:", i + 1, sig))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
         };
 
         let execution_scope = self.new_scope(parent_scope);
 
-        let mut params_remaining = params.clone();
-        for (arg_name, mut arg_value) in args {
-            if let Some(name) = arg_name {
-                // assign named param
-                match params_remaining.iter().position(|p| match p {
-                    Declarable {
-                        pattern: DeclarePattern::Id(n, _),
-                        ..
-                    } => n == &name,
-                    _ => false,
-                }) {
-                    Some(i) => {
-                        params_remaining.remove(i);
-                        self.get_scope_mut(execution_scope)
-                            .values
-                            .insert(name, arg_value);
-                    }
-                    None => {
-                        return RuntimeError(format!(
-                            "cannot pass named arg {name} (no param with that name)"
-                        ))
-                        .into();
-                    }
+        for (param_index, assign_arg) in assignments.into_iter().enumerate() {
+            if let Some(arg_index) = assign_arg {
+                let mut arg_val = args[arg_index].1;
+                if let Some(fallback_expr) = &params[param_index].fallback
+                    && self.get_value(arg_val) == &Value::Nil {
+                    arg_val = self.evaluate(parent_scope, &fallback_expr)?.0;
                 }
-            } else if let Some(decl) = params_remaining.get(0).cloned() {
-                // assign next available param
-                params_remaining.remove(0);
-
-                if let Some(fallback_expr) = decl.fallback
-                    && self.get_value(arg_value) == &Value::Nil {
-                    arg_value = self.evaluate(parent_scope, &fallback_expr)?.0;
-                }
-
-                self.declare(execution_scope, &decl.pattern, arg_value)?;
+                self.declare(execution_scope, &params[param_index].pattern, arg_val)?;
             } else {
-                // no params left
-                return RuntimeError(format!("no param to pass arg to")).into();
-            }
-        }
+                let fallback_expr = &params[param_index]
+                    .fallback
+                    .as_ref()
+                    .expect("already checked that this param has a fallback");
 
-        for remaining_param in &params_remaining {
-            if let Some(fallback_expr) = &remaining_param.fallback {
-                let fallback_value = self.evaluate(parent_scope, fallback_expr)?.0;
-                self.declare(execution_scope, &remaining_param.pattern, fallback_value)?;
+                let arg_val = self.evaluate(parent_scope, &fallback_expr)?.0;
+                self.declare(execution_scope, &params[param_index].pattern, arg_val)?;
             }
-        }
-
-        if params_remaining.iter().any(|p| p.fallback.is_none()) {
-            // unassigned params
-            return RuntimeError(format!("unassigned params left")).into();
         }
 
         match body {
