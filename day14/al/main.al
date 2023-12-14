@@ -17,23 +17,24 @@ fn solve(input: str) {
   let h = grid:len
   let w = grid[0]:len
 
-  for let y in range(0, h) {
-    'to_scan_row: for let x in range(0, w) {
+  for let x in range(0, w) {
+    let y = 0
+    let num_empty = 0
+    while y < h {
       if grid[y][x] == "." {
-        let y2 = y
-        while y2 + 1 < h {
-          y2 += 1
-          if grid[y2][x] == "#" {
-            continue 'to_scan_row
-          } else if grid[y2][x] == "O" {
-            grid[y][x] = "O"
-            grid[y2][x] = "."
-            continue 'to_scan_row
-          }
-        }
+        num_empty += 1
+      } else if grid[y][x] == "#" {
+        num_empty = 0
+      } else if grid[y][x] == "O" && num_empty > 0 {
+        grid[y][x] = "."
+        grid[y - num_empty][x] = "O"
       }
+
+      y += 1
     }
   }
+
+//  print(grid :map |line| { line :join "" } :join "\n")
 
   grid
     :reverse
@@ -44,10 +45,10 @@ fn solve(input: str) {
     :sum
 }
 
-print("Example solution: {solve(example_input)}")
+print("Example solution: {solve(example_input)} should be 136")
 
-// ±140ms
-print("Solution: {solve(stdin)}")
+// ±100ms
+print("Solution: {solve(stdin)} should be 107951")
 
 //print("Example bonus: {bonus(example_input)}")
 
