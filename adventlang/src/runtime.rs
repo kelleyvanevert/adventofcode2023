@@ -436,12 +436,7 @@ impl Value {
         match self {
             Value::Nil => Ok(false),
             Value::Bool(b) => Ok(*b),
-            Value::List(_, _) => Ok(true),
-            Value::Tuple(_, _) => Ok(true),
-            Value::Dict(_, _) => Ok(true),
-            Value::Numeric(_) => Ok(true),
-            Value::Str(_) => Ok(true),
-            _ => RuntimeError(format!("cannot check truthiness of {}", self.ty())).into(),
+            _ => Ok(true),
         }
     }
 }
