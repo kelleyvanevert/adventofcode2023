@@ -1058,6 +1058,33 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     );
 
     runtime.builtin(
+        "ascii",
+        [signature(["c: str"], |runtime, scope| {
+            let c = runtime.get_scope(scope).get_unchecked("c");
+
+            let Value::Str(c) = runtime.get_value(c) else {
+                return RuntimeError(format!(
+                    "ascii() c must be a string, is a: {}",
+                    runtime.get_ty(c)
+                ))
+                .into();
+            };
+
+            if c.len() != 1 {
+                return RuntimeError(format!(
+                    "ascii() c must be a string of length 1, given: {}",
+                    c
+                ))
+                .into();
+            }
+
+            Ok(runtime.new_value(Value::Numeric(Numeric::Int(
+                c.chars().next().unwrap() as i64
+            ))))
+        })],
+    );
+
+    runtime.builtin(
         "replace",
         [signature(
             ["text: str", ("def: tuple")],
