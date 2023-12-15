@@ -329,7 +329,7 @@ impl Value {
     pub fn pow(&self, other: &Value) -> EvaluationResult<Value> {
         match (self, other) {
             (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.pow(b))),
-            (a, b) => RuntimeError(format!("can't perform {} + {}", a.ty(), b.ty())).into(),
+            (a, b) => RuntimeError(format!("can't perform {} ^ {}", a.ty(), b.ty())).into(),
         }
     }
 
@@ -347,28 +347,28 @@ impl Value {
     pub fn sub(&self, other: &Value) -> EvaluationResult<Value> {
         match (self, other) {
             (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.sub(b))),
-            (a, b) => RuntimeError(format!("can't perform {} + {}", a.ty(), b.ty())).into(),
+            (a, b) => RuntimeError(format!("can't perform {} - {}", a.ty(), b.ty())).into(),
         }
     }
 
     pub fn mul(&self, other: &Value) -> EvaluationResult<Value> {
         match (self, other) {
             (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.mul(b))),
-            (a, b) => RuntimeError(format!("can't perform {} + {}", a.ty(), b.ty())).into(),
+            (a, b) => RuntimeError(format!("can't perform {} * {}", a.ty(), b.ty())).into(),
         }
     }
 
     pub fn div(&self, other: &Value) -> EvaluationResult<Value> {
         match (self, other) {
             (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.div(b))),
-            (a, b) => RuntimeError(format!("can't perform {} + {}", a.ty(), b.ty())).into(),
+            (a, b) => RuntimeError(format!("can't perform {} / {}", a.ty(), b.ty())).into(),
         }
     }
 
     pub fn modulo(&self, other: &Value) -> EvaluationResult<Value> {
         match (self, other) {
             (Value::Numeric(a), Value::Numeric(b)) => Ok(Value::Numeric(a.modulo(b))),
-            (a, b) => RuntimeError(format!("can't perform {} + {}", a.ty(), b.ty())).into(),
+            (a, b) => RuntimeError(format!("can't perform {} % {}", a.ty(), b.ty())).into(),
         }
     }
 
@@ -544,6 +544,14 @@ impl Runtime {
 
     pub fn get_ty(&self, id: usize) -> Type {
         self.get_value(id).ty()
+    }
+
+    pub fn replace_value(&mut self, loc: usize, value: Value) {
+        // if let Some(i) = self.reclaimed.iter().position(|el| el == &loc) {
+        //     self.reclaimed.remove(i);
+        // }
+
+        self.heap[loc] = Some(value);
     }
 
     pub fn new_value(&mut self, value: Value) -> (usize, bool) {
@@ -1565,12 +1573,32 @@ impl Runtime {
 
                 Ok(self.new_value(Value::Tuple(ts, element_values)))
             }
-            Expr::Invocation { expr, args } => {
+            Expr::Index {
+                expr,
+                coalesce,
+                index,
+            } => self.evaluate_indexed(scope, expr, *coalesce, index),
+            Expr::Invocation {
+                expr,
+                postfix,
+                coalesce,
+                args,
+            } => {
                 let fn_expr_value = self.evaluate(scope, expr)?;
 
+                if *coalesce && !postfix && self.get_value(fn_expr_value.0) == &Value::Nil {
+                    return Ok(fn_expr_value);
+                }
+
                 let mut evaluated_args = vec![];
-                for arg in args {
+                for (i, arg) in args.into_iter().enumerate() {
                     let arg_value = self.evaluate(scope, &arg.expr)?;
+
+                    if i == 0 && *coalesce && *postfix && self.get_value(arg_value.0) == &Value::Nil
+                    {
+                        return Ok(arg_value);
+                    }
+
                     evaluated_args.push((arg.name.clone(), arg_value.0));
                 }
 
@@ -1715,6 +1743,108 @@ impl Runtime {
 
                 Ok(result.unwrap_or_else(|| self.new_value(Value::Nil)))
             }
+        }
+    }
+
+    pub fn evaluate_indexed(
+        &mut self,
+        scope: usize,
+        expr: &Expr,
+        coalesce: bool,
+        index: &Expr,
+    ) -> EvaluationResult<(usize, bool)> {
+        let collection_loc = self.evaluate(scope, expr)?;
+        let collection = self.get_value(collection_loc.0).clone();
+
+        match collection {
+            Value::Nil if coalesce => Ok(self.new_value(Value::Nil)),
+            Value::Dict(_, dict) => {
+                let (key, _) = self.evaluate(scope, index)?;
+                Ok(dict
+                    .get(&self, key)
+                    .map(|(_, value)| (value, false))
+                    .unwrap_or(self.new_value(Value::Nil)))
+            }
+            Value::List(_, items) => {
+                let (i, _) = self.evaluate(scope, index)?;
+
+                let Value::Numeric(i) = self.get_value(i) else {
+                    return RuntimeError(format!(
+                        "index() i must be an int, is a: {}",
+                        self.get_ty(i)
+                    ))
+                    .into();
+                };
+
+                let i = i.get_int()?;
+
+                let el = (match i {
+                    i if i >= 0 => items.get(i as usize).cloned(),
+                    i if items.len() as i64 + i >= 0 => {
+                        items.get((items.len() as i64 + i) as usize).cloned()
+                    }
+                    _ => None,
+                })
+                .map(|v| (v, false))
+                .unwrap_or(self.new_value(Value::Nil));
+
+                Ok(el)
+            }
+            Value::Tuple(_, items) => {
+                let (i, _) = self.evaluate(scope, index)?;
+
+                let Value::Numeric(i) = self.get_value(i) else {
+                    return RuntimeError(format!(
+                        "index() i must be an int, is a: {}",
+                        self.get_ty(i)
+                    ))
+                    .into();
+                };
+
+                let i = i.get_int()?;
+
+                let el = (match i {
+                    i if i >= 0 => items.get(i as usize).cloned(),
+                    i if items.len() as i64 + i >= 0 => {
+                        items.get((items.len() as i64 + i) as usize).cloned()
+                    }
+                    _ => None,
+                })
+                .map(|v| (v, false))
+                .unwrap_or(self.new_value(Value::Nil));
+
+                Ok(el)
+            }
+            Value::Str(text) => {
+                let (i, _) = self.evaluate(scope, index)?;
+
+                let Value::Numeric(i) = self.get_value(i) else {
+                    return RuntimeError(format!(
+                        "index() i must be an int, is a: {}",
+                        self.get_ty(i)
+                    ))
+                    .into();
+                };
+
+                let i = i.get_int()?;
+
+                let result = match i {
+                    i if i >= 0 => {
+                        let i = i as usize;
+                        text.get(i..(i + 1))
+                    }
+                    i if text.len() as i64 + i >= 0 => {
+                        let i = (text.len() as i64 + i) as usize;
+                        text.get(i..(i + 1))
+                    }
+                    _ => None,
+                }
+                .map(|substr| Value::Str(text.substr_from(substr)))
+                .unwrap_or(Value::Nil);
+
+                Ok(self.new_value(result))
+            }
+            _ => RuntimeError(format!("cannot index into: {}", collection.ty())).into(),
         }
     }
 }
@@ -1980,5 +2110,17 @@ mod tests {
             ),
             Ok(tuple([int(1), bool(false), list([str("a"), str("b")])]))
         );
+    }
+
+    #[test]
+    fn coalesce() {
+        assert_eq!(execute_simple(r#""5":int"#), Ok(int(5)));
+
+        assert_eq!(
+            execute_simple(r#"nil :int"#),
+            RuntimeError("cannot coerce nil to int".into()).into()
+        );
+
+        assert_eq!(execute_simple(r#"nil ?:int"#), Ok(Ev::Nil));
     }
 }

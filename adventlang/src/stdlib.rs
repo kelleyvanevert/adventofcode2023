@@ -269,6 +269,69 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     );
 
     runtime.builtin(
+        "remove_at",
+        [signature(["items", "i: int"], |runtime, scope| {
+            let items = runtime.get_scope(scope).get_unchecked("items");
+            let i = runtime.get_scope(scope).get_unchecked("i");
+
+            let Value::Numeric(i) = runtime.get_value(i) else {
+                return RuntimeError(format!(
+                    "remove_at() i must be an int, is: {}",
+                    runtime.get_ty(i)
+                ))
+                .into();
+            };
+
+            let i = i.get_int()?;
+
+            if i < 0 {
+                return RuntimeError(format!("remove_at() i must be a positive int, is: {}", i))
+                    .into();
+            }
+
+            let i = i as usize;
+
+            match runtime.get_value(items).clone() {
+                Value::List(t, mut list) => {
+                    if i >= list.len() {
+                        return RuntimeError(format!(
+                            "remove_at() i out of bounds, is: {}, len: {}",
+                            i,
+                            list.len(),
+                        ))
+                        .into();
+                    }
+
+                    let el = list.remove(i);
+                    runtime.replace_value(items, Value::List(t, list));
+                    Ok((el, false))
+                }
+                Value::Tuple(ts, mut list) => {
+                    if i >= list.len() {
+                        return RuntimeError(format!(
+                            "remove_at() i out of bounds, is: {}, len: {}",
+                            i,
+                            list.len(),
+                        ))
+                        .into();
+                    }
+
+                    let el = list.remove(i);
+                    runtime.replace_value(items, Value::Tuple(ts, list));
+                    Ok((el, false))
+                }
+                _ => {
+                    return RuntimeError(format!(
+                        "remove_at() items must be a list or tuple, is a: {}",
+                        runtime.get_ty(items)
+                    ))
+                    .into();
+                }
+            }
+        })],
+    );
+
+    runtime.builtin(
         "zip",
         [signature(["xs", "ys"], |runtime, scope| {
             let xs = runtime.get_scope(scope).get_unchecked("xs");
@@ -940,7 +1003,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "match",
         [signature(
-            ["text: str", ("regex: regex")],
+            ["text: str", "regex: regex"],
             |runtime, scope| {
                 let text = runtime.get_scope(scope).get_unchecked("text");
 
@@ -968,6 +1031,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                         let matched_part = runtime.new_value(Value::Str(m.as_str().into()));
                         let offset =
                             runtime.new_value(Value::Numeric(Numeric::Int(m.start() as i64)));
+
                         Ok(runtime.new_value(Value::Tuple(
                             Some(vec![Type::Str, Type::Numeric]),
                             vec![matched_part.0, offset.0],
@@ -980,9 +1044,68 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     );
 
     runtime.builtin(
+        "matches",
+        [signature(
+            ["text: str", "regex: regex"],
+            |runtime, scope| {
+                let text = runtime.get_scope(scope).get_unchecked("text");
+
+                let Value::Str(text) = runtime.get_value(text).clone() else {
+                    return RuntimeError(format!(
+                        "matches() text must be a string, is a: {}",
+                        runtime.get_ty(text)
+                    ))
+                    .into();
+                };
+
+                let regex = runtime.get_scope(scope).get_unchecked("regex");
+
+                let Value::Regex(regex) = runtime.get_value(regex).clone() else {
+                    return RuntimeError(format!(
+                        "matches() regex must be a regex, is a: {}",
+                        runtime.get_ty(regex)
+                    ))
+                    .into();
+                };
+
+                match regex.0.captures(&text) {
+                    Some(cap) => {
+                        let mut groups = vec![];
+
+                        for m in cap.iter() {
+                            groups.push(
+                                match m {
+                                    Some(m) => {
+                                        let matched_part =
+                                            runtime.new_value(Value::Str(m.as_str().into()));
+                                        let offset = runtime.new_value(Value::Numeric(
+                                            Numeric::Int(m.start() as i64),
+                                        ));
+
+                                        runtime.new_value(Value::Tuple(
+                                            Some(vec![Type::Str, Type::Numeric]),
+                                            vec![matched_part.0, offset.0],
+                                        ))
+                                    }
+                                    None => runtime.new_value(Value::Nil),
+                                }
+                                .0,
+                            );
+                        }
+
+                        Ok(runtime
+                            .new_value(Value::List(Type::List(Type::Tuple(None).into()), groups)))
+                    }
+                    None => Ok(runtime.new_value(Value::Nil)),
+                }
+            },
+        )],
+    );
+
+    runtime.builtin(
         "match_all",
         [signature(
-            ["text: str", ("regex: regex")],
+            ["text: str", "regex: regex"],
             |runtime, scope| {
                 let text = runtime.get_scope(scope).get_unchecked("text");
 
@@ -1334,145 +1457,6 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     .collect::<Vec<_>>();
 
                 Ok(runtime.new_value(Value::List(el_type, slice_els)))
-            }),
-        ],
-    );
-
-    runtime.builtin(
-        "index",
-        [
-            signature(["dict: dict", "key"], |runtime, scope| {
-                // println!("dict index access");
-                let dict = runtime.get_scope(scope).get_unchecked("dict");
-
-                let Value::Dict(_, dict) = runtime.get_value(dict).clone() else {
-                    return RuntimeError(format!(
-                        "index() dict must be a dict, is a: {}",
-                        runtime.get_ty(dict)
-                    ))
-                    .into();
-                };
-
-                let key = runtime.get_scope(scope).get_unchecked("key");
-
-                let result = dict
-                    .get(runtime, key)
-                    .map(|(_, value)| (value, false))
-                    .unwrap_or(runtime.new_value(Value::Nil));
-
-                Ok(result)
-            }),
-            signature(["list: [any]", "i: int"], |runtime, scope| {
-                // println!("list index access");
-                let list = runtime.get_scope(scope).get_unchecked("list");
-
-                let Value::List(_, items) = runtime.get_value(list).clone() else {
-                    return RuntimeError(format!(
-                        "index() list must be a list, is a: {}",
-                        runtime.get_ty(list)
-                    ))
-                    .into();
-                };
-
-                let i = runtime.get_scope(scope).get_unchecked("i");
-
-                let Value::Numeric(i) = runtime.get_value(i) else {
-                    return RuntimeError(format!(
-                        "index() i must be an int, is a: {}",
-                        runtime.get_ty(i)
-                    ))
-                    .into();
-                };
-
-                let i = i.get_int()?;
-
-                let el = (match i {
-                    i if i >= 0 => items.get(i as usize).cloned(),
-                    i if items.len() as i64 + i >= 0 => {
-                        items.get((items.len() as i64 + i) as usize).cloned()
-                    }
-                    _ => None,
-                })
-                .map(|v| (v, false))
-                .unwrap_or(runtime.new_value(Value::Nil));
-
-                Ok(el)
-            }),
-            signature(["tup: tuple", "i: int"], |runtime, scope| {
-                // println!("tuple index access");
-                let tup = runtime.get_scope(scope).get_unchecked("tup");
-
-                let Value::Tuple(_, tup) = runtime.get_value(tup) else {
-                    return RuntimeError(format!(
-                        "index() tup must be a tuple, is a: {}",
-                        runtime.get_ty(tup)
-                    ))
-                    .into();
-                };
-
-                let i = runtime.get_scope(scope).get_unchecked("i");
-
-                let Value::Numeric(i) = runtime.get_value(i) else {
-                    return RuntimeError(format!(
-                        "index() i must be an int, is a: {}",
-                        runtime.get_ty(i)
-                    ))
-                    .into();
-                };
-
-                let i = i.get_int()?;
-
-                let el = (match i {
-                    i if i >= 0 => tup.get(i as usize).cloned(),
-                    i if tup.len() as i64 + i >= 0 => {
-                        tup.get((tup.len() as i64 + i) as usize).cloned()
-                    }
-                    _ => None,
-                })
-                .map(|v| (v, false))
-                .unwrap_or(runtime.new_value(Value::Nil));
-
-                Ok(el)
-            }),
-            signature(["text: str", "i: int"], |runtime, scope| {
-                // println!("str index access");
-                let text = runtime.get_scope(scope).get_unchecked("text");
-
-                let Value::Str(text) = runtime.get_value(text) else {
-                    return RuntimeError(format!(
-                        "index() list must be a str, is a: {}",
-                        runtime.get_value(text)
-                    ))
-                    .into();
-                };
-
-                let i = runtime.get_scope(scope).get_unchecked("i");
-
-                let Value::Numeric(i) = runtime.get_value(i) else {
-                    return RuntimeError(format!(
-                        "index() i must be an int, is a: {}",
-                        runtime.get_ty(i)
-                    ))
-                    .into();
-                };
-
-                let i = i.get_int()?;
-
-                let result = match i {
-                    i if i >= 0 => {
-                        let i = i as usize;
-                        text.get(i..(i + 1))
-                    }
-                    i if text.len() as i64 + i >= 0 => {
-                        let i = (text.len() as i64 + i) as usize;
-                        text.get(i..(i + 1))
-                    }
-                    _ => None,
-                }
-                .map(|substr| Value::Str(text.substr_from(substr)))
-                .unwrap_or(Value::Nil);
-
-                Ok(runtime.new_value(result))
             }),
         ],
     );
