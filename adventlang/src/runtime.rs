@@ -2199,5 +2199,44 @@ mod tests {
             ),
             Ok(int(1))
         );
+
+        assert_eq!(
+            execute_simple(
+                r#"
+                    if let [a, b] = 2 {
+                        1
+                    } else {
+                        2
+                    }
+                "#
+            ),
+            Ok(int(2))
+        );
+
+        assert_eq!(
+            execute_simple(
+                r#"
+                    if let [a, b] = [] {
+                        1
+                    } else {
+                        2
+                    }
+                "#
+            ),
+            Ok(int(1))
+        );
+
+        assert_eq!(
+            execute_simple(
+                r#"
+                    if let [a, [b, c]] = [] {
+                        1
+                    } else {
+                        2
+                    }
+                "#
+            ),
+            Ok(int(2))
+        );
     }
 }
