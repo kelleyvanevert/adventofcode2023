@@ -428,6 +428,10 @@ impl Value {
         }
     }
 
+    pub fn is_nil(&self) -> bool {
+        self == &Value::Nil
+    }
+
     pub fn truthy(&self) -> EvaluationResult<bool> {
         match self {
             Value::Nil => Ok(false),
@@ -1284,8 +1288,6 @@ impl Runtime {
 
                         let index_val = index_loc.map(|i| self.get_value(i)).cloned();
 
-                        let nil = self.new_value(Value::Nil).0;
-
                         let matching_dict_key = match (self.get_value(parent), index_loc) {
                             (Value::Dict(_, dict), Some(i)) => {
                                 dict.get(&self, i).map(|(key, _)| key)
@@ -1293,51 +1295,66 @@ impl Runtime {
                             _ => None,
                         };
 
-                        let array_pushed_loc = match (self.get_value_mut(parent), index_loc) {
-                            (Value::List(_, els), None) => {
-                                els.push(nil);
-                                Some(nil)
+                        // PUSH
+                        let nil = self.new_value(Value::Nil).0;
+                        match (self.get_value_mut(parent), index_loc) {
+                            (Value::List(_, items), None) | (Value::Tuple(_, items), None) => {
+                                items.push(nil);
+                                return Ok(Location::Single(nil));
                             }
-                            (Value::Tuple(_, els), None) => {
-                                els.push(nil);
-                                Some(nil)
-                            }
+                            _ => {}
+                        };
+
+                        let listy_items = match self.get_value(parent).clone() {
+                            Value::List(_, items) | Value::Tuple(_, items) => Some(items),
                             _ => None,
                         };
+
+                        // EXTEND IF NECESSARY
+                        let mut listy_index = None;
+                        let mut resized_items = None;
+                        if let Some(items) = listy_items {
+                            let index = index_val.clone().unwrap();
+
+                            let Value::Numeric(Numeric::Int(index)) = index else {
+                                return RuntimeError(format!(
+                                    "list/tuple assign index must be an int, is a: {}",
+                                    index.ty()
+                                ))
+                                .into();
+                            };
+
+                            let i = if index >= 0 {
+                                index as usize
+                            } else if items.len() as i64 + index >= 0 {
+                                (items.len() as i64 + index) as usize
+                            } else {
+                                return RuntimeError(format!("negative index out of bounds"))
+                                    .into();
+                            };
+
+                            listy_index = Some(i);
+
+                            if i >= items.len() {
+                                let mut new_items = vec![];
+                                for _ in items.len()..(i + 1) {
+                                    new_items.push(self.new_value(Value::Nil).0);
+                                }
+                                resized_items = Some(new_items);
+                            }
+                        }
 
                         let index_value_hash = index_loc.map(|i| self.hash(i));
 
                         match self.get_value_mut(parent) {
                             Value::List(_, items) | Value::Tuple(_, items) => {
-                                if let Some(index) = index_val {
-                                    let Value::Numeric(Numeric::Int(index)) = index else {
-                                        return RuntimeError(format!(
-                                            "list/tuple assign index must be an int, is a: {}",
-                                            index.ty()
-                                        ))
-                                        .into();
-                                    };
+                                let i = listy_index.unwrap();
 
-                                    let i = if index >= 0 {
-                                        if index >= items.len() as i64 {
-                                            items.resize(index as usize + 1, nil);
-                                        }
-                                        index as usize
-                                    } else if items.len() as i64 + index >= 0 {
-                                        (items.len() as i64 + index) as usize
-                                    } else {
-                                        return RuntimeError(format!(
-                                            "negative index out of bounds"
-                                        ))
-                                        .into();
-                                    };
-
-                                    Ok(Location::Single(items[i]))
-                                } else {
-                                    Ok(Location::Single(
-                                        array_pushed_loc.expect("array pushed location"),
-                                    ))
+                                if let Some(new_items) = resized_items {
+                                    items.extend(new_items);
                                 }
+
+                                Ok(Location::Single(items[i]))
                             }
                             Value::Dict(_, ref mut dict) => {
                                 if let Some(index_loc) = index_loc {
@@ -1620,7 +1637,11 @@ impl Runtime {
             } => {
                 let cond_value = self.evaluate(scope, cond)?;
 
-                let result = if self.get_value(cond_value.0).truthy()? {
+                // The truthiness check is normal if there's no declaration pattern, but if there IS a pattern, then e.g. `0` should be a valid assignment, so we should check for the value specifically not being nil
+                // I know, it's a bit weird..
+                let result = if (pattern.is_some() && !self.get_value(cond_value.0).is_nil())
+                    || (pattern.is_none() && self.get_value(cond_value.0).truthy()?)
+                {
                     let execution_scope = self.new_scope(scope);
 
                     if let Some(pattern) = pattern {
@@ -2113,6 +2134,20 @@ mod tests {
     }
 
     #[test]
+    fn lists() {
+        assert_eq!(
+            execute_simple(
+                r#"
+                    let list = []
+                    list[4] = 2
+                    list
+                "#
+            ),
+            Ok(list([Ev::Nil, Ev::Nil, Ev::Nil, Ev::Nil, int(2)]))
+        );
+    }
+
+    #[test]
     fn coalesce() {
         assert_eq!(execute_simple(r#""5":int"#), Ok(int(5)));
 
@@ -2122,5 +2157,34 @@ mod tests {
         );
 
         assert_eq!(execute_simple(r#"nil ?:int"#), Ok(Ev::Nil));
+    }
+
+    #[test]
+    fn if_let() {
+        assert_eq!(
+            execute_simple(
+                r#"
+                    if let i = nil {
+                        1
+                    } else {
+                        2
+                    }
+                "#
+            ),
+            Ok(int(2))
+        );
+
+        assert_eq!(
+            execute_simple(
+                r#"
+                    if let i = 0 {
+                        1
+                    } else {
+                        2
+                    }
+                "#
+            ),
+            Ok(int(1))
+        );
     }
 }

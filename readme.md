@@ -443,6 +443,19 @@ What a refreshingly fun and simple challenge today was! So easy and lightweight 
 
 Today was fun :) I'm quite happy with my little tilting algorithm (which only needs a single pass per column/row, instead of a nested loop per movable rock). And the bonus trick was a classic cycle-detection, which I was able to write in AL (it runs in just under a minute).
 
+## Day 15
+
+Today was messy! The challenge was not hard at all, but, somehow, for the bonus part, I did need to add a bunch of things to AL to make it look good, and did that in surpisingly messy ways .. :|
+
+Oh well, now AL has:
+
+- `nil` coalescing in a bunch of places, like: `list[x]?[y]?:int`
+- the `if let` pattern DOES match on falsey values that ARE NOT `nil`
+- a `find_index` built-in (that only really works well with the fix above)
+- an `ascii` built-in that just gets the "code point" of single character strings (e.g. `c as usize` in Rust)
+- `lhs ??= rhs` as a shorthand for `lhs = lhs ?? rhs`
+- a bugfix where `list[i] = v` for an `i` out of bounds would accidentally fill all newly extended slots with `v` (which was due to my weird "heap implementation" btw :P)
+
 ## Adventlang overview
 
 - Mostly value-based, structural equality

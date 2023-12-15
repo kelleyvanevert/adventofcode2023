@@ -759,6 +759,31 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     );
 
     runtime.builtin(
+        "find_index",
+        [signature(["items", "cb"], |runtime, scope| {
+            let items = runtime.get_scope(scope).get_unchecked("items");
+
+            let Value::List(_, list) = runtime.get_value(items) else {
+                return RuntimeError(format!("cannot get max of: {}", runtime.get_ty(items)))
+                    .into();
+            };
+
+            let list = list.clone();
+
+            let cb = runtime.get_scope(scope).get_unchecked("cb");
+
+            for (i, item) in list.into_iter().enumerate() {
+                let check = runtime.invoke(cb, vec![(None, item.clone())])?;
+                if runtime.get_value(check.0).truthy()? {
+                    return Ok(runtime.new_value(Value::Numeric(Numeric::Int(i as i64))));
+                }
+            }
+
+            Ok(runtime.new_value(Value::Nil))
+        })],
+    );
+
+    runtime.builtin(
         "range",
         [signature(["start", "end"], |runtime, scope| {
             let start = runtime.get_scope(scope).get_unchecked("start");
