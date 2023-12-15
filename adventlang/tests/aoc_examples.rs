@@ -917,7 +917,7 @@ let example_input = "
 fn predict(values) {
   let seqs = [values]
   let i = 0
-  while any(seqs[i]) {
+  while seqs[i] :any |n| { n != 0 } {
     seqs[i+1] = []
     for let j in range(0, seqs[i]:len - 1) {
       seqs[i+1][j] = seqs[i][j+1] - seqs[i][j]
@@ -938,7 +938,7 @@ fn solve(input: str) {
 fn lookback(values) {
   let seqs = [values]
   let i = 0
-  while any(seqs[i]) {
+  while seqs[i] :any |n| { n != 0 } {
     seqs[i+1] = []
     for let j in range(0, seqs[i]:len - 1) {
       seqs[i+1][j] = seqs[i][j+1] - seqs[i][j]
