@@ -465,6 +465,7 @@ pub enum Expr {
     },
     While {
         label: Option<Identifier>,
+        pattern: Option<DeclarePattern>,
         cond: Box<Expr>,
         body: Block,
     },

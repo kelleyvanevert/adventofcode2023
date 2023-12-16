@@ -464,12 +464,20 @@ fn while_expr(s: State) -> ParseResult<State, Expr> {
             optional(terminated(label, seq((tag(":"), ws0)))),
             tag("while"),
             ws1,
-            maybe_parenthesized(constrained(true, expr)),
+            maybe_parenthesized(seq((
+                optional(delimited(
+                    seq((tag("let"), ws1)),
+                    declare_pattern,
+                    seq((ws0, char('='), ws0)),
+                )),
+                constrained(true, expr),
+            ))),
             ws0,
             delimited(seq((char('{'), ws0)), block_contents, seq((ws0, char('}')))),
         )),
-        |(label, _, _, cond, _, body)| Expr::While {
+        |(label, _, _, (pattern, cond), _, body)| Expr::While {
             label,
+            pattern,
             cond: cond.into(),
             body,
         },

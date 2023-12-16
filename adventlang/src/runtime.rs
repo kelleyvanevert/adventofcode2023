@@ -1672,15 +1672,31 @@ impl Runtime {
 
                 Ok(result)
             }
-            Expr::While { label, cond, body } => {
+            Expr::While {
+                label,
+                pattern,
+                cond,
+                body,
+            } => {
                 let mut result = self.new_value(Value::Nil);
                 loop {
                     let cond_value = self.evaluate(scope, cond)?;
-                    if !self.get_value(cond_value.0).truthy()? {
+
+                    let execution_scope = self.new_scope(scope);
+
+                    let ok = self.get_value(cond_value.0).truthy()?
+                        && match pattern {
+                            None => true,
+                            Some(pattern) => {
+                                self.declare(execution_scope, pattern, cond_value.0)?
+                            }
+                        };
+
+                    if !ok {
                         return Ok(result);
                     }
 
-                    match self.execute_block(scope, body) {
+                    match self.execute_block(execution_scope, body) {
                         Ok(res) => {
                             result = res;
                         }

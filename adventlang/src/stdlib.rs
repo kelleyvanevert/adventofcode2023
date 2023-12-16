@@ -332,6 +332,37 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     );
 
     runtime.builtin(
+        "pop",
+        [signature(["items"], |runtime, scope| {
+            let items = runtime.get_scope(scope).get_unchecked("items");
+
+            match runtime.get_value(items).clone() {
+                Value::List(t, mut list) => match list.pop() {
+                    Some(el) => {
+                        runtime.replace_value(items, Value::List(t, list));
+                        Ok((el, false))
+                    }
+                    None => Ok(runtime.new_value(Value::Nil)),
+                },
+                Value::Tuple(ts, mut list) => match list.pop() {
+                    Some(el) => {
+                        runtime.replace_value(items, Value::Tuple(ts, list));
+                        Ok((el, false))
+                    }
+                    None => Ok(runtime.new_value(Value::Nil)),
+                },
+                _ => {
+                    return RuntimeError(format!(
+                        "pop() items must be a list or tuple, is a: {}",
+                        runtime.get_ty(items)
+                    ))
+                    .into();
+                }
+            }
+        })],
+    );
+
+    runtime.builtin(
         "zip",
         [signature(["xs", "ys"], |runtime, scope| {
             let xs = runtime.get_scope(scope).get_unchecked("xs");
