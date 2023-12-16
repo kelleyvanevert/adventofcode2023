@@ -298,12 +298,20 @@ fn regex_contents(s: State) -> ParseResult<State, String> {
             }
             escaped = false;
         } else if c == '/' {
+            if contents.len() == 0 {
+                return None;
+            }
+
             return Some((s.slice(i), contents));
         } else if c == '\\' {
             escaped = true;
         } else {
             contents.push(c);
         }
+    }
+
+    if contents.len() == 0 {
+        return None;
     }
 
     Some((s.slice(s.input.len()), contents))
