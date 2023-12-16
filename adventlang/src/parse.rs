@@ -9,8 +9,8 @@ use crate::{
         Item, Stmt, StrLiteralPiece, Type,
     },
     parser_combinators::{
-        alt, check, delimited, many0, map, optional, optional_if, preceded, seq, terminated,
-        ParseResult, Parser,
+        alt, check, delimited, many0, many1, map, map_opt, optional, optional_if, preceded, seq,
+        terminated, value, ParseResult, Parser,
     },
     value::{AlRegex, Numeric},
 };
@@ -61,6 +61,16 @@ fn tag<'a>(tag: &'static str) -> impl Parser<State<'a>, Output = &'a str> {
     move |s: State<'a>| {
         if s.input.starts_with(tag) {
             Some((s.slice(tag.len()), tag))
+        } else {
+            None
+        }
+    }
+}
+
+fn char<'a>(c: char) -> impl Parser<State<'a>, Output = char> {
+    move |s: State<'a>| {
+        if s.input.starts_with(c) {
+            Some((s.slice(1), c))
         } else {
             None
         }
@@ -187,23 +197,85 @@ where
     )
 }
 
-// TODO
-fn unescape(input: &str) -> String {
-    input.replace("\\n", "\n").replace("\\/", "/")
+fn unicode_sequence(s: State) -> ParseResult<State, char> {
+    map_opt(regex(r"^u\{[0-9A-F]{1,6}\}"), |s| {
+        u32::from_str_radix(&s[2..s.len() - 1], 16)
+            .ok()
+            .map(std::char::from_u32)
+            .flatten()
+    })
+    .parse(s)
+}
+
+fn escaped_char(s: State) -> ParseResult<State, char> {
+    preceded(
+        char('\\'),
+        alt((
+            unicode_sequence,
+            value('\n', char('n')),
+            value('\r', char('r')),
+            value('\t', char('t')),
+            value('\u{08}', char('b')),
+            value('\u{0C}', char('f')),
+            value('\\', char('\\')),
+            value('/', char('/')),
+            value('"', char('"')),
+        )),
+    )
+    .parse(s)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StrFrag<'a> {
+    Literal(&'a str),
+    EscapedChar(char),
+    EscapedWs,
+}
+
+fn str_lit_frag(s: State) -> ParseResult<State, String> {
+    map(
+        many1(alt((
+            map(regex(r#"^[^"{\\]+"#), StrFrag::Literal),
+            map(escaped_char, StrFrag::EscapedChar),
+            value(StrFrag::EscapedWs, preceded(char('\\'), ws1)),
+        ))),
+        |pieces| {
+            let mut build = "".to_string();
+            for piece in pieces {
+                match piece {
+                    StrFrag::EscapedChar(c) => build.push(c),
+                    StrFrag::Literal(l) => build += l,
+                    StrFrag::EscapedWs => {}
+                }
+            }
+            build
+        },
+    )
+    .parse(s)
+}
+
+fn raw_str_literal(s: State) -> ParseResult<State, Expr> {
+    map(
+        delimited(tag(r#"r""#), regex(r#"^[^"]*"#), char('"')),
+        |s| Expr::StrLiteral {
+            pieces: vec![StrLiteralPiece::Fragment(s.into())],
+        },
+    )
+    .parse(s)
 }
 
 fn str_literal(s: State) -> ParseResult<State, Expr> {
     map(
         delimited(
-            tag("\""),
+            char('"'),
             many0(alt((
-                map(map(regex("^[^\"{]+"), unescape), StrLiteralPiece::Fragment),
+                map(str_lit_frag, StrLiteralPiece::Fragment),
                 map(
-                    seq((tag("{"), ws0, constrained(false, expr), ws0, tag("}"))),
+                    seq((char('{'), ws0, constrained(false, expr), ws0, char('}'))),
                     |(_, _, expr, _, _)| StrLiteralPiece::Interpolation(expr),
                 ),
             ))),
-            tag("\""),
+            char('"'),
         ),
         |pieces| Expr::StrLiteral { pieces },
     )
@@ -238,7 +310,7 @@ fn regex_contents(s: State) -> ParseResult<State, String> {
 }
 
 fn regex_literal(s: State) -> ParseResult<State, Expr> {
-    let (s, re) = delimited(tag("/"), regex_contents, tag("/")).parse(s)?;
+    let (s, re) = delimited(char('/'), regex_contents, char('/')).parse(s)?;
 
     Some((
         s,
@@ -269,13 +341,13 @@ fn anonymous_fn(s: State) -> ParseResult<State, Expr> {
         seq((
             optional_if(
                 delimited(
-                    seq((tag("|"), ws0)),
+                    seq((char('|'), ws0)),
                     parameter_list,
-                    seq((ws0, tag("|"), ws0)),
+                    seq((ws0, char('|'), ws0)),
                 ),
                 |s| !s.constrained,
             ),
-            delimited(seq((tag("{"), ws0)), block_contents, seq((ws0, tag("}")))),
+            delimited(seq((char('{'), ws0)), block_contents, seq((ws0, char('}')))),
         )),
         |(params, body)| Expr::AnonymousFn {
             params: params.unwrap_or_else(|| vec![]),
@@ -290,13 +362,13 @@ where
     P: Parser<State<'a>, Output = T>,
 {
     move |s| {
-        let (s, opt) = optional(seq((tag("("), ws0))).parse(s)?;
+        let (s, opt) = optional(seq((char('('), ws0))).parse(s)?;
 
         let (s, res) = parser.parse(s)?;
 
         let s = match opt {
             None => s,
-            Some(_) => seq((ws0, tag(")"))).parse(s)?.0,
+            Some(_) => seq((ws0, char(')'))).parse(s)?.0,
         };
 
         Some((s, res))
@@ -312,21 +384,21 @@ fn if_expr(s: State) -> ParseResult<State, Expr> {
                 optional(delimited(
                     seq((tag("let"), ws1)),
                     declare_pattern,
-                    seq((ws0, tag("="), ws0)),
+                    seq((ws0, char('='), ws0)),
                 )),
                 constrained(true, expr),
             ))),
             ws0,
-            delimited(seq((tag("{"), ws0)), block_contents, seq((ws0, tag("}")))),
+            delimited(seq((char('{'), ws0)), block_contents, seq((ws0, char('}')))),
             optional(preceded(
                 seq((ws0, tag("else"), ws0)),
                 alt((
                     map(if_expr, Either::Left),
                     map(
                         delimited(
-                            seq((ws0, tag("{"), ws0)),
+                            seq((ws0, char('{'), ws0)),
                             block_contents,
-                            seq((ws0, tag("}"))),
+                            seq((ws0, char('}'))),
                         ),
                         Either::Right,
                     ),
@@ -358,7 +430,7 @@ fn do_while_expr(s: State) -> ParseResult<State, Expr> {
             optional(terminated(label, seq((tag(":"), ws0)))),
             tag("do"),
             ws0,
-            delimited(seq((tag("{"), ws0)), block_contents, seq((ws0, tag("}")))),
+            delimited(seq((char('{'), ws0)), block_contents, seq((ws0, char('}')))),
             optional(preceded(
                 seq((ws0, tag("while"), slws1)),
                 maybe_parenthesized(constrained(true, expr)),
@@ -376,10 +448,10 @@ fn do_while_expr(s: State) -> ParseResult<State, Expr> {
 fn loop_expr(s: State) -> ParseResult<State, Expr> {
     map(
         seq((
-            optional(terminated(label, seq((tag(":"), ws0)))),
+            optional(terminated(label, seq((char(':'), ws0)))),
             tag("loop"),
             ws0,
-            delimited(seq((tag("{"), ws0)), block_contents, seq((ws0, tag("}")))),
+            delimited(seq((char('{'), ws0)), block_contents, seq((ws0, char('}')))),
         )),
         |(label, _, _, body)| Expr::Loop { label, body },
     )
@@ -394,7 +466,7 @@ fn while_expr(s: State) -> ParseResult<State, Expr> {
             ws1,
             maybe_parenthesized(constrained(true, expr)),
             ws0,
-            delimited(seq((tag("{"), ws0)), block_contents, seq((ws0, tag("}")))),
+            delimited(seq((char('{'), ws0)), block_contents, seq((ws0, char('}')))),
         )),
         |(label, _, _, cond, _, body)| Expr::While {
             label,
@@ -421,7 +493,7 @@ fn for_expr(s: State) -> ParseResult<State, Expr> {
                 constrained(true, expr),
             ))),
             ws0,
-            delimited(seq((tag("{"), ws0)), block_contents, seq((ws0, tag("}")))),
+            delimited(seq((char('{'), ws0)), block_contents, seq((ws0, char('}')))),
         )),
         |(label, _, _, (_, _, pattern, _, _, _, range), _, body)| Expr::For {
             label,
@@ -452,16 +524,16 @@ fn list_literal(s: State) -> ParseResult<State, Expr> {
 
 fn tuple_literal_or_parenthesized_expr(s: State) -> ParseResult<State, Expr> {
     delimited(
-        seq((tag("("), ws0)),
+        seq((char('('), ws0)),
         map(
             seq((
                 constrained(false, expr),
                 many0(preceded(
-                    seq((ws0, tag(","), ws0)),
+                    seq((ws0, char(','), ws0)),
                     constrained(false, expr),
                 )),
                 ws0,
-                optional(tag(",")),
+                optional(char(',')),
             )),
             |(first_el, mut els, _, final_comma)| {
                 if els.len() == 0 && final_comma.is_none() {
@@ -476,7 +548,7 @@ fn tuple_literal_or_parenthesized_expr(s: State) -> ParseResult<State, Expr> {
                 }
             },
         ),
-        seq((ws0, tag(")"))),
+        seq((ws0, char(')'))),
     )
     .parse(s)
 }
@@ -485,7 +557,7 @@ fn dict_pair(s: State) -> ParseResult<State, (Either<Identifier, Expr>, Expr)> {
     alt((
         map(
             seq((
-                preceded(tag("."), identifier),
+                preceded(char('.'), identifier),
                 optional(preceded(ws1, constrained(false, expr))),
             )),
             |(id, value)| match value {
@@ -503,7 +575,7 @@ fn dict_pair(s: State) -> ParseResult<State, (Either<Identifier, Expr>, Expr)> {
 
 fn dict_literal(s: State) -> ParseResult<State, Expr> {
     map(
-        preceded(tag("@"), listy("{", dict_pair, dict_pair, "}")),
+        preceded(char('@'), listy("{", dict_pair, dict_pair, "}")),
         |(elements, _)| Expr::DictLiteral { elements },
     )
     .parse(s)
@@ -511,19 +583,22 @@ fn dict_literal(s: State) -> ParseResult<State, Expr> {
 
 fn expr_leaf(s: State) -> ParseResult<State, Expr> {
     alt((
+        // literals
         dict_literal,
         map(tag("true"), |_| Expr::Bool(true)),
         map(tag("false"), |_| Expr::Bool(false)),
         map(tag("nil"), |_| Expr::NilLiteral),
+        raw_str_literal,
+        str_literal,
+        map(double, Expr::Numeric),
+        map(integer, Expr::Numeric),
+        regex_literal,
+        // control structures
         do_while_expr,
         while_expr,
         loop_expr,
         for_expr,
         map(identifier, Expr::Variable),
-        map(double, Expr::Numeric),
-        map(integer, Expr::Numeric),
-        str_literal,
-        regex_literal,
         anonymous_fn,
         tuple_literal_or_parenthesized_expr,
         list_literal,
@@ -534,7 +609,7 @@ fn expr_leaf(s: State) -> ParseResult<State, Expr> {
 fn argument(s: State) -> ParseResult<State, Argument> {
     map(
         seq((
-            optional(terminated(identifier, seq((ws0, tag("="), ws0)))),
+            optional(terminated(identifier, seq((ws0, char('='), ws0)))),
             constrained(false, expr),
         )),
         |(name, expr)| Argument {
@@ -587,19 +662,19 @@ fn expr_index_or_method_stack(s: State) -> ParseResult<State, Expr> {
             many0(alt((
                 map(
                     seq((
-                        delimited(ws0, optional(tag("?")), ws0),
+                        delimited(ws0, optional(char('?')), ws0),
                         delimited(
-                            seq((tag("["), ws0)),
+                            seq((char('['), ws0)),
                             constrained(false, expr),
-                            seq((ws0, tag("]"))),
+                            seq((ws0, char(']'))),
                         ),
                     )),
                     Either::Left,
                 ),
                 map(
                     seq((
-                        preceded(ws0, optional(tag("?"))),
-                        preceded(seq((ws0, tag("."))), identifier),
+                        preceded(ws0, optional(char('?'))),
+                        preceded(seq((ws0, char('.'))), identifier),
                     )),
                     Either::Right,
                 ),
@@ -684,11 +759,11 @@ fn postfix_index_sugar(input: State) -> ParseResult<State, TmpOp> {
     map(
         seq((
             ws0,
-            optional(tag("?")),
+            optional(char('?')),
             ws0,
             tag(":["),
             constrained(false, expr),
-            tag("]"),
+            char(']'),
         )),
         |(_, coalesce, _, _, expr, _)| TmpOp::IndexSugar(coalesce.is_some(), expr),
     )
@@ -699,12 +774,12 @@ fn infix_or_postfix_fn_latter_part(input: State) -> ParseResult<State, TmpOp> {
     map(
         seq((
             ws0,
-            optional(seq((tag("?"), ws0))),
-            tag(":"),
+            optional(seq((char('?'), ws0))),
+            char(':'),
             identifier,
             optional(seq((
                 preceded(slws0, unary_expr_stack),
-                many0(preceded(seq((slws0, tag(","), slws0)), unary_expr_stack)),
+                many0(preceded(seq((slws0, char(','), slws0)), unary_expr_stack)),
             ))),
         )),
         |(_, coalesce, _, id, opt)| TmpOp::InfixOrPostfix {
@@ -1311,6 +1386,46 @@ fn block_contents(s: State) -> ParseResult<State, Block> {
     .parse(s)
 }
 
+fn remove_comments(input: &str) -> String {
+    let mut it = input.char_indices().peekable();
+
+    let mut breakpoints = vec![0];
+
+    // state:
+    let mut in_raw_str_lit = false;
+    let mut in_comment = false;
+
+    while let Some((i, c)) = it.next() {
+        if c == 'r' && let Some((_, '"')) = it.peek() {
+             in_raw_str_lit = true;
+            it.next();
+        } else if c == '"' && in_raw_str_lit {
+             in_raw_str_lit = false;
+        }
+
+        if !in_raw_str_lit && c == '/' && let Some((_, '/')) = it.peek() {
+            // START COMMENT
+            in_comment = true;
+            breakpoints.push(i);
+            it.next();
+        }
+
+        if (c == '\n' || c == '\r') && in_comment {
+            // STOP
+            in_comment = false;
+            breakpoints.push(i);
+        }
+    }
+
+    breakpoints.push(input.len());
+
+    breakpoints
+        .chunks_exact(2)
+        .map(|chunk| &input[chunk[0]..chunk[1]])
+        .collect::<Vec<_>>()
+        .join("")
+}
+
 fn document(s: State) -> ParseResult<State, Document> {
     map(seq((ws0, block_contents, ws0, eof)), |(_, body, _, _)| {
         Document { body }
@@ -1332,16 +1447,41 @@ pub fn parse_type(input: &str) -> Type {
         .expect("parse type")
 }
 
+#[test]
+fn test_remove_comments() {
+    assert_eq!(
+        remove_comments(
+            r"
+hello //comment
+there"
+        ),
+        r"
+hello 
+there"
+            .to_string()
+    );
+
+    assert_eq!(
+        remove_comments(
+            r#"
+let rest = r"
+hello //comment
+there
+" // second comment
+bla"#
+        ),
+        r#"
+let rest = r"
+hello //comment
+there
+" 
+bla"#
+            .to_string()
+    );
+}
+
 pub fn parse_document(input: &str) -> Option<Document> {
-    let input = input
-        .lines()
-        // remove //-style comments
-        .map(|line| match line.split_once("//") {
-            None => line,
-            Some((code, _)) => code,
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let input = remove_comments(input);
 
     document.parse(State::from(&input[..])).map(|(_, doc)| doc)
 }
@@ -1528,6 +1668,182 @@ mod tests {
                 Type::Nil,
                 Type::Tuple(Some(vec![Type::Union(vec![Type::Bool, Type::Numeric])]))
             ])
+        );
+    }
+
+    #[test]
+    fn str_literals() {
+        assert_eq!(test_parse(unicode_sequence, "u{1F419}"), Some(("", '🐙')));
+
+        assert_eq!(
+            test_parse(str_lit_frag, "hello"),
+            Some(("", "hello".to_string()))
+        );
+
+        assert_eq!(
+            test_parse(str_lit_frag, r"a\\b"),
+            Some(("", "a\\b".to_string()))
+        );
+
+        assert_eq!(
+            test_parse(str_lit_frag, r"a\\b{"),
+            Some(("{", "a\\b".to_string()))
+        );
+
+        assert_eq!(
+            test_parse(str_lit_frag, r#"a\\b""#),
+            Some((r#"""#, "a\\b".to_string()))
+        );
+
+        assert_eq!(
+            test_parse(str_lit_frag, r"a\\b\u{1F419}"),
+            Some(("", "a\\b🐙".to_string()))
+        );
+
+        assert_eq!(
+            test_parse(str_lit_frag, &(r"a\\b\u{1F419}".to_string() + "\n  bla")),
+            Some(("", "a\\b🐙\n  bla".to_string()))
+        );
+
+        assert_eq!(
+            test_parse(str_lit_frag, &(r"a\\b\u{1F419}\".to_string() + "\n  bla")),
+            Some(("", "a\\b🐙bla".to_string()))
+        );
+
+        assert_eq!(test_parse(str_literal, r#"kelley"#), None);
+
+        assert_eq!(
+            test_parse(str_literal, r#""kelley""#),
+            Some(("", str("kelley")))
+        );
+
+        assert_eq!(
+            test_parse(
+                str_literal,
+                &(r#"""#.to_string() + "\nkelley\nbla\n" + r#"""#)
+            ),
+            Some(("", str("\nkelley\nbla\n")))
+        );
+
+        assert_eq!(
+            test_parse(raw_str_literal, r#"r"hello""#.trim()),
+            Some(("", str("hello")))
+        );
+
+        assert_eq!(
+            test_parse(
+                raw_str_literal,
+                &(r#"r""#.to_string() + "\nkelley\nbla\n" + r#"""#)
+            ),
+            Some(("", str("\nkelley\nbla\n")))
+        );
+
+        assert_eq!(
+            test_parse(
+                raw_str_literal,
+                r#"
+r"
+.|...\....
+|.-.\.....
+.....|-...
+........|.
+..........
+.........\
+..../.\\..
+.-.-/..|..
+.|....-|.\
+..//.|....
+"
+                "#
+                .trim()
+            ),
+            Some((
+                "",
+                str(r"
+.|...\....
+|.-.\.....
+.....|-...
+........|.
+..........
+.........\
+..../.\\..
+.-.-/..|..
+.|....-|.\
+..//.|....
+")
+            ))
+        );
+
+        assert_eq!(
+            test_parse(raw_str_literal, r#"r"he//llo""#.trim()),
+            Some(("", str("he//llo")))
+        );
+
+        assert_eq!(test_parse(expr, r#""world""#), Some(("", str("world"))));
+
+        assert_eq!(
+            test_parse(expr, r#""world\nbla""#),
+            Some(("", str("world\nbla")))
+        );
+
+        assert_eq!(
+            test_parse(expr, r#""world\\bla""#),
+            Some(("", str("world\\bla")))
+        );
+
+        assert_eq!(
+            test_parse(expr, r#"r"world\bla""#),
+            Some(("", str("world\\bla")))
+        );
+
+        assert_eq!(
+            test_parse(expr, r#"r"world\nbla""#),
+            Some(("", str("world\\nbla")))
+        );
+
+        assert_eq!(
+            test_parse(expr, r#"r"world\\bla""#),
+            Some(("", str("world\\\\bla")))
+        );
+
+        assert_eq!(
+            test_parse(
+                stmt,
+                r#"
+let example_input = r"
+.|...\....
+|.-.\.....
+.....|-...
+........|.
+..........
+.........\
+..../.\\..
+.-.-/..|..
+.|....-|.\
+..//.|....
+"
+                "#
+                .trim()
+            ),
+            Some((
+                "",
+                Stmt::Declare {
+                    pattern: DeclarePattern::Id(Identifier("example_input".into()), None),
+                    expr: str(r"
+.|...\....
+|.-.\.....
+.....|-...
+........|.
+..........
+.........\
+..../.\\..
+.-.-/..|..
+.|....-|.\
+..//.|....
+")
+                    .into()
+                }
+            ))
         );
     }
 

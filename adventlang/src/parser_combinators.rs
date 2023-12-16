@@ -21,15 +21,31 @@ pub fn none<I, O>(input: I) -> ParseResult<I, Option<O>> {
     Some((input, None::<O>))
 }
 
-pub fn map<I, O1, O2>(
-    mut p1: impl Parser<I, Output = O1>,
-    mut f: impl FnMut(O1) -> O2,
-) -> impl Parser<I, Output = O2> {
+pub fn value<I, A, B: Copy>(b: B, mut p: impl Parser<I, Output = A>) -> impl Parser<I, Output = B> {
     move |input: I| {
-        p1.parse(input).map(|(remaining, res)| {
-            //
-            (remaining, f(res))
-        })
+        let (input, _) = p.parse(input)?;
+        Some((input, b))
+    }
+}
+
+pub fn map<I, A, B>(
+    mut pa: impl Parser<I, Output = A>,
+    mut f: impl FnMut(A) -> B,
+) -> impl Parser<I, Output = B> {
+    move |input: I| {
+        let (input, a) = pa.parse(input)?;
+        Some((input, f(a)))
+    }
+}
+
+pub fn map_opt<I: Clone, A, B>(
+    mut pa: impl Parser<I, Output = A>,
+    mut f: impl FnMut(A) -> Option<B>,
+) -> impl Parser<I, Output = B> {
+    move |input: I| {
+        let (input, a) = pa.parse(input)?;
+        let b = f(a)?;
+        Some((input, b))
     }
 }
 
@@ -232,6 +248,7 @@ alt_impl!(P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14);
 alt_impl!(P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14, P15);
 alt_impl!(P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14, P15, P16);
 alt_impl!(P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14, P15, P16, P17);
+alt_impl!(P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14, P15, P16, P17, P18);
 
 pub fn alt<I, O, List: Alt<I, Output = O>>(mut list: List) -> impl Parser<I, Output = O> {
     move |input: I| list.choice(input)
