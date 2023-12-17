@@ -17,10 +17,10 @@ fn main() {
     //    println!("First part: {}", solve(input));
     //});
 
-    time(|| {
-        // ±5.5s
-        println!("Bonus: {}", bonus(input, false));
-    });
+    // time(|| {
+    //     // ±5.5s
+    //     println!("Bonus: {}", bonus(input, false));
+    // });
 
     time(|| {
         // ±6.5s
@@ -80,8 +80,8 @@ struct Context {
     adj: Vec<Vec<usize>>,
     comp: Vec<usize>,
     comp_adj: Vec<Vec<usize>>,
-    comp_positions: Vec<HashSet<(usize, usize)>>,
-    comp_reach: HashMap<usize, HashSet<(usize, usize)>>,
+    comp_positions: Vec<HashSet<usize>>,
+    comp_reach: HashMap<usize, HashSet<usize>>,
 }
 
 impl Context {
@@ -244,7 +244,7 @@ impl Context {
             self.comp_positions[comp_id] = els
                 .into_iter()
                 .map(|&(k, _)| self.dec(k))
-                .map(|(pos, _)| pos)
+                .map(|((x, y), _)| y * self.h + x)
                 .collect::<HashSet<_>>();
         }
 
@@ -263,7 +263,7 @@ impl Context {
         }
     }
 
-    fn comp_reach(&mut self, comp_id: usize, i: usize) -> HashSet<(usize, usize)> {
+    fn comp_reach(&mut self, comp_id: usize, i: usize) -> HashSet<usize> {
         // let indent = String::from_utf8(vec![' ' as u8; i * 2]).unwrap();
 
         if let Some(res) = self.comp_reach.get(&comp_id) {
