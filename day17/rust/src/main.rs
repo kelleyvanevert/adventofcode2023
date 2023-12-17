@@ -1,5 +1,6 @@
 #![feature(let_chains)]
 
+use core::panic;
 use std::{
     collections::{BinaryHeap, HashSet},
     iter::once,
@@ -14,25 +15,44 @@ fn main() {
         println!("First part: {}", solve(input));
     });
 
-    // time(|| {
-    //     // ±15s
-    //     println!("Bonus: {}", bonus(input));
-    // });
+    time(|| {
+        // ±6s
+        println!("Bonus: {}", bonus(input));
+    });
 }
 
-const HI: usize = 999999;
+fn get_padded_grid(input: &str) -> Grid {
+    let w = input.lines().next().unwrap().len();
+
+    once(vec![HI; w + 2])
+        .chain(
+            input
+                .lines()
+                .map(|line| {
+                    let mut row = line
+                        .chars()
+                        .map(|c| c as usize - '0' as usize)
+                        .collect::<Vec<_>>();
+                    row.insert(0, HI);
+                    row.push(HI);
+                    row
+                })
+                .chain(once(vec![HI; w + 2])),
+        )
+        .collect::<Vec<_>>()
+}
+
+const HI: usize = 10;
 
 type Dir = usize;
+type Pos = (usize, usize);
+type Grid = Vec<Vec<usize>>;
 
 const NOOP: Dir = 0;
 const UP: Dir = 1;
 const RIGHT: Dir = 2;
 const DOWN: Dir = 3;
 const LEFT: Dir = 4;
-
-type Pos = (usize, usize);
-
-type Grid = Vec<Vec<usize>>;
 
 fn step((x, y): Pos, dir: Dir) -> Pos {
     match dir {
@@ -83,7 +103,7 @@ impl Path {
                 continue;
             }
 
-            if self.prev[0] == dir && self.prev[1] == dir && self.prev[2] == dir {
+            if self.prev.iter().all(|&d| d == dir) {
                 // cannot go in this diration any longer
                 continue;
             }
@@ -122,27 +142,6 @@ impl Ord for Path {
     }
 }
 
-fn get_padded_grid(input: &str) -> Grid {
-    let w = input.lines().next().unwrap().len();
-
-    once(vec![HI; w + 2])
-        .chain(
-            input
-                .lines()
-                .map(|line| {
-                    let mut row = line
-                        .chars()
-                        .map(|c| c as usize - '0' as usize)
-                        .collect::<Vec<_>>();
-                    row.insert(0, HI);
-                    row.push(HI);
-                    row
-                })
-                .chain(once(vec![HI; w + 2])),
-        )
-        .collect::<Vec<_>>()
-}
-
 // using greedy best-first search
 fn solve(input: &str) -> usize {
     let grid = get_padded_grid(input);
@@ -155,18 +154,11 @@ fn solve(input: &str) -> usize {
     paths.push(Path {
         target: (w - 2, h - 2),
         head: (1, 1),
-        prev: [NOOP, NOOP, NOOP],
+        prev: [NOOP; 3],
         cost_so_far: 0,
     });
 
-    let mut i = 0;
-    let stop = 1000000;
-
     while let Some(at) = paths.pop() {
-        if i >= stop {
-            break;
-        }
-
         let k = (at.head, at.prev);
         if seen.contains(&k) {
             continue;
@@ -174,31 +166,138 @@ fn solve(input: &str) -> usize {
 
         seen.insert(k);
 
-        // println!("At {at:?} (score = {})", at.score());
         if at.target == at.head {
-            // println!("FOUND ROUTE:");
-            // println!("{:?}", at);
             return at.cost_so_far;
         }
 
-        i += 1;
-
         paths.extend(at.next(&grid));
-        // for p in at.next(&grid) {
-        //     // println!("  -> {p:?} (score = {})", p.score());
-        //     paths.push(p);
-        // }
     }
 
-    if i == stop {
-        println!("LOOOOOOOPING");
+    panic!("no place to go")
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BonusPath {
+    target: (usize, usize),
+    head: (usize, usize),
+    prev: [Dir; 10], // [last, before that, etc..]
+    cost_so_far: usize,
+    // path: Vec<(usize, usize)>, // for debugging
+}
+
+impl BonusPath {
+    fn manhattan_to_target(&self) -> usize {
+        let (tx, ty) = self.target;
+        let (x, y) = self.head;
+
+        (tx - x) + (ty - y)
     }
 
-    0
+    fn score(&self) -> usize {
+        self.cost_so_far + self.manhattan_to_target()
+    }
+
+    fn reached_target(&self) -> bool {
+        self.head == self.target
+            && self.prev[1..4]
+                .iter()
+                .all(|&d| d == self.prev[0] || d == NOOP)
+    }
+
+    fn next(&self, grid: &Grid) -> Vec<BonusPath> {
+        let mut next = vec![];
+
+        for dir in [UP, RIGHT, DOWN, LEFT] {
+            if opposite(dir) == self.prev[0] {
+                // can't reverse
+                continue;
+            }
+
+            if self.prev.iter().all(|&d| d == dir) {
+                // cannot go in this diration any longer
+                continue;
+            }
+
+            if self.prev[0] != NOOP
+                && self.prev[0] != dir
+                && !self.prev[1..4]
+                    .iter()
+                    .all(|&d| d == self.prev[0] || d == NOOP)
+            {
+                // cannot change direction yet
+                continue;
+            }
+
+            let (x, y) = step(self.head, dir);
+            if grid[y][x] >= 10 {
+                // stay in bounds
+                continue;
+            }
+
+            let mut prev = self.prev.clone();
+            prev.rotate_right(1);
+            prev[0] = dir;
+
+            // let mut path = self.path.clone();
+            // path.push((x, y));
+
+            next.push(BonusPath {
+                target: self.target,
+                head: (x, y),
+                prev,
+                cost_so_far: self.cost_so_far + grid[y][x],
+                // path,
+            });
+        }
+
+        next
+    }
+}
+
+impl PartialOrd for BonusPath {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(&other))
+    }
+}
+
+impl Ord for BonusPath {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.score().cmp(&other.score()).reverse()
+    }
 }
 
 fn bonus(input: &str) -> usize {
-    0
+    let grid = get_padded_grid(input);
+    let h = grid.len();
+    let w = grid[0].len();
+
+    let mut seen = HashSet::new();
+
+    let mut paths = BinaryHeap::new();
+    paths.push(BonusPath {
+        target: (w - 2, h - 2),
+        head: (1, 1),
+        prev: [NOOP; 10],
+        cost_so_far: 0,
+        // path: vec![(1, 1)],
+    });
+
+    while let Some(at) = paths.pop() {
+        let k = (at.head, at.prev);
+        if seen.contains(&k) {
+            continue;
+        }
+
+        seen.insert(k);
+
+        if at.reached_target() {
+            return at.cost_so_far;
+        }
+
+        paths.extend(at.next(&grid));
+    }
+
+    panic!("no place to go")
 }
 
 fn time<F>(mut f: F)
@@ -232,5 +331,19 @@ fn test() {
             .trim(),
         ),
         102
+    );
+
+    assert_eq!(
+        bonus(
+            "
+111111111111
+999999999991
+999999999991
+999999999991
+999999999991
+    "
+            .trim(),
+        ),
+        71
     );
 }
