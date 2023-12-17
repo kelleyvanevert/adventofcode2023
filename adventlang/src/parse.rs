@@ -1407,19 +1407,23 @@ fn remove_comments(input: &str) -> String {
 
     let mut breakpoints = vec![0];
 
-    // state:
+    let mut in_str_lit = false; // suboptimal, doesn't account for interapolated expressions
     let mut in_raw_str_lit = false;
     let mut in_comment = false;
 
     while let Some((i, c)) = it.next() {
-        if c == 'r' && let Some((_, '"')) = it.peek() {
-             in_raw_str_lit = true;
+        if !in_comment && !in_str_lit && !in_raw_str_lit && c == 'r' && let Some((_, '"')) = it.peek() {
+            in_raw_str_lit = true;
             it.next();
-        } else if c == '"' && in_raw_str_lit {
-             in_raw_str_lit = false;
+        } else if !in_comment && c == '"' {
+            if in_raw_str_lit {
+                in_raw_str_lit = false;
+            } else {
+                in_str_lit = !in_str_lit;
+            }
         }
 
-        if !in_raw_str_lit && c == '/' && let Some((_, '/')) = it.peek() {
+        if !in_comment && !in_str_lit && !in_raw_str_lit && c == '/' && let Some((_, '/')) = it.peek() {
             // START COMMENT
             in_comment = true;
             breakpoints.push(i);

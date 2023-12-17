@@ -306,7 +306,7 @@ impl Display for Value {
 impl Value {
     pub fn negate(&self) -> EvaluationResult<Value> {
         match self {
-            Value::Nil => Ok(Value::Nil),
+            Value::Nil => Ok(Value::Bool(true)),
             Value::Bool(b) => Ok(Value::Bool(!b)),
             Value::Str(_) => RuntimeError(format!("Can't negate str")).into(),
             Value::Numeric(n) => Ok(Value::Numeric(n.negate()?)),
