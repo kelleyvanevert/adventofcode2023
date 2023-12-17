@@ -4,6 +4,7 @@ use std::{
     time::Instant,
 };
 
+use fxhash::{FxBuildHasher, FxHashSet, FxHasher};
 use itertools::Itertools;
 use strongly::Tarjan;
 
@@ -17,10 +18,10 @@ fn main() {
     //    println!("First part: {}", solve(input));
     //});
 
-    // time(|| {
-    //     // ±5.5s
-    //     println!("Bonus: {}", bonus(input, false));
-    // });
+    time(|| {
+        // ±5.5s
+        println!("Bonus: {}", bonus(input, false));
+    });
 
     time(|| {
         // ±6.5s
@@ -78,10 +79,11 @@ struct Context {
     w: usize,
     entries: Vec<usize>,
     adj: Vec<Vec<usize>>,
+
     comp: Vec<usize>,
     comp_adj: Vec<Vec<usize>>,
-    comp_positions: Vec<HashSet<usize>>,
-    comp_reach: HashMap<usize, HashSet<usize>>,
+    comp_positions: HashMap<usize, FxHashSet<usize>, FxBuildHasher>,
+    comp_reach: HashMap<usize, FxHashSet<usize>, FxBuildHasher>,
 }
 
 impl Context {
@@ -95,10 +97,11 @@ impl Context {
             w,
             entries: vec![],
             adj: vec![vec![]; w * h * 4],
+
             comp: vec![],
             comp_adj: vec![],
-            comp_positions: vec![],
-            comp_reach: HashMap::new(),
+            comp_positions: HashMap::default(),
+            comp_reach: HashMap::default(),
         }
     }
 
@@ -222,7 +225,7 @@ impl Context {
             .into_group_map_by(|t| t.1);
 
         // store which
-        self.comp_positions = vec![HashSet::new(); n];
+        // self.comp_positions = vec![HashSet::with_hasher(self.hasher); n];
 
         for (&&comp_id, els) in &g {
             // if els.len() > 1 {
@@ -241,11 +244,13 @@ impl Context {
             //     }
             // }
 
-            self.comp_positions[comp_id] = els
-                .into_iter()
-                .map(|&(k, _)| self.dec(k))
-                .map(|((x, y), _)| y * self.h + x)
-                .collect::<HashSet<_>>();
+            self.comp_positions.insert(
+                comp_id,
+                els.into_iter()
+                    .map(|&(k, _)| self.dec(k))
+                    .map(|((x, y), _)| y * self.h + x)
+                    .collect::<HashSet<_, FxBuildHasher>>(),
+            );
         }
 
         self.comp = tarjan.component;
@@ -263,7 +268,7 @@ impl Context {
         }
     }
 
-    fn comp_reach(&mut self, comp_id: usize, i: usize) -> HashSet<usize> {
+    fn comp_reach(&mut self, comp_id: usize, i: usize) -> HashSet<usize, FxBuildHasher> {
         // let indent = String::from_utf8(vec![' ' as u8; i * 2]).unwrap();
 
         if let Some(res) = self.comp_reach.get(&comp_id) {
@@ -274,9 +279,9 @@ impl Context {
             .clone()
             .into_iter()
             .flat_map(|c| self.comp_reach(c, i + 1))
-            .collect::<HashSet<_>>();
+            .collect::<HashSet<_, FxBuildHasher>>();
 
-        res.extend(&self.comp_positions[comp_id]);
+        res.extend(&self.comp_positions[&comp_id]);
 
         self.comp_reach.insert(comp_id, res.clone());
         // println!(
