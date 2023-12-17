@@ -456,6 +456,21 @@ Oh well, now AL has:
 - `lhs ??= rhs` as a shorthand for `lhs = lhs ?? rhs`
 - a bugfix where `list[i] = v` for an `i` out of bounds would accidentally fill all newly extended slots with `v` (which was due to my weird "heap implementation" btw :P)
 
+## Day 16 and 17
+
+It's official, we've gotten to the part of advent of code where the challenges are getting hard enough that:
+
+1. I'm not always able to solve it, or solve it nicely, within a day. Funnily enough, the same thing happened last year on the exact same day, day 16!
+2. I'm not going to be able (or willing) to solve the challenges in my own language anymore .. 😅 After yesterday (day 16)'s drama, I immediately reached for Rust today, because I just didn't have the confidence that I was going to be able to write it fully in AL, without switching to Rust again to get the performance of ergonomic flexibility that I might need.
+
+Day 16, for me, was all about finding out (way later than I should have), that writing a memoizing recursive solution for the bonus part was not just going to fly easily, because the graph contains cycles. I spent a long time just trying to figure out how to do the memoization, until I just gave up, switch to Rust, precomputed the graph in a separate step, and then collected the counts for all the entry points the dumb way, which is Rust is .. fast enough (±5.5s). Then I spent another few hours, the next day, trying to first reduce the graph into a DAG using Tarjan's algorithm, and then computing the results recursively using memoization. But: (1) it was actually about the same speed, (2) figuring that that might just be because of the expensive HashSets I used, I tried removing them, but got stuck again.. so I just decided to move on again.
+
+Day 17 was the first "best effort" search with a priority queue etc. that I used this year. Wasn't an easy setup either XD I guess that's what happens when you don't think about this kind of algorithms for a year, and then try to dive back in as if you still remember all the tricks and gotcha's...
+
+Both very compelling challenges again of course! Kept my mind very entertained! :P
+
+And the "lava fall" on the website is amazing!!
+
 ## Adventlang overview
 
 - Mostly value-based, structural equality
