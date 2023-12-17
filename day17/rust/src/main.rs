@@ -1,22 +1,20 @@
 #![feature(let_chains)]
 
 use core::panic;
-use std::{
-    collections::{BinaryHeap, HashSet},
-    iter::once,
-    time::Instant,
-};
+use std::{collections::BinaryHeap, iter::once, time::Instant};
+
+use fxhash::FxHashSet;
 
 fn main() {
     let input = include_str!("../../input.txt");
 
     time(|| {
-        // ±500ms
+        // ±300ms
         println!("First part: {}", solve(input));
     });
 
     time(|| {
-        // ±6s
+        // ±4s
         println!("Bonus: {}", bonus(input));
     });
 }
@@ -148,7 +146,7 @@ fn solve(input: &str) -> usize {
     let h = grid.len();
     let w = grid[0].len();
 
-    let mut seen = HashSet::new();
+    let mut seen = FxHashSet::default();
 
     let mut paths = BinaryHeap::new();
     paths.push(Path {
@@ -271,7 +269,7 @@ fn bonus(input: &str) -> usize {
     let h = grid.len();
     let w = grid[0].len();
 
-    let mut seen = HashSet::new();
+    let mut seen = FxHashSet::default();
 
     let mut paths = BinaryHeap::new();
     paths.push(BonusPath {
