@@ -471,6 +471,10 @@ Both very compelling challenges again of course! Kept my mind very entertained! 
 
 And the "lava fall" on the website is amazing!!
 
+**UPDATE on day 16**
+
+It turns out .. that if I just use `FxHashSet`, `FxHashMap`, the memoizing solution does actually greatly improve the speed, which is now down to ±1.1s 🎉
+
 ## Adventlang overview
 
 - Mostly value-based, structural equality
