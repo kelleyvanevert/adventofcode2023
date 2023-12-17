@@ -26,7 +26,8 @@ fn main() {
     // });
 
     time(|| {
-        // ±1.1s
+        // ±1.1s without parallelism
+        // ±400ms with parallelism
         println!("Bonus: {}", bonus(input, true));
     });
 }
