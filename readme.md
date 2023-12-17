@@ -475,6 +475,8 @@ And the "lava fall" on the website is amazing!!
 
 It turns out .. that if I just use `FxHashSet`, `FxHashMap`, the memoizing solution does actually greatly improve the speed, which is now down to ±1.1s 🎉
 
+And then, using `rayon` I can get it down to ±400ms 🚀 Of course now I need to use an `Arc<Mutex<..>>`. (Not actually sure if that's the best way, but, it works for me.)
+
 ## Adventlang overview
 
 - Mostly value-based, structural equality

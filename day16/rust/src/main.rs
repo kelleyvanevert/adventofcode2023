@@ -1,11 +1,13 @@
 use std::{
     collections::{HashMap, HashSet},
     iter::once,
+    sync::{Arc, Mutex},
     time::Instant,
 };
 
 use fxhash::{FxHashMap, FxHashSet};
 use itertools::Itertools;
+use rayon::prelude::*;
 use strongly::Tarjan;
 
 mod strongly;
@@ -83,7 +85,7 @@ struct Context {
     comp: Vec<usize>,
     comp_adj: Vec<Vec<usize>>,
     comp_positions: FxHashMap<usize, FxHashSet<usize>>,
-    comp_reach: FxHashMap<usize, FxHashSet<usize>>,
+    comp_reach: Arc<Mutex<FxHashMap<usize, FxHashSet<usize>>>>,
 }
 
 impl Context {
@@ -101,7 +103,7 @@ impl Context {
             comp: vec![],
             comp_adj: vec![],
             comp_positions: HashMap::default(),
-            comp_reach: HashMap::default(),
+            comp_reach: Arc::new(Mutex::new(HashMap::default())),
         }
     }
 
@@ -268,10 +270,10 @@ impl Context {
         }
     }
 
-    fn comp_reach(&mut self, comp_id: usize, i: usize) -> FxHashSet<usize> {
+    fn comp_reach(&self, comp_id: usize, i: usize) -> FxHashSet<usize> {
         // let indent = String::from_utf8(vec![' ' as u8; i * 2]).unwrap();
 
-        if let Some(res) = self.comp_reach.get(&comp_id) {
+        if let Some(res) = self.comp_reach.lock().unwrap().get(&comp_id) {
             return res.clone();
         }
 
@@ -283,7 +285,7 @@ impl Context {
 
         res.extend(&self.comp_positions[&comp_id]);
 
-        self.comp_reach.insert(comp_id, res.clone());
+        self.comp_reach.lock().unwrap().insert(comp_id, res.clone());
         // println!(
         //     "{indent}comp_reach({comp_id}) -> {}",
         //     res.iter().sum::<usize>()
@@ -292,7 +294,7 @@ impl Context {
         res
     }
 
-    fn compute_reach_cached_using_components(&mut self, start: usize) -> usize {
+    fn compute_reach_cached_using_components(&self, start: usize) -> usize {
         self.comp_reach(self.comp[start], 0).len()
 
         // self.comp_reach(self.comp[start], 0)
@@ -365,7 +367,7 @@ fn bonus(input: &str, try_to_optimize_with_components: bool) -> usize {
         // ctx.compute_reach_cached_using_components(ctx.enc(1, 1, RIGHT))
         ctx.entries
             .clone()
-            .into_iter()
+            .into_par_iter()
             .map(|start| ctx.compute_reach_cached_using_components(start))
             .max()
             .unwrap()
