@@ -1,5 +1,10 @@
 use std::{collections::HashSet, iter::once, time::Instant};
 
+use itertools::Itertools;
+use strongly::Tarjan;
+
+mod strongly;
+
 fn main() {
     let input = include_str!("../../input.txt");
 
@@ -58,12 +63,24 @@ fn get_padded_grid(input: &str) -> Grid<char> {
         .collect::<Vec<_>>()
 }
 
+fn combine(mut a: Vec<usize>, b: &Vec<usize>) -> Vec<usize> {
+    for i in 0..b.len() {
+        a[i] = a[i].max(b[i]);
+    }
+
+    a
+}
+
 struct Context {
     grid: Grid<char>,
-    adj: Option<Vec<Vec<usize>>>,
-    entries: Option<Vec<usize>>,
     h: usize,
     w: usize,
+    entries: Vec<usize>,
+    adj: Vec<Vec<usize>>,
+    comp: Vec<usize>,
+    comp_adj: Vec<Vec<usize>>,
+    comp_positions: Vec<Vec<usize>>,
+    comp_reach: Vec<Option<Vec<usize>>>,
 }
 
 impl Context {
@@ -73,10 +90,14 @@ impl Context {
 
         Self {
             grid,
-            adj: None,
-            entries: None,
             h,
             w,
+            entries: vec![],
+            adj: vec![vec![]; w * h * 4],
+            comp: vec![],
+            comp_adj: vec![],
+            comp_positions: vec![],
+            comp_reach: vec![],
         }
     }
 
@@ -110,29 +131,30 @@ impl Context {
             ]
         }));
 
-        self.entries = Some(entries);
+        self.entries = entries;
     }
 
     fn fill_adj_matrix(&mut self) {
-        let mut todo = self.entries.clone().unwrap();
+        let mut todo = self.entries.clone();
         let mut done = vec![false; self.w * self.h * 4];
-        let mut adj = vec![vec![]; self.w * self.h * 4];
         while let Some(k) = todo.pop() {
             if !done[k] {
                 let ((x, y), dir) = self.dec(k);
+
                 let ns = self
                     .next(x, y, dir, self.grid[y][x])
                     .into_iter()
+                    .filter(|&((x, y), _)| self.grid[y][x] != 'X')
                     .map(|((x, y), dir)| self.enc(x, y, dir))
                     .collect::<Vec<_>>();
-                adj[k] = ns.clone();
+
+                self.adj[k] = ns.clone();
                 done[k] = true;
+
                 // println!("{:?} -> {:?}", ((x, y), dir), ns);
                 todo.extend(ns);
             }
         }
-
-        self.adj = Some(adj);
     }
 
     fn next(&self, x: usize, y: usize, dir: Dir, c: char) -> Vec<Beam> {
@@ -179,88 +201,186 @@ impl Context {
         }
     }
 
-    fn count(&self, start: usize) -> usize {
-        println!("gather {:?}...", self.dec(start));
+    fn find_strongly_connected_components(&mut self) {
+        let mut tarjan = Tarjan::new(self.w * self.h * 4 - 1);
+        tarjan.find_components(&self.adj);
 
+        let n = tarjan.num_components + 1;
+
+        self.comp_reach = vec![None; n];
+
+        // println!("Tarjan num components: {}", n);
+        // println!(
+        //     "highest comp id: {}",
+        //     tarjan.component.iter().max().unwrap()
+        // );
+        // println!("lowest comp id: {}", tarjan.component.iter().min().unwrap());
+
+        let g = tarjan
+            .component
+            .iter()
+            .enumerate()
+            .into_group_map_by(|t| t.1);
+
+        // store which
+        self.comp_positions = vec![vec![0; self.h * self.w]; n];
+
+        for (&&comp_id, els) in &g {
+            if els.len() > 1 {
+                println!("Interesting component (id = {comp_id}):");
+                for (k, _) in els {
+                    let ((x, y), dir) = self.dec(*k);
+                    println!(
+                        "  {x},{y},{}",
+                        match dir {
+                            0 => "up",
+                            1 => "right",
+                            2 => "down",
+                            _ => "left",
+                        }
+                    );
+                }
+            }
+
+            for &(k, _) in els {
+                let ((x, y), _) = self.dec(k);
+                self.comp_positions[comp_id][y * self.h + x] = 1;
+            }
+        }
+
+        self.comp = tarjan.component;
+
+        // build the adjacency matrix for the components
+        self.comp_adj = vec![vec![]; n];
+        for a in 1..(self.w * self.h * 4) {
+            let ac = self.comp[a];
+            for &b in &self.adj[a] {
+                let bc = self.comp[b];
+                if ac != bc && !self.comp_adj[ac].contains(&bc) {
+                    self.comp_adj[ac].push(bc);
+                }
+            }
+        }
+    }
+
+    fn comp_reach(&mut self, comp_id: usize, i: usize) -> Vec<usize> {
+        let indent = String::from_utf8(vec![' ' as u8; i * 2]).unwrap();
+
+        if let Some(res) = &self.comp_reach[comp_id] {
+            return res.clone();
+        }
+
+        let mut res = self.comp_adj[comp_id]
+            .clone()
+            .into_iter()
+            .map(|c| self.comp_reach(c, i + 1))
+            .reduce(|a, b| combine(a, &b))
+            .unwrap_or_else(|| vec![0; self.w * self.h]);
+
+        res = combine(res, &self.comp_positions[comp_id]);
+
+        self.comp_reach.insert(comp_id, Some(res.clone()));
+        println!(
+            "{indent}comp_reach({comp_id}) -> {}",
+            res.iter().sum::<usize>()
+        );
+
+        res
+    }
+
+    fn compute_reach_cached_using_components(&mut self, start: usize) -> HashSet<Beam> {
+        // self.comp_reach(self.comp[start], 0).iter().sum()
+        self.comp_reach(self.comp[start], 0)
+            .iter()
+            .enumerate()
+            .filter(|&(_, c)| c > &0)
+            .map(|(k, _)| self.dec(k))
+            .collect()
+    }
+
+    fn compute_reach_inefficient(&self, start: usize) -> HashSet<Beam> {
         let mut todo = vec![start];
         let mut collected = vec![];
 
         while let Some(k) = todo.pop() {
             if !collected.contains(&k) {
                 collected.push(k);
-                todo.extend(self.adj.as_ref().unwrap()[k].clone());
+                todo.extend(self.adj[k].clone());
             }
         }
 
-        // found.iter().sum::<usize>()
+        // collected
+        //     .into_iter()
+        //     .map(|k| self.dec(k).0)
+        //     .collect::<HashSet<_>>()
+        //     .len()
+
         collected
             .into_iter()
-            .map(|k| self.dec(k).0)
-            .filter(|&(x, y)| self.grid[y][x] != 'X')
+            .map(|k| self.dec(k))
             .collect::<HashSet<_>>()
-            .len()
     }
-
-    // why is this so hard? 😅
-    // ===
-    // fn gather(&mut self, mut prev: Vec<Beam>, at: Beam) -> HashSet<Beam> {
-    //     println!("gather {at:?}...");
-
-    //     // caching
-    //     if let Some(res) = self.gathered.get(&at) {
-    //         return res.clone();
-    //     }
-
-    //     if self.graph[&at].len() == 0 {
-    //         let res = HashSet::new();
-    //         self.gathered.insert(at, res.clone());
-    //         return res;
-    //     }
-
-    //     if prev.contains(&at) {
-    //         // there's a cycle
-    //         let mut todo = vec![at];
-    //         let mut collected = HashSet::new();
-
-    //         while let Some(beam) = todo.pop() {
-    //             if !collected.contains(&beam) {
-    //                 collected.insert(beam);
-    //                 todo.extend(self.graph[&beam].clone());
-    //             }
-    //         }
-
-    //         self.gathered.insert(at, collected.clone());
-    //         return collected.clone();
-    //     }
-
-    //     prev.push(at);
-
-    //     let res = self.graph[&at]
-    //         .clone()
-    //         .into_iter()
-    //         .map(|b| self.gather(prev.clone(), b))
-    //         .flatten()
-    //         .collect::<HashSet<_>>();
-
-    //     self.gathered.insert(at, res.clone());
-    //     res
-    // }
 }
 
 fn bonus(input: &str) -> usize {
     let grid = get_padded_grid(input);
 
     let mut ctx = Context::new(grid);
+    println!("Fill entries..");
     ctx.fill_entries();
+    println!("Fill adj matrix..");
     ctx.fill_adj_matrix();
 
-    let entries = ctx.entries.clone().unwrap();
+    // for debugging
+    println!("Find strongly connected components..");
+    ctx.find_strongly_connected_components();
+    for k in ctx.entries.clone() {
+        println!("FOR {:?}", ctx.dec(k));
+        println!("  using components:");
+        let a = ctx.compute_reach_cached_using_components(k);
+        println!("  direct:");
+        let b = ctx.compute_reach_inefficient(k);
+        if a != b {
+            println!("NOT THE SAME FOR {:?}", ctx.dec(k));
+            println!("{a:?}");
+            println!("VS");
+            println!("{b:?}");
+            println!("DIFF:\n{:?}", a.symmetric_difference(&b));
+            return 0;
+        }
+    }
 
-    entries
-        .into_iter()
-        .map(|start| ctx.count(start))
-        .max()
-        .unwrap()
+    return 0;
+
+    // let try_to_optimize_with_components = true;
+
+    // if try_to_optimize_with_components {
+    //     println!("Find strongly connected components..");
+    //     ctx.find_strongly_connected_components();
+
+    //     println!("Compute reach...");
+    //     ctx.compute_reach_cached_using_components(ctx.enc(1, 1, RIGHT))
+    //     // ctx.entries
+    //     //     .clone()
+    //     //     .into_iter()
+    //     //     .map(|start| {
+    //     //         let num = ctx.compute_reach_cached_using_components(start);
+    //     //         println!("Gather {:?} -> {num}", ctx.dec(start));
+    //     //         num
+    //     //     })
+    //     //     .max()
+    //     //     .unwrap()
+    // } else {
+    //     println!("Compute reach...");
+    //     ctx.entries
+    //         .iter()
+    //         .map(|start| {
+    //             // println!("  {start}");
+    //             ctx.compute_reach_inefficient(*start)
+    //         })
+    //         .max()
+    //         .unwrap()
+    // }
 }
 
 fn time<F>(mut f: F)
