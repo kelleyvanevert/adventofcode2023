@@ -1,8 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    iter::once,
-    time::Instant,
-};
+use std::{collections::HashSet, iter::once, time::Instant};
 
 fn main() {
     let input = include_str!("../../input.txt");
@@ -13,24 +9,21 @@ fn main() {
     //});
 
     time(|| {
-        // ±8s
+        // ±5.5s
         println!("Bonus: {}", bonus(input));
     });
 }
 
 type Grid<T> = Vec<Vec<T>>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum Dir {
-    Up,
-    Right,
-    Down,
-    Left,
-}
+type Dir = usize;
 
-type Pos = (usize, usize);
+const UP: usize = 0;
+const RIGHT: usize = 1;
+const DOWN: usize = 2;
+const LEFT: usize = 3;
 
-type Beam = (Pos, Dir);
+type Beam = ((usize, usize), Dir);
 
 #[allow(unused)]
 fn viz(grid: &Grid<impl ToString>) {
@@ -65,58 +58,147 @@ fn get_padded_grid(input: &str) -> Grid<char> {
         .collect::<Vec<_>>()
 }
 
-fn next(x: usize, y: usize, dir: Dir, c: char) -> Vec<Beam> {
-    match c {
-        '.' => match dir {
-            Dir::Up => vec![((x, y - 1), Dir::Up)],
-            Dir::Right => vec![((x + 1, y), Dir::Right)],
-            Dir::Down => vec![((x, y + 1), Dir::Down)],
-            Dir::Left => vec![((x - 1, y), Dir::Left)],
-        },
-        '\\' => match dir {
-            Dir::Up => vec![((x - 1, y), Dir::Left)],
-            Dir::Right => vec![((x, y + 1), Dir::Down)],
-            Dir::Down => vec![((x + 1, y), Dir::Right)],
-            Dir::Left => vec![((x, y - 1), Dir::Up)],
-        },
-        '/' => match dir {
-            Dir::Up => vec![((x + 1, y), Dir::Right)],
-            Dir::Right => vec![((x, y - 1), Dir::Up)],
-            Dir::Down => vec![((x - 1, y), Dir::Left)],
-            Dir::Left => vec![((x, y + 1), Dir::Down)],
-        },
-        '|' => match dir {
-            Dir::Up => vec![((x, y - 1), Dir::Up)],
-            Dir::Down => vec![((x, y + 1), Dir::Down)],
-            Dir::Right | Dir::Left => {
-                vec![((x, y - 1), Dir::Up), ((x, y + 1), Dir::Down)]
-            }
-        },
-        '-' => match dir {
-            Dir::Right => vec![((x + 1, y), Dir::Right)],
-            Dir::Left => vec![((x - 1, y), Dir::Left)],
-            Dir::Up | Dir::Down => {
-                vec![((x - 1, y), Dir::Left), ((x + 1, y), Dir::Right)]
-            }
-        },
-        'X' => vec![],
-        _ => unreachable!(),
-    }
-}
-
 struct Context {
     grid: Grid<char>,
-    graph: HashMap<Beam, Vec<Beam>>,
-    gathered: HashMap<Beam, HashSet<Beam>>,
+    adj: Option<Vec<Vec<usize>>>,
+    entries: Option<Vec<usize>>,
+    h: usize,
+    w: usize,
 }
 
 impl Context {
     fn new(grid: Grid<char>) -> Self {
+        let h = grid.len();
+        let w = grid[0].len();
+
         Self {
             grid,
-            graph: HashMap::new(),
-            gathered: HashMap::new(),
+            adj: None,
+            entries: None,
+            h,
+            w,
         }
+    }
+
+    fn enc(&self, x: usize, y: usize, dir: Dir) -> usize {
+        (y * self.h + x) * 4 + dir
+    }
+
+    fn dec(&self, k: usize) -> Beam {
+        let dir = k % 4;
+        let x = (k >> 2) % self.h;
+        let y = (k >> 2) / self.h;
+        ((x, y), dir)
+    }
+
+    fn fill_entries(&mut self) {
+        let mut entries = vec![];
+
+        entries.extend((1..(self.h - 1)).flat_map(|y| {
+            [
+                //
+                self.enc(1, y, RIGHT),
+                self.enc(self.w - 2, y, LEFT),
+            ]
+        }));
+
+        entries.extend((1..(self.w - 1)).flat_map(|x| {
+            [
+                //
+                self.enc(x, 1, DOWN),
+                self.enc(x, self.h - 2, UP),
+            ]
+        }));
+
+        self.entries = Some(entries);
+    }
+
+    fn fill_adj_matrix(&mut self) {
+        let mut todo = self.entries.clone().unwrap();
+        let mut done = vec![false; self.w * self.h * 4];
+        let mut adj = vec![vec![]; self.w * self.h * 4];
+        while let Some(k) = todo.pop() {
+            if !done[k] {
+                let ((x, y), dir) = self.dec(k);
+                let ns = self
+                    .next(x, y, dir, self.grid[y][x])
+                    .into_iter()
+                    .map(|((x, y), dir)| self.enc(x, y, dir))
+                    .collect::<Vec<_>>();
+                adj[k] = ns.clone();
+                done[k] = true;
+                // println!("{:?} -> {:?}", ((x, y), dir), ns);
+                todo.extend(ns);
+            }
+        }
+
+        self.adj = Some(adj);
+    }
+
+    fn next(&self, x: usize, y: usize, dir: Dir, c: char) -> Vec<Beam> {
+        match c {
+            '.' => match dir {
+                UP => vec![((x, y - 1), UP)],
+                RIGHT => vec![((x + 1, y), RIGHT)],
+                DOWN => vec![((x, y + 1), DOWN)],
+                LEFT => vec![((x - 1, y), LEFT)],
+                _ => unreachable!(),
+            },
+            '\\' => match dir {
+                UP => vec![((x - 1, y), LEFT)],
+                RIGHT => vec![((x, y + 1), DOWN)],
+                DOWN => vec![((x + 1, y), RIGHT)],
+                LEFT => vec![((x, y - 1), UP)],
+                _ => unreachable!(),
+            },
+            '/' => match dir {
+                UP => vec![((x + 1, y), RIGHT)],
+                RIGHT => vec![((x, y - 1), UP)],
+                DOWN => vec![((x - 1, y), LEFT)],
+                LEFT => vec![((x, y + 1), DOWN)],
+                _ => unreachable!(),
+            },
+            '|' => match dir {
+                UP => vec![((x, y - 1), UP)],
+                DOWN => vec![((x, y + 1), DOWN)],
+                RIGHT | LEFT => {
+                    vec![((x, y - 1), UP), ((x, y + 1), DOWN)]
+                }
+                _ => unreachable!(),
+            },
+            '-' => match dir {
+                RIGHT => vec![((x + 1, y), RIGHT)],
+                LEFT => vec![((x - 1, y), LEFT)],
+                UP | DOWN => {
+                    vec![((x - 1, y), LEFT), ((x + 1, y), RIGHT)]
+                }
+                _ => unreachable!(),
+            },
+            'X' => vec![],
+            _ => unreachable!(),
+        }
+    }
+
+    fn count(&self, start: usize) -> usize {
+        println!("gather {:?}...", self.dec(start));
+
+        let mut todo = vec![start];
+        let mut collected = vec![];
+
+        while let Some(k) = todo.pop() {
+            if !collected.contains(&k) {
+                collected.push(k);
+                todo.extend(self.adj.as_ref().unwrap()[k].clone());
+            }
+        }
+
+        // found.iter().sum::<usize>()
+        collected
+            .into_iter()
+            .map(|k| self.dec(k).0)
+            .filter(|&(x, y)| self.grid[y][x] != 'X')
+            .collect::<HashSet<_>>()
+            .len()
     }
 
     // why is this so hard? 😅
@@ -167,54 +249,18 @@ impl Context {
 
 fn bonus(input: &str) -> usize {
     let grid = get_padded_grid(input);
-    let h = grid.len();
-    let w = grid[0].len();
 
     let mut ctx = Context::new(grid);
+    ctx.fill_entries();
+    ctx.fill_adj_matrix();
 
-    let mut entries = vec![];
-    entries.extend((1..(h - 1)).flat_map(|y| [((1, y), Dir::Right), ((w - 2, y), Dir::Left)]));
-    entries.extend((1..(w - 1)).flat_map(|x| [((x, 1), Dir::Down), ((x, h - 2), Dir::Up)]));
+    let entries = ctx.entries.clone().unwrap();
 
-    // step 1. traverse all paths from entry points
-    {
-        let mut todo = entries.clone();
-        while let Some(((x, y), dir)) = todo.pop() {
-            if !ctx.graph.contains_key(&((x, y), dir)) {
-                let ns = next(x, y, dir, ctx.grid[y][x]);
-                ctx.graph.insert(((x, y), dir), ns.clone());
-                // println!("{:?} -> {:?}", ((x, y), dir), ns);
-                todo.extend(ns);
-            }
-        }
-    }
-
-    // step 2. round up
-    // let mut gathered = HashMap::new();
-    let gather = |start: Beam| {
-        println!("gather {start:?}...");
-
-        let mut todo = vec![start];
-        let mut collected = vec![];
-
-        while let Some(beam) = todo.pop() {
-            if !collected.contains(&beam) {
-                collected.push(beam);
-                todo.extend(ctx.graph[&beam].clone());
-            }
-        }
-
-        // found.iter().sum::<usize>()
-        collected
-            .into_iter()
-            .map(|(pos, _)| pos)
-            .filter(|&(x, y)| ctx.grid[y][x] != 'X')
-            .collect::<HashSet<_>>()
-            .len()
-    };
-
-    // println!("{:?}", gather(((1, 1), Dir::Right)));
-    entries.into_iter().map(gather).max().unwrap()
+    entries
+        .into_iter()
+        .map(|start| ctx.count(start))
+        .max()
+        .unwrap()
 }
 
 fn time<F>(mut f: F)
