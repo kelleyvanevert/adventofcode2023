@@ -12,7 +12,13 @@ fn main() {
 
     time(|| {
         // 9446280843696 is TOO LOW
-        println!("Bonus: {}", bonus(input));
+        println!("Bonus (failed attempt): {}", bonus(input));
+    });
+
+    time(|| {
+        // 90111113594927
+        // ±550ms
+        println!("Bonus, second approach: {}", bonus_alt(input));
     });
 }
 
@@ -41,13 +47,45 @@ fn opposite((dx, dy): Dir) -> Dir {
     (-dx, -dy)
 }
 
-fn is_clockwise(polygon: &Vec<Pos>) -> bool {
-    polygon
-        .into_iter()
-        .zip(polygon.into_iter().skip(1).chain(once(&polygon[0])))
+fn is_clockwise(poly: &Vec<Pos>) -> bool {
+    poly.into_iter()
+        .zip(poly.into_iter().skip(1).chain(once(&poly[0])))
         .map(|(a, b)| (b.1 - a.1) * (b.0 + a.0))
         .sum::<i64>()
         >= 0
+}
+
+fn on_edge(poly: &Vec<Pos>, (x, y): Pos) -> bool {
+    for (&(ax, ay), &(bx, by)) in poly
+        .into_iter()
+        .zip(poly.into_iter().skip(1).chain(once(&poly[0])))
+    {
+        if ax.min(bx) <= x && x <= ax.max(bx) && ay.min(by) <= y && y <= ay.max(by) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn inside_poly(poly: &Vec<Pos>, (x, y): Pos) -> bool {
+    let mut inside = false;
+
+    // for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    for i in 0..poly.len() {
+        let j = if i == 0 { poly.len() - 1 } else { i - 1 };
+
+        let (xi, yi) = poly[i];
+        let (xj, yj) = poly[j];
+
+        let intersect = ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+
+        if intersect {
+            inside = !inside
+        };
+    }
+
+    inside
 }
 
 fn solve(input: &str) -> usize {
@@ -154,25 +192,25 @@ fn bonus(input: &str) -> usize {
         })
         .collect::<Vec<_>>();
 
-    println!("tracing edge corners...");
+    // println!("tracing edge corners...");
     let mut edge_corners = vec![];
     let (mut x, mut y) = (0, 0);
     for &((dx, dy), steps) in &instructions {
         x += dx * steps;
         y += dy * steps;
         edge_corners.push((x, y));
-        println!("  {:?}", (x, y));
+        // println!("  {:?}", (x, y));
     }
 
     let mut xs = edge_corners.iter().map(|(x, _)| *x).collect::<Vec<_>>();
     xs.sort();
     xs.dedup();
-    println!("xs = {xs:?}");
+    // println!("xs = {xs:?}");
 
     let mut ys = edge_corners.iter().map(|(_, y)| *y).collect::<Vec<_>>();
     ys.sort();
     ys.dedup();
-    println!("ys = {ys:?}");
+    // println!("ys = {ys:?}");
 
     let midway_points = |(prev_x, prev_y): Pos, (next_x, next_y): Pos| {
         let mut midway = vec![];
@@ -199,14 +237,14 @@ fn bonus(input: &str) -> usize {
             unreachable!();
         }
 
-        if midway.len() > 0 {
-            println!("  added {} midway points", midway.len());
-        }
+        // if midway.len() > 0 {
+        //     println!("  added {} midway points", midway.len());
+        // }
 
         midway
     };
 
-    println!("tracing inner edge corners...");
+    // println!("tracing inner edge corners...");
     let clockwise = is_clockwise(&edge_corners);
     let mut inner_edge_points = vec![];
     let (mut x, mut y) = (0, 0);
@@ -304,7 +342,7 @@ fn bonus(input: &str) -> usize {
 
     let mut surface = 0;
 
-    println!("chunks collected:");
+    // println!("chunks collected:");
     for ((xmin, ymin), (xmax, ymax)) in chunks {
         let area = (ymax + 1 - ymin).max(0) * (xmax + 1 - xmin).max(0);
         if area >= 1 {
@@ -317,6 +355,120 @@ fn bonus(input: &str) -> usize {
     }
 
     surface as usize
+}
+
+/// Splits A into pieces such that they don't overlap with B
+fn split_if_intersecting(
+    ((axmin, aymin), (axmax, aymax)): (Pos, Pos),
+    ((bxmin, bymin), (bxmax, bymax)): (Pos, Pos),
+) -> Option<Vec<(Pos, Pos)>> {
+    if bxmax < axmin || bxmin > axmax || bymax < aymin || bymin > aymax {
+        // no overlap
+        return None;
+    }
+
+    let mut pieces = vec![];
+
+    // left
+    if axmin < bxmin {
+        pieces.push(((axmin, aymin), (bxmin - 1, aymax)));
+    }
+
+    // right
+    if bxmax < axmax {
+        pieces.push(((bxmax + 1, aymin), (axmax, aymax)));
+    }
+
+    // top
+    if aymin < bymin {
+        pieces.push(((axmin.max(bxmin), aymin), (axmax.min(bxmax), bymin - 1)));
+    }
+
+    // bottom
+    if bymax < aymax {
+        pieces.push(((axmin.max(bxmin), bymax + 1), (axmax.min(bxmax), aymax)));
+    }
+
+    Some(pieces)
+}
+
+fn add_square(squares: &mut Vec<(Pos, Pos)>, add: (Pos, Pos)) {
+    let mut i = 0;
+    while i < squares.len() {
+        if let Some(pieces_of_a) = split_if_intersecting(squares[i], add) {
+            squares.remove(i);
+            i += pieces_of_a.len();
+            squares.extend(pieces_of_a);
+        } else {
+            i += 1;
+        }
+    }
+    squares.push(add);
+}
+
+fn bonus_alt(input: &str) -> usize {
+    let instructions = input
+        .lines()
+        .map(|line| {
+            let color = &line.split_once(" ").unwrap().1.split_once(" ").unwrap().1[2..8];
+            let steps = i64::from_str_radix(&color[0..5], 16).unwrap();
+            let dir = match &color[5..6] {
+                "0" => RIGHT,
+                "1" => DOWN,
+                "2" => LEFT,
+                "3" => UP,
+                _ => unreachable!(),
+            };
+            (dir, steps)
+        })
+        .collect::<Vec<_>>();
+
+    let mut edge_corners = vec![];
+    let (mut x, mut y) = (0, 0);
+    for &((dx, dy), steps) in &instructions {
+        x += dx * steps;
+        y += dy * steps;
+        edge_corners.push((x, y));
+    }
+
+    let mut xs = edge_corners.iter().map(|(x, _)| *x).collect::<Vec<_>>();
+    xs.sort();
+    xs.dedup();
+
+    let mut ys = edge_corners.iter().map(|(_, y)| *y).collect::<Vec<_>>();
+    ys.sort();
+    ys.dedup();
+
+    let mut squares = vec![];
+
+    for i in 0..xs.len() - 1 {
+        'find: for j in 0..ys.len() - 1 {
+            if xs[i + 1] - xs[i] < 2 || ys[j + 1] - ys[j] < 2 {
+                panic!("cannot happen");
+                // it can happen in general though, e.g. with the small numbers example, but in the real input this doesn't happen because the numbers are far enough apart, which .. really does make it a bunch easier XD
+            }
+
+            let tl = (xs[i] + 1, ys[j] + 1);
+            let tr = (xs[i + 1] - 1, ys[j] + 1);
+            let bl = (xs[i] + 1, ys[j + 1] - 1);
+            let br = (xs[i + 1] - 1, ys[j + 1] - 1);
+
+            for p in [tl, tr, bl, br] {
+                if inside_poly(&edge_corners, p)
+                // || on_edge(&edge_corners, p)
+                // // ^^ not necessary for the same reason as commented above
+                {
+                    add_square(&mut squares, ((xs[i], ys[j]), (xs[i + 1], ys[j + 1])));
+                    continue 'find;
+                }
+            }
+        }
+    }
+
+    squares
+        .into_iter()
+        .map(|((xmin, ymin), (xmax, ymax))| (xmax + 1 - xmin) * (ymax + 1 - ymin))
+        .sum::<i64>() as usize
 }
 
 fn time<F>(f: F)
@@ -355,6 +507,29 @@ U 2 (#7a21e3)
 
     assert_eq!(
         bonus(
+            "
+R 6 (#70c710)
+D 5 (#0dc571)
+L 2 (#5713f0)
+D 2 (#d2c081)
+R 2 (#59c680)
+D 2 (#411b91)
+L 5 (#8ceee2)
+U 2 (#caa173)
+L 1 (#1b58a2)
+U 2 (#caa171)
+R 2 (#7807d2)
+U 3 (#a77fa3)
+L 2 (#015232)
+U 2 (#7a21e3)
+    "
+            .trim(),
+        ),
+        952408144115
+    );
+
+    assert_eq!(
+        bonus_alt(
             "
 R 6 (#70c710)
 D 5 (#0dc571)
