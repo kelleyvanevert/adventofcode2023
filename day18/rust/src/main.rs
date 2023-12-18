@@ -61,18 +61,18 @@ fn is_clockwise(poly: &Vec<Pos>) -> bool {
         >= 0
 }
 
-fn on_edge(poly: &Vec<Pos>, (x, y): Pos) -> bool {
-    for (&(ax, ay), &(bx, by)) in poly
-        .into_iter()
-        .zip(poly.into_iter().skip(1).chain(once(&poly[0])))
-    {
-        if ax.min(bx) <= x && x <= ax.max(bx) && ay.min(by) <= y && y <= ay.max(by) {
-            return true;
-        }
-    }
+// fn on_edge(poly: &Vec<Pos>, (x, y): Pos) -> bool {
+//     for (&(ax, ay), &(bx, by)) in poly
+//         .into_iter()
+//         .zip(poly.into_iter().skip(1).chain(once(&poly[0])))
+//     {
+//         if ax.min(bx) <= x && x <= ax.max(bx) && ay.min(by) <= y && y <= ay.max(by) {
+//             return true;
+//         }
+//     }
 
-    false
-}
+//     false
+// }
 
 fn inside_poly(poly: &Vec<Pos>, (x, y): Pos) -> bool {
     let mut inside = false;

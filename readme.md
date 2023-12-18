@@ -477,6 +477,20 @@ It turns out .. that if I just use `FxHashSet`, `FxHashMap`, the memoizing solut
 
 And then, using `rayon` I can get it down to ±400ms 🚀 Of course now I need to use an `Arc<Mutex<..>>`. (Not actually sure if that's the best way, but, it works for me.)
 
+## Day 18
+
+Today was honestly just a bit embarrasing 😅 For the first part, I just went ahead and implemented the same flood fill as I had done on day 10. For the bonus part though, I:
+
+1. immediately noticed that that would not work, then
+2. had a quick thought flash though my mind that I should just _Google the algorithm for calculating the surface of a complex polygon_, but then
+3. decided that that's just boring and I should be able to, and will have more fun, coming up with an algorithm myself, so I
+4. spent _HOURS_ working on it,
+5. eventually just quit my approach and started on a different algorithm, which I also spent quite some time finnicking about with,
+6. solved it, finally (runtime ±600ms),
+7. and then just decided, _why the heck didn't I just compute the surface with a known formula_, so I did that as well — which took _me_ about 30 minutes, and subsequently took the computer .. less than 0.1 ms.
+
+"Why" 😅
+
 ## Adventlang overview
 
 - Mostly value-based, structural equality
