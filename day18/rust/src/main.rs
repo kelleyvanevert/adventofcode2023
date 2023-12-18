@@ -18,7 +18,13 @@ fn main() {
     time(|| {
         // 90111113594927
         // ±550ms
-        println!("Bonus, second approach: {}", bonus_alt(input));
+        println!("Bonus, second approach: {}", bonus_second(input));
+    });
+
+    time(|| {
+        // 90111113594927
+        // <100µs
+        println!("Bonus, third approach: {}", bonus_third(input));
     });
 }
 
@@ -406,7 +412,7 @@ fn add_square(squares: &mut Vec<(Pos, Pos)>, add: (Pos, Pos)) {
     squares.push(add);
 }
 
-fn bonus_alt(input: &str) -> usize {
+fn bonus_second(input: &str) -> usize {
     let instructions = input
         .lines()
         .map(|line| {
@@ -471,6 +477,117 @@ fn bonus_alt(input: &str) -> usize {
         .sum::<i64>() as usize
 }
 
+fn cross((a, b): Dir, (c, d): Dir) -> i64 {
+    a * d - c * b
+}
+
+fn area(poly: &Vec<Pos>) -> f64 {
+    let mut area = 0;
+    for i in 1..poly.len() - 1 {
+        let a = (poly[i].0 - poly[0].0, poly[i].1 - poly[0].1);
+        let b = (poly[i + 1].0 - poly[0].0, poly[i + 1].1 - poly[0].1);
+        area += cross(a, b);
+    }
+
+    (area as f64 / 2.0).abs()
+}
+
+#[test]
+fn test_area() {
+    assert_eq!(area(&vec![(0, 0), (1, 0), (0, 1)]), 0.5);
+
+    //    0 1 2 3 4 5 6 7
+    // 0  x-------------x
+    //     # # # # # # #
+    // 1
+    //     # . . . . . #
+    // 2
+    //     # # # . . . #
+    // 3  x   x
+    //     . . # . . . #
+    // 4
+    //     . . # . . . #
+    // 5  x   x
+    //     # # # . # # #
+    // 6            x---x
+    //     # . . . # . .
+    // 7            x---x
+    //     # # . . # # #
+    // 8  x-x
+    //     . # . . . . #
+    // 9
+    //     . # # # # # #
+    // 10   x-----------x
+
+    assert_eq!(
+        area(&vec![
+            (0, 0),
+            (7, 0),  //ok
+            (7, 6),  //ok
+            (5, 6),  //ok
+            (5, 7),  //ok
+            (7, 7),  //ok
+            (7, 10), //ok
+            (1, 10), //ok
+            (1, 8),  //ok
+            (0, 8),  //ok
+            (0, 5),  //ok
+            (2, 5),  //ok
+            (2, 3),  //ok
+            (0, 3),  //ok
+            (0, 0)   //ok
+        ]),
+        62.0
+    );
+}
+
+fn bonus_third(input: &str) -> usize {
+    let instructions = input
+        .lines()
+        .map(|line| {
+            let color = &line.split_once(" ").unwrap().1.split_once(" ").unwrap().1[2..8];
+            let steps = i64::from_str_radix(&color[0..5], 16).unwrap();
+            let dir = match &color[5..6] {
+                "0" => RIGHT,
+                "1" => DOWN,
+                "2" => LEFT,
+                "3" => UP,
+                _ => unreachable!(),
+            };
+            (dir, steps)
+        })
+        .collect::<Vec<_>>();
+
+    let mut edge_corners = vec![];
+    let mut poly = vec![];
+    let mut prev_dir = NOOP;
+    let (mut x, mut y) = (0, 0);
+    for &(dir, steps) in instructions.iter().chain(once(&instructions[0])) {
+        let (dx, dy) = dir;
+
+        match (prev_dir, dir) {
+            (UP, RIGHT) => poly.push((x, y)),
+            (LEFT, DOWN) => poly.push((x + 1, y + 1)),
+            (RIGHT, UP) => poly.push((x, y)),
+            (DOWN, LEFT) => poly.push((x + 1, y + 1)),
+            (RIGHT, DOWN) => poly.push((x + 1, y)),
+            (UP, LEFT) => poly.push((x, y + 1)),
+            (DOWN, RIGHT) => poly.push((x + 1, y)),
+            (LEFT, UP) => poly.push((x, y + 1)),
+            (NOOP, _) => {}
+            _ => unreachable!("{prev_dir:?} -- {dir:?}"),
+        };
+
+        x += dx * steps;
+        y += dy * steps;
+        edge_corners.push((x, y));
+
+        prev_dir = dir;
+    }
+
+    area(&poly) as usize
+}
+
 fn time<F>(f: F)
 where
     F: FnOnce(),
@@ -529,7 +646,30 @@ U 2 (#7a21e3)
     );
 
     assert_eq!(
-        bonus_alt(
+        bonus_second(
+            "
+R 6 (#70c710)
+D 5 (#0dc571)
+L 2 (#5713f0)
+D 2 (#d2c081)
+R 2 (#59c680)
+D 2 (#411b91)
+L 5 (#8ceee2)
+U 2 (#caa173)
+L 1 (#1b58a2)
+U 2 (#caa171)
+R 2 (#7807d2)
+U 3 (#a77fa3)
+L 2 (#015232)
+U 2 (#7a21e3)
+    "
+            .trim(),
+        ),
+        952408144115
+    );
+
+    assert_eq!(
+        bonus_third(
             "
 R 6 (#70c710)
 D 5 (#0dc571)
