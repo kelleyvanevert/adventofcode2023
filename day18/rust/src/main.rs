@@ -241,6 +241,8 @@ fn bonus(input: &str) -> usize {
 
     // println!("inner edge corners: {inner_edge_corners:?}");
 
+    let inner_edge_points = FxHashSet::from_iter(inner_edge_points);
+
     let mut chunks = FxHashSet::default();
 
     for i in 0..xs.len() - 1 {
