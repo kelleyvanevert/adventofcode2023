@@ -491,6 +491,12 @@ Today was honestly just a bit embarrasing 😅 For the first part, I just went a
 
 "Why" 😅
 
+AL TODOs
+
+- `poly:len - 1` is parsed incorrectly
+- need to clone integers?!
+- need to clone? `edge_corners []= (x, y):clone`
+
 ## Adventlang overview
 
 - Mostly value-based, structural equality

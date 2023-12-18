@@ -1608,13 +1608,50 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "int",
-        [signature(["data"], |runtime, scope| {
-            let data = runtime.get_scope(scope).get_unchecked("data");
+        [
+            signature(["data"], |runtime, scope| {
+                let data = runtime.get_scope(scope).get_unchecked("data");
 
-            let result = runtime.get_value(data).auto_coerce_int()?;
+                let result = runtime.get_value(data).auto_coerce_int()?;
 
-            Ok(runtime.new_value(Value::Numeric(Numeric::Int(result))))
-        })],
+                Ok(runtime.new_value(Value::Numeric(Numeric::Int(result))))
+            }),
+            signature(["data: str", "radix: int"], |runtime, scope| {
+                let data = runtime.get_scope(scope).get_unchecked("data");
+
+                let Value::Str(s) = runtime.get_value(data) else {
+                    return RuntimeError(format!(
+                        "int() data expected a str, is a: {}",
+                        runtime.get_ty(data)
+                    ))
+                    .into();
+                };
+
+                let radix = runtime.get_scope(scope).get_unchecked("radix");
+
+                let Value::Numeric(Numeric::Int(radix)) = runtime.get_value(radix) else {
+                    return RuntimeError(format!(
+                        "int() radix expected an int, is a: {}",
+                        runtime.get_ty(radix)
+                    ))
+                    .into();
+                };
+
+                if *radix < 1 {
+                    return RuntimeError(format!(
+                        "int() radix expected a positive int >= 1, is: {}",
+                        radix
+                    ))
+                    .into();
+                }
+
+                let result = i64::from_str_radix(&s, *radix as u32)
+                    .map(|n| runtime.new_value(Value::Numeric(Numeric::Int(n))))
+                    .unwrap_or(runtime.new_value(Value::Nil));
+
+                Ok(result)
+            }),
+        ],
     );
 
     runtime.builtin(
