@@ -29,17 +29,6 @@ let dirs = @{
   "3" up,
 }
 
-let poly_corners = @{
-  (up,    right) |x, y| { (x, y) },
-  (left,  down ) |x, y| { (x + 1, y + 1) },
-  (right, up   ) |x, y| { (x, y) },
-  (down,  left ) |x, y| { (x + 1, y + 1) },
-  (right, down ) |x, y| { (x + 1, y) },
-  (up,    left ) |x, y| { (x, y + 1) },
-  (down,  right) |x, y| { (x + 1, y) },
-  (left,  up   ) |x, y| { (x, y + 1) },
-}
-
 fn cross((a, b), (c, d)) {
   a * d - c * b
 }
@@ -68,15 +57,10 @@ fn bonus(input: str) {
   instructions []= instructions[0]
 
   let edge_corners = []
-  let poly = []
   let prev_dir = nil
   let (x, y) = (0, 0)
   for let (dir, steps) in instructions {
     let (dx, dy) = dir
-
-    if let f = poly_corners[(prev_dir, dir)] {
-      poly []= f(x:clone, y:clone) // buggy!!
-    }
 
     x += dx * steps
     y += dy * steps
@@ -85,10 +69,18 @@ fn bonus(input: str) {
     prev_dir = dir
   }
 
-  area(poly)
+  let edge_len = 0
+  for let i in range(0, len(edge_corners) - 1) {
+    edge_len +=
+      abs(edge_corners[i+1][0] - edge_corners[i][0])
+      + abs(edge_corners[i+1][1] - edge_corners[i][1])
+  }
+
+  area(edge_corners) + edge_len/2 + 1
 }
 
 print("Example bonus: {bonus(example_input)}")
 
 // ±20ms
+// 90111113594927
 print("Bonus: {bonus(stdin)}")
