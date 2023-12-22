@@ -11,8 +11,8 @@ use try_map::FallibleMapExt;
 
 use crate::{
     ast::{
-        AssignPattern, Block, Declarable, DeclarePattern, Document, Expr, Identifier, Item, Stmt,
-        StrLiteralPiece, Type,
+        AssignPattern, Block, Declarable, DeclareGuardExpr, DeclarePattern, Document, Expr,
+        Identifier, Item, Stmt, StrLiteralPiece, Type,
     },
     fmt::Fmt,
     parse::parse_document,
@@ -432,11 +432,11 @@ impl Value {
         self == &Value::Nil
     }
 
-    pub fn truthy(&self) -> EvaluationResult<bool> {
+    pub fn truthy(&self) -> bool {
         match self {
-            Value::Nil => Ok(false),
-            Value::Bool(b) => Ok(*b),
-            _ => Ok(true),
+            Value::Nil => false,
+            Value::Bool(b) => *b,
+            _ => true,
         }
     }
 }
@@ -964,21 +964,37 @@ impl Runtime {
         }
     }
 
+    pub fn check_declare_guard(
+        &mut self,
+        _scope: usize,
+        guard: &DeclareGuardExpr,
+        value: usize,
+    ) -> (Identifier, bool) {
+        match guard {
+            DeclareGuardExpr::Unguarded(id) => (id.clone(), true),
+            DeclareGuardExpr::Some(id) => (id.clone(), self.get_value(value) != &Value::Nil),
+        }
+    }
+
+    /// returns:
+    /// - not successful -> None
+    /// - else -> Some(whether evaluates truthy)
     pub fn declare(
         &mut self,
         scope: usize,
         pattern: &DeclarePattern,
         value: usize,
-    ) -> EvaluationResult<bool> {
+    ) -> EvaluationResult<Option<bool>> {
         match pattern {
-            DeclarePattern::Id(id, _) => {
-                self.get_scope_mut(scope).values.insert(id.clone(), value);
-                Ok(true)
+            DeclarePattern::Declare { guard, .. } => {
+                let (id, evaluates_truthy) = self.check_declare_guard(scope, guard, value);
+                self.get_scope_mut(scope).values.insert(id, value);
+                Ok(Some(evaluates_truthy))
             }
             DeclarePattern::List { elements, rest } => {
                 let value = self.get_value(value).clone();
                 let Value::List(item_type, mut items) = value else {
-                    return Ok(false);
+                    return Ok(None);
                 };
 
                 let assign_rest_later = rest.clone().try_map(|(id, t)| {
@@ -1001,24 +1017,34 @@ impl Runtime {
                         value = self.evaluate(scope, fallback_expr)?.0;
                     }
 
-                    if !self.declare(scope, pattern, value)? {
-                        return Ok(false);
+                    if self.declare(scope, pattern, value)?.is_none() {
+                        return Ok(None);
                     }
                 }
 
-                if let Some((id, t, items)) = assign_rest_later {
+                if let Some((id, ty, items)) = assign_rest_later {
                     let (list, _) = self.new_value(Value::List(item_type.clone(), items));
-                    if !self.declare(scope, &DeclarePattern::Id(id, t), list)? {
-                        return Ok(false);
+                    if self
+                        .declare(
+                            scope,
+                            &DeclarePattern::Declare {
+                                guard: DeclareGuardExpr::Unguarded(id),
+                                ty,
+                            },
+                            list,
+                        )?
+                        .is_none()
+                    {
+                        return Ok(None);
                     }
                 }
 
-                Ok(true)
+                Ok(Some(true))
             }
             DeclarePattern::Tuple { elements, rest } => {
                 let value = self.get_value(value).clone();
                 let Value::Tuple(ts, mut items) = value else {
-                    return Ok(false);
+                    return Ok(None);
                 };
 
                 let assign_rest_later = rest.clone().try_map(|(id, t)| {
@@ -1039,19 +1065,29 @@ impl Runtime {
                         value = self.evaluate(scope, fallback_expr)?.0;
                     }
 
-                    if !self.declare(scope, pattern, value)? {
-                        return Ok(false);
+                    if self.declare(scope, pattern, value)?.is_none() {
+                        return Ok(None);
                     }
                 }
 
-                if let Some((id, t, items)) = assign_rest_later {
+                if let Some((id, ty, items)) = assign_rest_later {
                     let (tuple, _) = self.new_value(Value::Tuple(ts, items));
-                    if !self.declare(scope, &DeclarePattern::Id(id, t), tuple)? {
-                        return Ok(false);
+                    if self
+                        .declare(
+                            scope,
+                            &DeclarePattern::Declare {
+                                guard: DeclareGuardExpr::Unguarded(id),
+                                ty,
+                            },
+                            tuple,
+                        )?
+                        .is_none()
+                    {
+                        return Ok(None);
                     }
                 }
 
-                Ok(true)
+                Ok(Some(true))
             }
         }
     }
@@ -1081,7 +1117,7 @@ impl Runtime {
 
                 let value = self.ensure_new(value);
 
-                if !self.declare(scope, pattern, value)? {
+                if self.declare(scope, pattern, value)?.is_none() {
                     return RuntimeError(format!(
                         "could not declare value into pattern: {}",
                         pattern
@@ -1145,13 +1181,11 @@ impl Runtime {
                     // try to assign it
                     if let Some(name) = name {
                         // if named, assign to the name (if doesn't exist, fail)
-                        if let Some(i) = sig.params.iter().position(|p| match p {
-                            Declarable {
-                                pattern: DeclarePattern::Id(n, _),
-                                ..
-                            } => n == name,
-                            _ => false,
-                        }) {
+                        if let Some(i) = sig
+                            .params
+                            .iter()
+                            .position(|decl| decl.pattern.is_named(name.clone()))
+                        {
                             param_index = i;
                             assign_params[param_index] = Some(arg_index);
                             // (we could also check if double-assigning named param,
@@ -1257,7 +1291,12 @@ impl Runtime {
                     && self.get_value(arg_val) == &Value::Nil {
                     arg_val = self.evaluate(parent_scope, &fallback_expr)?.0;
                 }
-                if !self.declare(execution_scope, &params[param_index].pattern, arg_val)? {
+                if self
+                    .declare(execution_scope, &params[param_index].pattern, arg_val)?
+                    .is_none()
+                {
+                    // TODO maybe also check the guard?
+
                     return RuntimeError(format!(
                         "could not declare argument into parameter pattern"
                     ))
@@ -1270,7 +1309,12 @@ impl Runtime {
                     .expect("already checked that this param has a fallback");
 
                 let arg_val = self.evaluate(parent_scope, &fallback_expr)?.0;
-                if !self.declare(execution_scope, &params[param_index].pattern, arg_val)? {
+                if self
+                    .declare(execution_scope, &params[param_index].pattern, arg_val)?
+                    .is_none()
+                {
+                    // TODO maybe also check the guard?
+
                     return RuntimeError(format!(
                         "could not declare argument into parameter pattern"
                     ))
@@ -1498,14 +1542,14 @@ impl Runtime {
                 // short-circuiting ops
                 match op.as_str() {
                     "&&" => {
-                        if !self.get_value(le.0).truthy()? {
+                        if !self.get_value(le.0).truthy() {
                             return Ok(le);
                         } else {
                             return Ok(self.evaluate(scope, right)?);
                         }
                     }
                     "||" => {
-                        if self.get_value(le.0).truthy()? {
+                        if self.get_value(le.0).truthy() {
                             return Ok(le);
                         } else {
                             return Ok(self.evaluate(scope, right)?);
@@ -1656,11 +1700,12 @@ impl Runtime {
 
                 let execution_scope = self.new_scope(scope);
 
-                let ok = self.get_value(cond_value.0).truthy()?
-                    && match pattern {
-                        None => true,
-                        Some(pattern) => self.declare(execution_scope, pattern, cond_value.0)?,
-                    };
+                let ok = match pattern {
+                    None => self.get_value(cond_value.0).truthy(),
+                    Some(pattern) => {
+                        self.declare(execution_scope, pattern, cond_value.0)? == Some(true)
+                    }
+                };
 
                 let result = if ok {
                     self.execute_block(execution_scope, then)?
@@ -1684,13 +1729,12 @@ impl Runtime {
 
                     let execution_scope = self.new_scope(scope);
 
-                    let ok = self.get_value(cond_value.0).truthy()?
-                        && match pattern {
-                            None => true,
-                            Some(pattern) => {
-                                self.declare(execution_scope, pattern, cond_value.0)?
-                            }
-                        };
+                    let ok = match pattern {
+                        None => self.get_value(cond_value.0).truthy(),
+                        Some(pattern) => {
+                            self.declare(execution_scope, pattern, cond_value.0)? == Some(true)
+                        }
+                    };
 
                     if !ok {
                         return Ok(result);
@@ -1730,7 +1774,7 @@ impl Runtime {
 
                     if let Some(cond) = cond {
                         let cond_value = self.evaluate(scope, cond)?;
-                        if !self.get_value(cond_value.0).truthy()? {
+                        if !self.get_value(cond_value.0).truthy() {
                             return Ok(result);
                         }
                     } else {
@@ -2194,6 +2238,19 @@ mod tests {
             execute_simple(
                 r#"
                     if let i = nil {
+                        1
+                    } else {
+                        2
+                    }
+                "#
+            ),
+            Ok(int(1))
+        );
+
+        assert_eq!(
+            execute_simple(
+                r#"
+                    if let some i = nil {
                         1
                     } else {
                         2

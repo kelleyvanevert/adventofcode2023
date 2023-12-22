@@ -1,4 +1,8 @@
-use std::{cmp::Ordering, collections::HashSet, fmt::Display};
+use std::{
+    cmp::Ordering,
+    collections::HashSet,
+    fmt::{write, Display},
+};
 
 use compact_str::CompactString;
 use either::Either;
@@ -316,7 +320,10 @@ impl Display for Declarable {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub enum DeclarePattern {
-    Id(Identifier, Option<Type>),
+    Declare {
+        guard: DeclareGuardExpr,
+        ty: Option<Type>,
+    },
     List {
         elements: Vec<Declarable>,
         rest: Option<(Identifier, Option<Type>)>,
@@ -327,13 +334,22 @@ pub enum DeclarePattern {
     },
 }
 
+impl DeclarePattern {
+    pub fn is_named(&self, id: Identifier) -> bool {
+        match self {
+            DeclarePattern::Declare { guard, .. } => guard.is_named(id),
+            _ => false,
+        }
+    }
+}
+
 impl Display for DeclarePattern {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DeclarePattern::Id(id, t) => {
-                write!(f, "{}", id)?;
-                if let Some(t) = t {
-                    write!(f, ": {}", t)?;
+            DeclarePattern::Declare { guard, ty } => {
+                write!(f, "{}", guard)?;
+                if let Some(ty) = ty {
+                    write!(f, ": {}", ty)?;
                 }
                 Ok(())
             }
@@ -409,6 +425,31 @@ pub enum StrLiteralPiece {
 pub struct Argument {
     pub name: Option<Identifier>,
     pub expr: Expr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]
+pub enum DeclareGuardExpr {
+    Unguarded(Identifier),
+    Some(Identifier),
+    // TODO more things, like simple comparisons etc.
+}
+
+impl DeclareGuardExpr {
+    pub fn is_named(&self, id: Identifier) -> bool {
+        match self {
+            DeclareGuardExpr::Unguarded(name) => &id == name,
+            DeclareGuardExpr::Some(name) => &id == name,
+        }
+    }
+}
+
+impl Display for DeclareGuardExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DeclareGuardExpr::Unguarded(id) => write!(f, "{}", id),
+            DeclareGuardExpr::Some(expr) => write!(f, "some {}", expr),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Hash)]

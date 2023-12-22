@@ -599,7 +599,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
             let mut result = vec![];
             for item in list.iter() {
                 let r = runtime.invoke(cb, vec![(None, item.clone())])?;
-                if runtime.get_value(r.0).truthy()? {
+                if runtime.get_value(r.0).truthy() {
                     result.push(*item);
                 }
             }
@@ -659,7 +659,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                 for item in list {
                     let item = runtime.invoke(cb, vec![(None, item)])?;
-                    if runtime.get_value(item.0).truthy()? {
+                    if runtime.get_value(item.0).truthy() {
                         return Ok(runtime.new_value(Value::Bool(true)));
                     }
                 }
@@ -678,7 +678,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 };
 
                 for item in list {
-                    if runtime.get_value(item).truthy()? {
+                    if runtime.get_value(item).truthy() {
                         return Ok(runtime.new_value(Value::Bool(true)));
                     }
                 }
@@ -708,7 +708,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                 for item in list {
                     let item = runtime.invoke(cb, vec![(None, item)])?;
-                    if !runtime.get_value(item.0).truthy()? {
+                    if !runtime.get_value(item.0).truthy() {
                         return Ok(runtime.new_value(Value::Bool(false)));
                     }
                 }
@@ -729,7 +729,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                 let list = list.clone();
 
                 for item in list {
-                    if !runtime.get_value(item).truthy()? {
+                    if !runtime.get_value(item).truthy() {
                         return Ok(runtime.new_value(Value::Bool(false)));
                     }
                 }
@@ -755,7 +755,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
             for item in list {
                 let item = runtime.invoke(cb, vec![(None, item)])?;
-                if runtime.get_value(item.0).truthy()? {
+                if runtime.get_value(item.0).truthy() {
                     return Ok(item);
                 }
             }
@@ -780,7 +780,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
             for item in list {
                 let check = runtime.invoke(cb, vec![(None, item.clone())])?;
-                if runtime.get_value(check.0).truthy()? {
+                if runtime.get_value(check.0).truthy() {
                     return Ok((item, false));
                 }
             }
@@ -805,7 +805,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
             for (i, item) in list.into_iter().enumerate() {
                 let check = runtime.invoke(cb, vec![(None, item.clone())])?;
-                if runtime.get_value(check.0).truthy()? {
+                if runtime.get_value(check.0).truthy() {
                     return Ok(runtime.new_value(Value::Numeric(Numeric::Int(i as i64))));
                 }
             }
@@ -1598,7 +1598,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         [signature(["data"], |runtime, scope| {
             let data = runtime.get_scope(scope).get_unchecked("data");
 
-            if !runtime.get_value(data).truthy()? {
+            if !runtime.get_value(data).truthy() {
                 return RuntimeError(format!("assertion failed")).into();
             }
 

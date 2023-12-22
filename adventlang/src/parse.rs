@@ -5,8 +5,8 @@ use regex::Regex;
 
 use crate::{
     ast::{
-        Argument, AssignPattern, Block, Declarable, DeclarePattern, Document, Expr, Identifier,
-        Item, Stmt, StrLiteralPiece, Type,
+        Argument, AssignPattern, Block, Declarable, DeclareGuardExpr, DeclarePattern, Document,
+        Expr, Identifier, Item, Stmt, StrLiteralPiece, Type,
     },
     parser_combinators::{
         alt, check, delimited, many0, many1, map, map_opt, optional, optional_if, preceded, seq,
@@ -1170,14 +1170,25 @@ fn declarable(s: State) -> ParseResult<State, Declarable> {
     .parse(s)
 }
 
+fn declare_guard_expr(s: State) -> ParseResult<State, DeclareGuardExpr> {
+    alt((
+        map(
+            preceded(seq((tag("some"), ws1)), identifier),
+            DeclareGuardExpr::Some,
+        ),
+        map(identifier, DeclareGuardExpr::Unguarded),
+    ))
+    .parse(s)
+}
+
 fn declare_pattern(s: State) -> ParseResult<State, DeclarePattern> {
     alt((
         map(
             seq((
-                identifier,
+                declare_guard_expr,
                 optional(preceded(seq((ws0, tag(":"), ws0)), typespec)),
             )),
-            |(id, ty)| DeclarePattern::Id(id, ty),
+            |(guard, ty)| DeclarePattern::Declare { guard, ty },
         ),
         delimited(
             seq((tag("["), ws0)),
@@ -1536,8 +1547,11 @@ mod tests {
         Expr::TupleLiteral { elements }
     }
 
-    fn param(name: &str) -> DeclarePattern {
-        DeclarePattern::Id(id(name), None)
+    fn declare_id(name: &str) -> DeclarePattern {
+        DeclarePattern::Declare {
+            guard: DeclareGuardExpr::Unguarded(id(name)),
+            ty: None,
+        }
     }
 
     fn str(s: &str) -> Expr {
@@ -1577,7 +1591,7 @@ mod tests {
 
     fn declarable(name: &str) -> Declarable {
         Declarable {
-            pattern: DeclarePattern::Id(Identifier(name.into()), None),
+            pattern: declare_id(name),
             fallback: None,
         }
     }
@@ -1848,7 +1862,7 @@ let example_input = r"
             Some((
                 "",
                 Stmt::Declare {
-                    pattern: DeclarePattern::Id(Identifier("example_input".into()), None),
+                    pattern: declare_id("example_input"),
                     expr: str(r"
 .|...\....
 |.-.\.....
@@ -1975,7 +1989,7 @@ let example_input = r"
             Some((
                 " ?",
                 Expr::If {
-                    pattern: Some(DeclarePattern::Id(id("h"), None)),
+                    pattern: Some(declare_id("h")),
                     cond: Expr::Variable(id("kelley")).into(),
                     then: Block {
                         items: vec![],
@@ -2127,7 +2141,7 @@ let example_input = r"
             Some((
                 " ?",
                 Stmt::Declare {
-                    pattern: DeclarePattern::Id(id("h"), None),
+                    pattern: declare_id("h"),
                     expr: int(7).into()
                 }
             ))
@@ -2137,7 +2151,7 @@ let example_input = r"
             Some((
                 " ?",
                 Stmt::Declare {
-                    pattern: DeclarePattern::Id(id("h"), None),
+                    pattern: declare_id("h"),
                     expr: int(-7).into()
                 }
             ))
@@ -2147,7 +2161,7 @@ let example_input = r"
             Some((
                 " ?",
                 Stmt::Declare {
-                    pattern: DeclarePattern::Id(id("h"), None),
+                    pattern: declare_id("h"),
                     expr: unary("!", int(-7)).into()
                 }
             ))
@@ -2236,7 +2250,7 @@ let example_input = r"
             Some((
                 "",
                 Stmt::Declare {
-                    pattern: DeclarePattern::Id(id("v"), None),
+                    pattern: declare_id("v"),
                     expr: Expr::RegexLiteral {
                         regex: AlRegex(Regex::from_str("[0-9]+").unwrap())
                     }
@@ -2249,7 +2263,7 @@ let example_input = r"
             Some((
                 "",
                 Stmt::Declare {
-                    pattern: DeclarePattern::Id(id("v"), None),
+                    pattern: declare_id("v"),
                     expr: Expr::RegexLiteral {
                         regex: AlRegex(Regex::from_str("[0-9\\/]+").unwrap())
                     }
@@ -2262,7 +2276,7 @@ let example_input = r"
             Some((
                 "",
                 Stmt::Declare {
-                    pattern: DeclarePattern::Id(id("v"), None),
+                    pattern: declare_id("v"),
                     expr: Expr::RegexLiteral {
                         regex: AlRegex(Regex::from_str("[!@^&*#+%$=\\/]").unwrap())
                     }
@@ -2279,7 +2293,7 @@ let example_input = r"
         //     Some((
         //         "",
         //         Stmt::Declare {
-        //             pattern: DeclarePattern::Id(id("v"), None),
+        //             pattern: DeclarePattern::Id {id: id("v"), ty: None },
         //             expr: binary(
         //                 "&&",
         //                 binary(">", var("y"), int(0)),
@@ -2317,7 +2331,7 @@ let example_input = r"
             Some((
                 "",
                 Stmt::Declare {
-                    pattern: DeclarePattern::Id(id("v"), None),
+                    pattern: declare_id("v"),
                     expr: str("world").into()
                 }
             ))
@@ -2328,7 +2342,7 @@ let example_input = r"
         //     Some((
         //         "",
         //         Stmt::Declare {
-        //             pattern: DeclarePattern::Id(id("v"), None),
+        //             pattern: DeclarePattern::Id {id: id("v"), ty: None },
         //             expr: simple_invocation_postfix("index", vec![str("world").into(), int(0).into(),])
         //                 .into()
         //         }
@@ -2339,7 +2353,7 @@ let example_input = r"
             Some((
                 "",
                 Stmt::Declare {
-                    pattern: DeclarePattern::Id(id("v"), None),
+                    pattern: declare_id("v"),
                     expr: Expr::StrLiteral {
                         pieces: vec![
                             StrLiteralPiece::Fragment("wor".into()),
@@ -2439,7 +2453,7 @@ let example_input = r"
                         items: vec![],
                         stmts: vec![
                             Stmt::Declare {
-                                pattern: DeclarePattern::Id(id("n"), None),
+                                pattern: declare_id("n"),
                                 expr: Expr::Variable(id("start")).into()
                             },
                             Stmt::Expr {
@@ -2521,7 +2535,7 @@ let example_input = r"
                 Block {
                     items: vec![],
                     stmts: vec![Stmt::Declare {
-                        pattern: DeclarePattern::Id(id("h"), None),
+                        pattern: declare_id("h"),
                         expr: Expr::Numeric(Numeric::Int(7)).into()
                     }]
                 }
@@ -2563,7 +2577,10 @@ let example_input = r"
                     items: vec![],
                     stmts: vec![
                         Stmt::Declare {
-                            pattern: DeclarePattern::Id(id("h"), Some(Type::Numeric)),
+                            pattern: DeclarePattern::Declare {
+                                guard: DeclareGuardExpr::Unguarded(id("h")),
+                                ty: Some(Type::Numeric)
+                            },
                             expr: Expr::Numeric(Numeric::Int(7)).into()
                         },
                         Stmt::Assign {
@@ -2591,7 +2608,7 @@ let example_input = r"
                         }
                     }],
                     stmts: vec![Stmt::Declare {
-                        pattern: DeclarePattern::Id(id("h"), None),
+                        pattern: declare_id("h"),
                         expr: Expr::Numeric(Numeric::Int(7)).into()
                     }]
                 }
@@ -2602,7 +2619,7 @@ let example_input = r"
             Some((
                 " ?",
                 Stmt::Declare {
-                    pattern: DeclarePattern::Id(id("h"), None),
+                    pattern: declare_id("h"),
                     expr: Expr::AnonymousFn {
                         params: vec![],
                         body: Block {
@@ -2628,7 +2645,7 @@ let example_input = r"
                 Stmt::Expr {
                     expr: Expr::For {
                         label: None,
-                        pattern: DeclarePattern::Id(id("i"), None),
+                        pattern: declare_id("i"),
                         range: simple_invocation_regular("range", vec![int(1), int(2)]).into(),
                         body: Block {
                             items: vec![],
@@ -2659,11 +2676,11 @@ let example_input = r"
                         items: vec![],
                         stmts: vec![
                             Stmt::Declare {
-                                pattern: DeclarePattern::Id(id("v"), None),
+                                pattern: declare_id("v"),
                                 expr: str("world").into()
                             },
                             Stmt::Declare {
-                                pattern: DeclarePattern::Id(id("h"), None),
+                                pattern: declare_id("h"),
                                 expr: Expr::Numeric(Numeric::Int(2)).into()
                             },
                             Stmt::Expr {

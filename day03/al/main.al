@@ -42,7 +42,7 @@ fn solve(input) {
   for let (y, line) in schematic:enumerate {
     let x = 0
     while x < line:len {
-      if let m = line :slice x :match /^[0-9]+/ {
+      if let some m = line :slice x :match /^[0-9]+/ {
         if should_include(y, x, m[0]:len) {
           total = total + (m[0]:int)
         }
@@ -62,7 +62,7 @@ fn bonus(input) {
   let possible_gears = @{}
 
   fn found_adj(pos, s) {
-    if (let other = possible_gears[pos]) {
+    if let some other = possible_gears[pos] {
       total = total + (s * other)
     } else {
       possible_gears[pos] = s
@@ -73,7 +73,7 @@ fn bonus(input) {
     // check previous row
     if y > 0 {
       let start = (x-1) :max 0
-      if let m = schematic[y - 1] :slice (start, x + (s:len) + 1) :match /[*]/ {
+      if let some m = schematic[y - 1] :slice (start, x + (s:len) + 1) :match /[*]/ {
         let pos = (y-1, start+m[1])
         found_adj(pos, s:int)
       }
@@ -81,7 +81,7 @@ fn bonus(input) {
 
     // check current row
     let start = (x-1) :max 0
-    if let m = schematic[y] :slice (start, x + (s:len) + 1) :match /[*]/ {
+    if let some m = schematic[y] :slice (start, x + (s:len) + 1) :match /[*]/ {
       let pos = (y, start+m[1])
       found_adj(pos, s:int)
     }
@@ -89,7 +89,7 @@ fn bonus(input) {
     // check next row
     if y < (schematic:len) - 1 {
       let start = (x-1) :max 0
-      if let m = schematic[y + 1] :slice (start, x + (s:len) + 1) :match /[*]/ {
+      if let some m = schematic[y + 1] :slice (start, x + (s:len) + 1) :match /[*]/ {
         let pos = (y+1, start+m[1])
         found_adj(pos, s:int)
       }
@@ -99,7 +99,7 @@ fn bonus(input) {
   for let (y, line) in schematic:enumerate {
     let x = 0
     while x < line:len {
-      if let m = line :slice x :match /^[0-9]+/ {
+      if let some m = line :slice x :match /^[0-9]+/ {
         possible_gear_part(y, x, m[0])
         x = x + (m[0]:len)
       } else {

@@ -14,7 +14,10 @@ pub fn param_permits_arg(pattern: &DeclarePattern, ty: &Type) -> bool {
                 return false;
             }
         }
-        DeclarePattern::Id(_, Some(param_type)) => {
+        DeclarePattern::Declare {
+            ty: Some(param_type),
+            ..
+        } => {
             if !(param_type >= ty) {
                 // println!(
                 //     "[{name:?}] does not match sig: type, because NOT {} >= {}",
