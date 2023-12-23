@@ -12,8 +12,8 @@ fn main() {
     });
 
     time(|| {
-        // ±2s with par_iter in discover_bonus
-        // ±9s without par_iter in discover_bonus
+        // ±1.5s with par_iter in discover_bonus
+        // ±8s without par_iter in discover_bonus
         println!("Bonus: {}", bonus(input));
     });
 }
@@ -94,10 +94,20 @@ fn solve(input: &str) -> usize {
     discover(&grid, end, vec![], start).unwrap()
 }
 
+fn added_bonus<C: Copy + PartialEq + Eq + std::hash::Hash>(
+    prev: &FxHashSet<C>,
+    next: C,
+) -> FxHashSet<C> {
+    let mut prev = prev.clone();
+    prev.insert(next);
+    prev
+}
+
 fn discover_bonus(
     adj: &FxHashMap<Pos, Vec<(usize, Pos)>>,
     end: Pos,
-    trail: Vec<Pos>,
+    trail: FxHashSet<Pos>,
+    prev: Pos,
     (x, y): Pos,
 ) -> Option<usize> {
     if (x, y) == end {
@@ -112,10 +122,10 @@ fn discover_bonus(
         .unwrap()
         .par_iter()
         .filter_map(|&(length, n)| {
-            if trail.last() == Some(&n) {
+            if prev == n {
                 None
             } else {
-                discover_bonus(adj, end, added(&trail, (x, y)), n).map(|k| k + length)
+                discover_bonus(adj, end, added_bonus(&trail, (x, y)), (x, y), n).map(|k| k + length)
             }
         })
         .max()
@@ -193,7 +203,7 @@ fn bonus(input: &str) -> usize {
         adj.entry(start).or_default().push((length - 1, end));
     }
 
-    discover_bonus(&adj, end, vec![], start).unwrap()
+    discover_bonus(&adj, end, Default::default(), (-1, -1), start).unwrap()
 }
 
 #[test]
