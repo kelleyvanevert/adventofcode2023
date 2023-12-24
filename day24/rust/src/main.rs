@@ -1,5 +1,8 @@
 use std::time::Instant;
 
+use z3::ast::{Ast, Int};
+use z3::*;
+
 fn main() {
     let input = include_str!("../../input.txt");
 
@@ -12,11 +15,10 @@ fn main() {
         );
     });
 
-    // time(|| {
-    //     // ±1.5s with par_iter in discover_bonus
-    //     // ±8s without par_iter in discover_bonus
-    //     println!("Bonus: {}", bonus(input));
-    // });
+    time(|| {
+        // ±2.2s
+        println!("Bonus: {}", bonus(input));
+    });
 }
 
 fn time<F>(mut f: F)
@@ -44,17 +46,18 @@ fn solve(input: &str, min: f64, max: f64) -> usize {
         .collect::<Vec<_>>();
 
     let mut num_found = 0;
+    // let mut max_y_off = 0.0f64;
 
     for i in 0..hailstones.len() {
         for j in (i + 1)..hailstones.len() {
             // println!("{i}, {j}");
-            let ((x1i, y1i, _), (dxi, dyi, _)) = hailstones[i];
-            let ai = dyi / dxi;
-            let bi = y1i - (x1i * ai);
+            let ((pxi, pyi, _), (vxi, vyi, _)) = hailstones[i];
+            let ai = vyi / vxi;
+            let bi = pyi - (pxi * ai);
 
-            let ((x1j, y1j, _), (dxj, dyj, _)) = hailstones[j];
-            let aj = dyj / dxj;
-            let bj = y1j - (x1j * aj);
+            let ((pxj, pyj, _), (vxj, vyj, _)) = hailstones[j];
+            let aj = vyj / vxj;
+            let bj = pyj - (pxj * aj);
 
             if aj - ai == 0.0 {
                 // parallel
@@ -68,12 +71,13 @@ fn solve(input: &str, min: f64, max: f64) -> usize {
                 //     // println!("ij = {i},{i}");
                 //     assert_eq!(y, aj * x + bj);
                 // }
+                // max_y_off = max_y_off.max(ymax - ymin);
 
                 if min <= x && x <= max && min <= ymax && ymin <= max {
-                    if dxi >= 0.0 && x >= x1i || dxi <= 0.0 && x <= x1i {
-                        if dyi >= 0.0 && ymax >= y1i || dyi <= 0.0 && ymin <= y1i {
-                            if dxj >= 0.0 && x >= x1j || dxj <= 0.0 && x <= x1j {
-                                if dyj >= 0.0 && ymax >= y1j || dyj <= 0.0 && ymin <= y1j {
+                    if vxi >= 0.0 && x >= pxi || vxi <= 0.0 && x <= pxi {
+                        if vyi >= 0.0 && ymax >= pyi || vyi <= 0.0 && ymin <= pyi {
+                            if vxj >= 0.0 && x >= pxj || vxj <= 0.0 && x <= pxj {
+                                if vyj >= 0.0 && ymax >= pyj || vyj <= 0.0 && ymin <= pyj {
                                     // println!("found intersection");
                                     num_found += 1;
                                 }
@@ -85,7 +89,59 @@ fn solve(input: &str, min: f64, max: f64) -> usize {
         }
     }
 
+    // println!("max_y_off = {max_y_off}");
+
     num_found
+}
+
+fn bonus(input: &str) -> usize {
+    let parse_vec = |s: &str| {
+        let mut it = s.split(",").map(|s| s.trim().parse::<i64>().unwrap());
+        (it.next().unwrap(), it.next().unwrap(), it.next().unwrap())
+    };
+
+    let hailstones = input
+        .trim()
+        .lines()
+        .map(|line| {
+            let (pos, vel) = line.split_once(" @ ").unwrap();
+            (parse_vec(pos), parse_vec(vel))
+        })
+        .collect::<Vec<_>>();
+
+    let cfg = Config::new();
+    let ctx = Context::new(&cfg);
+    let solver = Solver::new(&ctx);
+
+    let px = Int::new_const(&ctx, "px");
+    let py = Int::new_const(&ctx, "py");
+    let pz = Int::new_const(&ctx, "pz");
+    let vx = Int::new_const(&ctx, "vx");
+    let vy = Int::new_const(&ctx, "vy");
+    let vz = Int::new_const(&ctx, "vz");
+
+    for (pos, vel) in hailstones {
+        let pxi = Int::from_i64(&ctx, pos.0);
+        let pyi = Int::from_i64(&ctx, pos.1);
+        let pzi = Int::from_i64(&ctx, pos.2);
+        let vxi = Int::from_i64(&ctx, vel.0);
+        let vyi = Int::from_i64(&ctx, vel.1);
+        let vzi = Int::from_i64(&ctx, vel.2);
+
+        let ti = Int::fresh_const(&ctx, "t");
+
+        solver.assert(&(&pxi + &vxi * &ti)._eq(&(&px + &vx * &ti)));
+        solver.assert(&(&pyi + &vyi * &ti)._eq(&(&py + &vy * &ti)));
+        solver.assert(&(&pzi + &vzi * &ti)._eq(&(&pz + &vz * &ti)));
+    }
+
+    assert_eq!(solver.check(), SatResult::Sat);
+
+    let model = solver.get_model().unwrap();
+
+    let result = model.eval(&(px + py + pz), true).unwrap();
+
+    result.as_i64().unwrap() as usize
 }
 
 #[test]
@@ -99,4 +155,6 @@ fn test() {
 ";
 
     assert_eq!(solve(example_input, 7.0, 27.0), 2);
+
+    assert_eq!(bonus(example_input), 47)
 }
