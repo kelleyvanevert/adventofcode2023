@@ -197,11 +197,11 @@ fn bonus(input: str) {
   compute_reach((0, 1, "r"), 0)
 }
 
-//print("Example solution: {solve(example_input)}")
+print("Example solution: {solve(example_input)}")
 
 // ±600ms
-//print("Solution: {solve(stdin)}")
+print("Solution: {solve(stdin)}")
 
-print("Example bonus: {bonus(example_input)}")
+//print("Example bonus: {bonus(example_input)}")
 
 //print("Bonus: {bonus(stdin)}")
