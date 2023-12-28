@@ -497,6 +497,19 @@ AL TODOs
 - need to clone integers?!
 - need to clone? `edge_corners []= (x, y):clone`
 
+## Subsequent days
+
+...I got too busy with Christmas-y things, to keep this README nicely updated, or to even have time every day to do the challenge :P The mini summary though:
+
+- I had a lot of fun, albeit sometimes a bit delayed
+- Nothing in AL anymore (Maybe if I compile it next year it would work, but, no)
+- The bonus parts of days 20, 21 and 24 were too hard for me to figure out myself, and I needed to check Reddit/YouTube. I feel I should've been able to solve 
+  - Day 20's bonus was mostly a lesson in that some AoC challenges are just specificically engineered in a way that is more than just told in the description. I'll be on the lookout for this next year!
+  - Day 21's bonus as well, but .. I feel I should've been able to solve it, if I used my wits a bit more, instead of trying to solve it "generally and beautifully" or whatever
+  - Day 24's bonus was a big challenge for me, I immediately saw I should so something with a solver, but then I spent some full hours trying to make it work in a linear equation solver, whereas a quick check on Reddit told me I should head over to Z3 instead (a theorem prover also wrapping a bunch of more generalized solvers) because it's not even linear (which I knew, but .. I figured the linsolvers might be able to solve it anyway..), so that was just an unfortunate wrong ally I took..
+
+A fun month of coding, all in all! 🎉
+
 ## Adventlang overview
 
 - Mostly value-based, structural equality
