@@ -45,7 +45,7 @@ humidity-to-location map:
     });
 
     time(|| {
-        // ±3min
+        // ±50µs
         bonus(input);
     });
 }
@@ -126,7 +126,7 @@ fn bonus(input: &str) {
 
     let mappers = groups
         .map(|group| {
-            let rules = group
+            let mut rules = group
                 .lines()
                 .into_iter()
                 .skip(1)
@@ -140,31 +140,46 @@ fn bonus(input: &str) {
                 })
                 .collect::<Vec<_>>();
 
+            rules.sort_by_key(|t| t.source);
+
             move |n: usize| {
                 for rule in &rules {
+                    if n < rule.source {
+                        return (n, rule.source - n);
+                    }
+
                     if n >= rule.source && n < rule.source + rule.num {
-                        return rule.dest + (n - rule.source);
+                        return (rule.dest + (n - rule.source), rule.source + rule.num - n);
                     }
                 }
 
-                return n;
+                return (n, 999999999);
             }
         })
         .collect::<Vec<_>>();
 
-    let solution = seeds
-        .chunks_exact(2)
-        .flat_map(|chunk| chunk[0]..(chunk[0] + chunk[1]))
-        .map(|mut seed| {
-            for mapper in &mappers {
-                seed = mapper(seed);
-            }
-            seed
-        })
-        .min()
-        .unwrap();
+    let mut loc = usize::MAX;
 
-    println!("Bonus: {solution}");
+    for chunk in seeds.chunks_exact(2) {
+        let mut seed = chunk[0];
+        let num = chunk[1];
+        let end = seed + num;
+
+        while seed < end {
+            let mut n = seed;
+            let mut skip = usize::MAX;
+            for mapper in &mappers {
+                let t = mapper(n);
+                n = t.0;
+                skip = t.1.min(skip);
+            }
+
+            loc = loc.min(n);
+            seed += skip
+        }
+    }
+
+    println!("Bonus: {loc}");
 }
 
 fn time<F>(mut f: F)

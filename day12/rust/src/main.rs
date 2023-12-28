@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{io::Write, time::Instant};
 
 use cached::proc_macro::cached;
 use rayon::prelude::*;
@@ -41,7 +41,7 @@ fn solve(input: &str) -> usize {
 fn bonus(input: &str) -> usize {
     let re = Regex::new(r"\.+").unwrap();
 
-    input
+    let result = input
         .lines()
         .collect::<Vec<_>>()
         .into_par_iter()
@@ -66,11 +66,16 @@ fn bonus(input: &str) -> usize {
                     .collect::<Vec<_>>(),
             );
 
-            println!("{i} = {num}");
+            print!("{i} = {num}, ");
+            std::io::stdout().flush().unwrap();
 
             num
         })
-        .sum::<usize>()
+        .sum::<usize>();
+
+    println!();
+
+    result
 }
 
 #[cached]

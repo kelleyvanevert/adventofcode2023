@@ -97,6 +97,7 @@ fn bonus(input: str) {
   let loc = nil
 
   for let [seed, num] in seeds :chunks 2 {
+    print("{seed} {num}")
     let end = seed + num
     while seed < end {
       let n = seed
@@ -106,6 +107,8 @@ fn bonus(input: str) {
         n = t[0]
         skip = t[1] :min skip
       }
+
+      print("n={n}, skip={skip}, loc={loc}")
 
       loc = loc :min n
       seed += skip
