@@ -40,33 +40,33 @@ If you use VS Code, be sure to install the ✨[_official language features exten
 
 ## Execution time stats
 
-| Day    | AL     | Rust                                  |
-| ------ | ------ | ------------------------------------- |
-| Day 1  | ±2s    | ±2.5ms                                |
-| Day 2  | ±20ms  |                                       |
-| Day 3  | ±350ms |                                       |
-| Day 4  | ±50ms  |                                       |
-| Day 5  | ±50ms  |                                       |
-| Day 6  | ±.5ms  |                                       |
-| Day 7  | ±200ms |                                       |
-| Day 8  | ±3s    |                                       |
-| Day 9  | ±200ms |                                       |
-| Day 10 | ±2.5s  |                                       |
-| Day 11 | ±6s    |                                       |
-| Day 12 | ±3s    |                                       |
-| Day 13 | ±100ms |                                       |
-| Day 14 | ±20s   | ±30ms                                 |
-| Day 15 | ±130ms |                                       |
-| Day 16 | ±600ms | ±350ms                                |
-| Day 17 |        | ±300ms first part, ±4s bonus          |
-| Day 18 | ±20ms  | ±20ms                                 |
-| Day 19 |        | ±3ms                                  |
-| Day 20 |        | ±15ms                                 |
-| Day 21 |        | ±10ms                                 |
-| Day 22 |        | ±350ms                                |
-| Day 23 |        | ±300ms first part, ±1.6s bonus        |
-| Day 24 |        | <1ms first part, ±2.3s bonus using Z3 |
-| Day 25 |        | ±7s                                   |
+| Day    | AL                       | Rust                                  |
+| ------ | ------------------------ | ------------------------------------- |
+| Day 1  | ±2s                      | ±2.5ms                                |
+| Day 2  | ±20ms                    |                                       |
+| Day 3  | ±350ms                   |                                       |
+| Day 4  | ±50ms                    |                                       |
+| Day 5  | ±50ms                    |                                       |
+| Day 6  | ±.5ms                    |                                       |
+| Day 7  | ±200ms                   |                                       |
+| Day 8  | ±3s                      |                                       |
+| Day 9  | ±200ms                   |                                       |
+| Day 10 | ±2.5s                    |                                       |
+| Day 11 | ±6s                      |                                       |
+| Day 12 | ±3s                      |                                       |
+| Day 13 | ±100ms                   |                                       |
+| Day 14 | ±20s                     | ±30ms                                 |
+| Day 15 | ±130ms                   |                                       |
+| Day 16 | ±600ms (only first part) | ±350ms                                |
+| Day 17 |                          | ±300ms first part, ±4s bonus          |
+| Day 18 | ±20ms (only bonus part)  | ±20ms                                 |
+| Day 19 |                          | ±3ms                                  |
+| Day 20 |                          | ±15ms                                 |
+| Day 21 |                          | ±10ms                                 |
+| Day 22 |                          | ±350ms                                |
+| Day 23 |                          | ±300ms first part, ±1.6s bonus        |
+| Day 24 |                          | <1ms first part, ±2.3s bonus using Z3 |
+| Day 25 |                          | ±7s                                   |
 
 ## Day 1
 
