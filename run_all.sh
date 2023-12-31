@@ -13,6 +13,6 @@ for day in day*; do
     echo
     echo "Executing $day in Rust..."
     echo "==="
-    (cd $day/rust; cargo run --release 2>/dev/null)
+    (cd $day/rust; cargo run --release 2&>/dev/null)
   fi
 done

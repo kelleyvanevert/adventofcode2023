@@ -38,6 +38,36 @@ If you use VS Code, be sure to install the ✨[_official language features exten
 
 <br clear="left" />
 
+## Execution time stats
+
+| Day    | AL     | Rust                                  |
+| ------ | ------ | ------------------------------------- |
+| Day 1  | ±2s    | ±2.5ms                                |
+| Day 2  | ±20ms  |                                       |
+| Day 3  | ±350ms |                                       |
+| Day 4  | ±50ms  |                                       |
+| Day 5  | ±50ms  |                                       |
+| Day 6  | ±.5ms  |                                       |
+| Day 7  | ±200ms |                                       |
+| Day 8  | ±3s    |                                       |
+| Day 9  | ±200ms |                                       |
+| Day 10 | ±2.5s  |                                       |
+| Day 11 | ±6s    |                                       |
+| Day 12 | ±3s    |                                       |
+| Day 13 | ±100ms |                                       |
+| Day 14 | ±20s   | ±30ms                                 |
+| Day 15 | ±130ms |                                       |
+| Day 16 | ±600ms | ±350ms                                |
+| Day 17 |        | ±300ms first part, ±4s bonus          |
+| Day 18 | ±20ms  | ±20ms                                 |
+| Day 19 |        | ±3ms                                  |
+| Day 20 |        | ±15ms                                 |
+| Day 21 |        | ±10ms                                 |
+| Day 22 |        | ±350ms                                |
+| Day 23 |        | ±300ms first part, ±1.6s bonus        |
+| Day 24 |        | <1ms first part, ±2.3s bonus using Z3 |
+| Day 25 |        | ±7s                                   |
+
 ## Day 1
 
 I extended the toy language to be able to solve today's challenge, by adding a bunch of built-in methods (`starts_with`, `slice`, `in`, `filter_map`, etc.), and adding tuples.
@@ -503,7 +533,7 @@ AL TODOs
 
 - I had a lot of fun, albeit sometimes a bit delayed
 - Nothing in AL anymore (Maybe if I compile it next year it would work, but, no)
-- The bonus parts of days 20, 21 and 24 were too hard for me to figure out myself, and I needed to check Reddit/YouTube. I feel I should've been able to solve 
+- The bonus parts of days 20, 21 and 24 were too hard for me to figure out myself, and I needed to check Reddit/YouTube. I feel I should've been able to solve
   - Day 20's bonus was mostly a lesson in that some AoC challenges are just specificically engineered in a way that is more than just told in the description. I'll be on the lookout for this next year!
   - Day 21's bonus as well, but .. I feel I should've been able to solve it, if I used my wits a bit more, instead of trying to solve it "generally and beautifully" or whatever
   - Day 24's bonus was a big challenge for me, I immediately saw I should so something with a solver, but then I spent some full hours trying to make it work in a linear equation solver, whereas a quick check on Reddit told me I should head over to Z3 instead (a theorem prover also wrapping a bunch of more generalized solvers) because it's not even linear (which I knew, but .. I figured the linsolvers might be able to solve it anyway..), so that was just an unfortunate wrong ally I took..

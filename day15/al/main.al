@@ -23,13 +23,13 @@ fn bonus(input: str) {
 
     boxes[i] ??= []
     if op == "=" {
-      if let j = boxes[i] :find_index |b| { b[0] == label } {
+      if let some j = boxes[i] :find_index |b| { b[0] == label } {
         boxes[i][j] [1] = lens
       } else {
         boxes[i] []= (label, lens)
       }
     } else {
-      if let j = boxes[i] :find_index |b| { b[0] == label } {
+      if let some j = boxes[i] :find_index |b| { b[0] == label } {
         boxes[i] :remove_at j
       }
     }
