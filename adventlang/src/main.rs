@@ -6,12 +6,7 @@ use std::{
     time::Instant,
 };
 
-use adventlang::{
-    parse::parse_document,
-    repl::{self, repl},
-    runtime::Runtime,
-    value::EvalOther,
-};
+use adventlang::{parse::parse_document, repl::repl, runtime::Runtime, value::EvalOther};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -23,6 +18,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Parses a script
+    Parse {
+        /// File to parse
+        file: PathBuf,
+    },
+
     /// Execute a script
     Run {
         #[arg(short, long)]
@@ -45,6 +46,21 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Parse { file } => {
+            let Ok(contents) = fs::read_to_string(&file) else {
+                eprintln!("Could not read file: {}", file.display());
+                exit(1);
+            };
+
+            let t0 = Instant::now();
+            let Some(_) = parse_document(&contents) else {
+                eprintln!("Could not parse document");
+                exit(2);
+            };
+
+            eprintln!("Parsed in {:?}", t0.elapsed());
+        }
+
         Commands::Run { timings, file, gc } => {
             let Ok(contents) = fs::read_to_string(&file) else {
                 eprintln!("Could not read file: {}", file.display());
@@ -92,6 +108,7 @@ fn main() {
                 eprintln!("GC'd in {:?}", t0.elapsed());
             }
         }
+
         Commands::Repl {} => repl(),
     }
 }
