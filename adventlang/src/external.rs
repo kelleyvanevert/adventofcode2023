@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
 
+use fxhash::FxHashMap;
 use serde::de::{Deserialize, Deserializer, MapAccess, Visitor};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, SerializeTuple, Serializer};
 
@@ -132,7 +132,7 @@ impl<'de> Visitor<'de> for EvVisitor {
     where
         M: MapAccess<'de>,
     {
-        let mut map = HashMap::<Ev, Ev>::with_capacity(access.size_hint().unwrap_or(0));
+        let mut map = FxHashMap::default();
 
         while let Some((key, value)) = access.next_entry()? {
             map.insert(key, value);

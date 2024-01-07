@@ -1,12 +1,13 @@
 use std::{
     cmp::Ordering,
-    collections::{hash_map::RandomState, HashMap},
+    collections::hash_map::RandomState,
     fmt::{self, Display, Formatter},
     hash::{BuildHasher, Hash, Hasher},
 };
 
 use arcstr::Substr;
 use either::Either;
+use fxhash::FxHashMap;
 use try_map::FallibleMapExt;
 
 use crate::{
@@ -22,7 +23,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Dict(HashMap<u64, Vec<(usize, usize)>>);
+pub struct Dict(FxHashMap<u64, Vec<(usize, usize)>>);
 
 impl std::hash::Hash for Dict {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -32,7 +33,7 @@ impl std::hash::Hash for Dict {
 
 impl Dict {
     pub fn new() -> Dict {
-        Self(HashMap::new())
+        Self(FxHashMap::default())
     }
 
     pub fn entries<'a>(&'a self) -> impl Iterator<Item = (usize, usize)> + 'a {
@@ -142,7 +143,7 @@ pub enum Ev {
     FnDef,
     List(Vec<Ev>),
     Tuple(Vec<Ev>),
-    Dict(HashMap<Ev, Ev>),
+    Dict(FxHashMap<Ev, Ev>),
 }
 
 impl Display for Ev {
@@ -451,14 +452,14 @@ pub enum Location {
 #[derive(Debug)]
 pub struct Scope {
     pub parent_scope: Option<usize>,
-    pub values: HashMap<Identifier, usize>,
+    pub values: FxHashMap<Identifier, usize>,
 }
 
 impl Scope {
     pub fn root() -> Scope {
         Scope {
             parent_scope: None,
-            values: HashMap::new(),
+            values: FxHashMap::default(),
         }
     }
 
@@ -522,7 +523,7 @@ impl Runtime {
         let id = self.scopes.len();
         self.scopes.push(Scope {
             parent_scope: Some(parent_id),
-            values: HashMap::new(),
+            values: FxHashMap::default(),
         });
         id
     }
@@ -593,7 +594,7 @@ impl Runtime {
                     })
                     .collect::<Result<Vec<_>, String>>()?;
 
-                Ok(Ev::Dict(HashMap::from_iter(pairs.into_iter())))
+                Ok(Ev::Dict(FxHashMap::from_iter(pairs.into_iter())))
             }
         }
     }

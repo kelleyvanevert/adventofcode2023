@@ -1,11 +1,8 @@
-use std::{
-    cmp::Ordering,
-    collections::HashSet,
-    fmt::{write, Display},
-};
+use std::{cmp::Ordering, fmt::Display};
 
 use compact_str::CompactString;
 use either::Either;
+use fxhash::FxHashSet;
 
 use crate::value::{AlRegex, Numeric};
 
@@ -43,7 +40,7 @@ impl Type {
                     .flatten_unions()
                     .iter()
                     .map(Type::canonicalize)
-                    .collect::<HashSet<_>>()
+                    .collect::<FxHashSet<_>>()
                     .into_iter()
                     .collect::<Vec<_>>();
 
