@@ -4,25 +4,28 @@ use arcstr::Substr;
 
 use crate::{
     ast::Type,
-    parse::parse_declarable,
+    parse::{parse_declarable, parse_type},
     runtime::{Dict, FnBody, FnSig, Runtime, Value},
+    runtime_builtins::RuntimeLike,
     value::{EvaluationResult, Numeric, RuntimeError},
 };
 
 fn signature(
     params: impl IntoIterator<Item = &'static str>,
+    result: &'static str,
     body: fn(&mut Runtime, usize) -> EvaluationResult<(usize, bool)>,
 ) -> FnSig {
     FnSig {
         params: params.into_iter().map(parse_declarable).collect(),
         body: FnBody::Builtin(body),
+        result: parse_type(result),
     }
 }
 
-pub fn implement_stdlib(runtime: &mut Runtime) {
+pub fn implement_stdlib<R: RuntimeLike>(runtime: &mut R) {
     runtime.builtin(
         "print",
-        [signature(["text"], |runtime, scope| {
+        [signature(["text"], "nil", |runtime, scope| {
             let text = runtime.get_scope(scope).get_unchecked("text");
 
             println!("{}", runtime.display(text, true));
@@ -32,7 +35,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "run",
-        [signature(["f"], |runtime, scope| {
+        [signature(["f"], "any", |runtime, scope| {
             let f = runtime.get_scope(scope).get_unchecked("f");
 
             Ok(runtime.invoke(f, vec![])?)
@@ -42,7 +45,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "min",
         [
-            signature(["items: [any]"], |runtime, scope| {
+            signature(["items: [any]"], "num", |runtime, scope| {
                 let items = runtime.get_scope(scope).get_unchecked("items");
 
                 match runtime.get_value(items) {
@@ -64,7 +67,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     }
                 }
             }),
-            signature(["a", "b"], |runtime, scope| {
+            signature(["a", "b"], "num", |runtime, scope| {
                 let a = runtime.get_scope(scope).get_unchecked("a");
                 let b = runtime.get_scope(scope).get_unchecked("b");
 
@@ -86,7 +89,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "max",
         [
-            signature(["items: [any]"], |runtime, scope| {
+            signature(["items: [any]"], "any", |runtime, scope| {
                 let items = runtime.get_scope(scope).get_unchecked("items");
 
                 match runtime.get_value(items) {
@@ -108,7 +111,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     }
                 }
             }),
-            signature(["a", "b"], |runtime, scope| {
+            signature(["a", "b"], "any", |runtime, scope| {
                 let a = runtime.get_scope(scope).get_unchecked("a");
                 let b = runtime.get_scope(scope).get_unchecked("b");
 
@@ -129,7 +132,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "add",
-        [signature(["a", "b"], |runtime, scope| {
+        [signature(["a", "b"], "any", |runtime, scope| {
             let a = runtime.get_scope(scope).get_unchecked("a");
             let b = runtime.get_scope(scope).get_unchecked("b");
 
@@ -166,6 +169,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         "chunks",
         [signature(
             ["items: [any]", "size: int"],
+            "any",
             |runtime, scope| {
                 let items = runtime.get_scope(scope).get_unchecked("items");
 
@@ -202,12 +206,53 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         )],
     );
 
+    runtime.builtin(
+        "windows",
+        [signature(
+            ["items: [any]", "size: int"],
+            "any",
+            |runtime, scope| {
+                let items = runtime.get_scope(scope).get_unchecked("items");
+
+                let Value::List(t, list) = runtime.get_value(items).clone() else {
+                    return RuntimeError(format!(
+                        "cannot get windows of: {}",
+                        runtime.get_ty(items)
+                    ))
+                    .into();
+                };
+
+                let size = runtime.get_scope(scope).get_unchecked("size");
+
+                let Value::Numeric(Numeric::Int(size)) = runtime.get_value(size) else {
+                    return RuntimeError(format!(
+                        "windows() size must be int >= 1, is a: {}",
+                        runtime.get_ty(size)
+                    ))
+                    .into();
+                };
+
+                if size < &1 {
+                    return RuntimeError(format!("windows() size must be int >= 1, is: {}", size))
+                        .into();
+                }
+
+                let windows = list
+                    .windows(*size as usize)
+                    .map(|window| runtime.new_value(Value::List(t.clone(), window.to_vec())).0)
+                    .collect::<Vec<_>>();
+
+                Ok(runtime.new_value(Value::List(Type::List(t.clone().into()), windows)))
+            },
+        )],
+    );
+
     // holy fuck so many clones..
     // :|
     // surely I can do better!
     runtime.builtin(
         "sort_by_key",
-        [signature(["items", "cb"], |runtime, scope| {
+        [signature(["items", "cb"], "any", |runtime, scope| {
             let items = runtime.get_scope(scope).get_unchecked("items");
 
             let Value::List(t, list) = runtime.get_value(items).clone() else {
@@ -244,7 +289,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "reverse",
-        [signature(["items"], |runtime, scope| {
+        [signature(["items"], "any", |runtime, scope| {
             let items = runtime.get_scope(scope).get_unchecked("items");
             let items = runtime.clone(items);
 
@@ -270,7 +315,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "remove_at",
-        [signature(["items", "i: int"], |runtime, scope| {
+        [signature(["items", "i: int"], "any", |runtime, scope| {
             let items = runtime.get_scope(scope).get_unchecked("items");
             let i = runtime.get_scope(scope).get_unchecked("i");
 
@@ -333,7 +378,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "pop",
-        [signature(["items"], |runtime, scope| {
+        [signature(["items"], "any", |runtime, scope| {
             let items = runtime.get_scope(scope).get_unchecked("items");
 
             match runtime.get_value(items).clone() {
@@ -364,7 +409,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "zip",
-        [signature(["xs", "ys"], |runtime, scope| {
+        [signature(["xs", "ys"], "any", |runtime, scope| {
             let xs = runtime.get_scope(scope).get_unchecked("xs");
             let ys = runtime.get_scope(scope).get_unchecked("ys");
 
@@ -409,38 +454,42 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "fold",
-        [signature(["items", "init", "cb"], |runtime, scope| {
-            let items = runtime.get_scope(scope).get_unchecked("items");
-            let cb = runtime.get_scope(scope).get_unchecked("cb");
-            let init = runtime.get_scope(scope).get_unchecked("init");
+        [signature(
+            ["items", "init", "cb"],
+            "any",
+            |runtime, scope| {
+                let items = runtime.get_scope(scope).get_unchecked("items");
+                let cb = runtime.get_scope(scope).get_unchecked("cb");
+                let init = runtime.get_scope(scope).get_unchecked("init");
 
-            match runtime.get_value(items).clone() {
-                Value::List(_, els) => {
-                    Ok(els.clone().into_iter().try_fold((init, false), |acc, el| {
-                        runtime.invoke(cb, vec![(None, acc.0), (None, el.clone())])
-                    })?)
+                match runtime.get_value(items).clone() {
+                    Value::List(_, els) => {
+                        Ok(els.clone().into_iter().try_fold((init, false), |acc, el| {
+                            runtime.invoke(cb, vec![(None, acc.0), (None, el.clone())])
+                        })?)
+                    }
+                    Value::Tuple(_, els) => {
+                        Ok(els.clone().into_iter().try_fold((init, false), |acc, el| {
+                            runtime.invoke(cb, vec![(None, acc.0), (None, el.clone())])
+                        })?)
+                    }
+                    _ => {
+                        return RuntimeError(format!(
+                            "cannot apply fold to these types: {}, {}, {}",
+                            runtime.get_ty(items),
+                            runtime.get_ty(cb),
+                            runtime.get_ty(init),
+                        ))
+                        .into()
+                    }
                 }
-                Value::Tuple(_, els) => {
-                    Ok(els.clone().into_iter().try_fold((init, false), |acc, el| {
-                        runtime.invoke(cb, vec![(None, acc.0), (None, el.clone())])
-                    })?)
-                }
-                _ => {
-                    return RuntimeError(format!(
-                        "cannot apply fold to these types: {}, {}, {}",
-                        runtime.get_ty(items),
-                        runtime.get_ty(cb),
-                        runtime.get_ty(init),
-                    ))
-                    .into()
-                }
-            }
-        })],
+            },
+        )],
     );
 
     runtime.builtin(
         "map",
-        [signature(["items", "cb"], |runtime, scope| {
+        [signature(["items", "cb"], "any", |runtime, scope| {
             let items = runtime.get_scope(scope).get_unchecked("items");
 
             let Value::List(_, list) = runtime.get_value(items) else {
@@ -462,7 +511,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "flat_map",
-        [signature(["items", "cb"], |runtime, scope| {
+        [signature(["items", "cb"], "any", |runtime, scope| {
             let items = runtime.get_scope(scope).get_unchecked("items");
 
             let Value::List(_, list) = runtime.get_value(items).clone() else {
@@ -495,7 +544,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "dict",
-        [signature(["pairs: [any]"], |runtime, scope| {
+        [signature(["pairs: [any]"], "any", |runtime, scope| {
             let pairs = runtime.get_scope(scope).get_unchecked("pairs");
 
             let Value::List(_, pairs) = runtime.get_value(pairs).clone() else {
@@ -537,7 +586,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "in",
         [
-            signature(["needle: str", "haystack: str"], |runtime, scope| {
+            signature(["needle: str", "haystack: str"], "any", |runtime, scope| {
                 let needle = runtime.get_scope(scope).get_unchecked("needle");
                 let haystack = runtime.get_scope(scope).get_unchecked("haystack");
 
@@ -559,7 +608,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                 Ok(runtime.new_value(Value::Bool(haystack.contains(&needle.as_str()))))
             }),
-            signature(["needle", "haystack: [any]"], |runtime, scope| {
+            signature(["needle", "haystack: [any]"], "any", |runtime, scope| {
                 let needle = runtime.get_scope(scope).get_unchecked("needle");
                 let haystack = runtime.get_scope(scope).get_unchecked("haystack");
 
@@ -584,7 +633,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "filter",
-        [signature(["items", "cb"], |runtime, scope| {
+        [signature(["items", "cb"], "any", |runtime, scope| {
             let items = runtime.get_scope(scope).get_unchecked("items");
 
             let Value::List(_, list) = runtime.get_value(items) else {
@@ -611,7 +660,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "filter_map",
-        [signature(["items", "cb"], |runtime, scope| {
+        [signature(["items", "cb"], "any", |runtime, scope| {
             let items = runtime.get_scope(scope).get_unchecked("items");
 
             let Value::List(_, list) = runtime.get_value(items) else {
@@ -644,7 +693,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "any",
         [
-            signature(["items", "cb"], |runtime, scope| {
+            signature(["items", "cb"], "any", |runtime, scope| {
                 let items = runtime.get_scope(scope).get_unchecked("items");
 
                 let Value::List(_, list) = runtime.get_value(items).clone() else {
@@ -666,7 +715,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                 Ok(runtime.new_value(Value::Bool(false)))
             }),
-            signature(["items"], |runtime, scope| {
+            signature(["items"], "any", |runtime, scope| {
                 let items = runtime.get_scope(scope).get_unchecked("items");
 
                 let Value::List(_, list) = runtime.get_value(items).clone() else {
@@ -691,7 +740,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "all",
         [
-            signature(["items", "cb"], |runtime, scope| {
+            signature(["items", "cb"], "any", |runtime, scope| {
                 let items = runtime.get_scope(scope).get_unchecked("items");
 
                 let Value::List(_, list) = runtime.get_value(items) else {
@@ -715,7 +764,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                 Ok(runtime.new_value(Value::Bool(true)))
             }),
-            signature(["items"], |runtime, scope| {
+            signature(["items"], "any", |runtime, scope| {
                 let items = runtime.get_scope(scope).get_unchecked("items");
 
                 let Value::List(_, list) = runtime.get_value(items) else {
@@ -741,7 +790,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "find_map",
-        [signature(["items", "cb"], |runtime, scope| {
+        [signature(["items", "cb"], "any", |runtime, scope| {
             let items = runtime.get_scope(scope).get_unchecked("items");
 
             let Value::List(_, list) = runtime.get_value(items) else {
@@ -766,7 +815,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "find",
-        [signature(["items", "cb"], |runtime, scope| {
+        [signature(["items", "cb"], "any", |runtime, scope| {
             let items = runtime.get_scope(scope).get_unchecked("items");
 
             let Value::List(_, list) = runtime.get_value(items) else {
@@ -791,7 +840,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "find_index",
-        [signature(["items", "cb"], |runtime, scope| {
+        [signature(["items", "cb"], "any", |runtime, scope| {
             let items = runtime.get_scope(scope).get_unchecked("items");
 
             let Value::List(_, list) = runtime.get_value(items) else {
@@ -816,7 +865,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "range",
-        [signature(["start", "end"], |runtime, scope| {
+        [signature(["start", "end"], "any", |runtime, scope| {
             let start = runtime.get_scope(scope).get_unchecked("start");
 
             let Value::Numeric(start) = runtime.get_value(start) else {
@@ -863,7 +912,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "enumerate",
-        [signature(["items"], |runtime, scope| {
+        [signature(["items"], "any", |runtime, scope| {
             let items = runtime.get_scope(scope).get_unchecked("items");
 
             Ok(match runtime.get_value(items).clone() {
@@ -913,7 +962,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "sum",
-        [signature(["items"], |runtime, scope| {
+        [signature(["items"], "any", |runtime, scope| {
             let items = runtime.get_scope(scope).get_unchecked("items");
 
             let list = match runtime.get_value(items) {
@@ -937,7 +986,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "split",
         [
-            signature(["text: str", "sep: str"], |runtime, scope| {
+            signature(["text: str", "sep: str"], "any", |runtime, scope| {
                 let text = runtime.get_scope(scope).get_unchecked("text");
 
                 let Value::Str(text) = runtime.get_value(text).clone() else {
@@ -965,7 +1014,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                 Ok(runtime.new_value(Value::List(Type::Str, result)))
             }),
-            signature(["text: str", ("sep: regex")], |runtime, scope| {
+            signature(["text: str", ("sep: regex")], "any", |runtime, scope| {
                 let text = runtime.get_scope(scope).get_unchecked("text");
 
                 let Value::Str(text) = runtime.get_value(text).clone() else {
@@ -1001,6 +1050,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         "join",
         [signature(
             ["items: [any]", "glue: str"],
+            "any",
             |runtime, scope| {
                 let items = runtime.get_scope(scope).get_unchecked("items");
 
@@ -1035,7 +1085,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "lines",
-        [signature(["text: str"], |runtime, scope| {
+        [signature(["text: str"], "any", |runtime, scope| {
             let text = runtime.get_scope(scope).get_unchecked("text");
 
             let Value::Str(text) = runtime.get_value(text).clone() else {
@@ -1060,6 +1110,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         "match",
         [signature(
             ["text: str", "regex: regex"],
+            "any",
             |runtime, scope| {
                 let text = runtime.get_scope(scope).get_unchecked("text");
 
@@ -1103,6 +1154,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         "matches",
         [signature(
             ["text: str", "regex: regex"],
+            "any",
             |runtime, scope| {
                 let text = runtime.get_scope(scope).get_unchecked("text");
 
@@ -1162,6 +1214,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         "match_all",
         [signature(
             ["text: str", "regex: regex"],
+            "any",
             |runtime, scope| {
                 let text = runtime.get_scope(scope).get_unchecked("text");
 
@@ -1211,34 +1264,38 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "starts_with",
-        [signature(["text: str", "substr: str"], |runtime, scope| {
-            let text = runtime.get_scope(scope).get_unchecked("text");
+        [signature(
+            ["text: str", "substr: str"],
+            "any",
+            |runtime, scope| {
+                let text = runtime.get_scope(scope).get_unchecked("text");
 
-            let Value::Str(text) = runtime.get_value(text) else {
-                return RuntimeError(format!(
-                    "starts_with() text must be a string, is a: {}",
-                    runtime.get_ty(text)
-                ))
-                .into();
-            };
+                let Value::Str(text) = runtime.get_value(text) else {
+                    return RuntimeError(format!(
+                        "starts_with() text must be a string, is a: {}",
+                        runtime.get_ty(text)
+                    ))
+                    .into();
+                };
 
-            let substr = runtime.get_scope(scope).get_unchecked("substr");
+                let substr = runtime.get_scope(scope).get_unchecked("substr");
 
-            let Value::Str(substr) = runtime.get_value(substr) else {
-                return RuntimeError(format!(
-                    "starts_with() substr must be a string, is a: {}",
-                    runtime.get_ty(substr)
-                ))
-                .into();
-            };
+                let Value::Str(substr) = runtime.get_value(substr) else {
+                    return RuntimeError(format!(
+                        "starts_with() substr must be a string, is a: {}",
+                        runtime.get_ty(substr)
+                    ))
+                    .into();
+                };
 
-            Ok(runtime.new_value(Value::Bool(text.starts_with(substr.as_str()))))
-        })],
+                Ok(runtime.new_value(Value::Bool(text.starts_with(substr.as_str()))))
+            },
+        )],
     );
 
     runtime.builtin(
         "ascii",
-        [signature(["c: str"], |runtime, scope| {
+        [signature(["c: str"], "any", |runtime, scope| {
             let c = runtime.get_scope(scope).get_unchecked("c");
 
             let Value::Str(c) = runtime.get_value(c) else {
@@ -1267,6 +1324,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
         "replace",
         [signature(
             ["text: str", ("def: tuple")],
+            "any",
             |runtime, scope| {
                 let text = runtime.get_scope(scope).get_unchecked("text");
 
@@ -1326,7 +1384,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "slice",
         [
-            signature(["list: [any]", "i: int"], |runtime, scope| {
+            signature(["list: [any]", "i: int"], "any", |runtime, scope| {
                 let list = runtime.get_scope(scope).get_unchecked("list");
 
                 let Value::List(t, list) = runtime.get_value(list).clone() else {
@@ -1358,7 +1416,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                     list.clone().split_off((i as usize).min(list.len())),
                 )))
             }),
-            signature(["text: str", "i: int"], |runtime, scope| {
+            signature(["text: str", "i: int"], "any", |runtime, scope| {
                 let text = runtime.get_scope(scope).get_unchecked("text");
 
                 let Value::Str(text) = runtime.get_value(text) else {
@@ -1393,7 +1451,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
                 Ok(runtime.new_value(Value::Str(text.substr((i as usize)..text.len()))))
             }),
-            signature(["text: str", ("range: tuple")], |runtime, scope| {
+            signature(["text: str", ("range: tuple")], "any", |runtime, scope| {
                 let text = runtime.get_scope(scope).get_unchecked("text");
 
                 let Value::Str(text) = runtime.get_value(text).clone() else {
@@ -1441,85 +1499,88 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
                         .into();
                 };
 
-                let end = end.get_int()?;
+                let mut end = end.get_int()?;
 
                 if end < 0 {
-                    return RuntimeError(format!("slice() range must be an (int, int) range"))
-                        .into();
+                    end = (text.len() as i64) + end;
                 }
 
                 Ok(runtime.new_value(Value::Str(
                     text.substr((start as usize)..(end as usize).min(text.len())),
                 )))
             }),
-            signature(["list: [any]", ("range: tuple")], |runtime, scope| {
-                let list = runtime.get_scope(scope).get_unchecked("list");
+            signature(
+                ["list: [any]", ("range: tuple")],
+                "any",
+                |runtime, scope| {
+                    let list = runtime.get_scope(scope).get_unchecked("list");
 
-                let Value::List(el_type, list) = runtime.get_value(list).clone() else {
-                    return RuntimeError(format!(
-                        "slice() list must be a list, is a: {}",
-                        runtime.get_ty(list)
-                    ))
-                    .into();
-                };
-
-                let range = runtime.get_scope(scope).get_unchecked("range");
-
-                let Value::Tuple(_, range) = runtime.get_value(range).clone() else {
-                    return RuntimeError(format!(
-                        "slice() range must be an (int, int) range, is a: {}",
-                        runtime.get_ty(range)
-                    ))
-                    .into();
-                };
-
-                let Some(start) = range.get(0) else {
-                    return RuntimeError(format!("slice() range must be an (int, int) range"))
+                    let Value::List(el_type, list) = runtime.get_value(list).clone() else {
+                        return RuntimeError(format!(
+                            "slice() list must be a list, is a: {}",
+                            runtime.get_ty(list)
+                        ))
                         .into();
-                };
+                    };
 
-                let Value::Numeric(start) = runtime.get_value(*start) else {
-                    return RuntimeError(format!("slice() range must be an (int, int) range"))
+                    let range = runtime.get_scope(scope).get_unchecked("range");
+
+                    let Value::Tuple(_, range) = runtime.get_value(range).clone() else {
+                        return RuntimeError(format!(
+                            "slice() range must be an (int, int) range, is a: {}",
+                            runtime.get_ty(range)
+                        ))
                         .into();
-                };
+                    };
 
-                let start = start.get_int()?;
+                    let Some(start) = range.get(0) else {
+                        return RuntimeError(format!("slice() range must be an (int, int) range"))
+                            .into();
+                    };
 
-                if start < 0 {
-                    return RuntimeError(format!("slice() range must be an (int, int) range"))
-                        .into();
-                }
+                    let Value::Numeric(start) = runtime.get_value(*start) else {
+                        return RuntimeError(format!("slice() range must be an (int, int) range"))
+                            .into();
+                    };
 
-                let Some(end) = range.get(1) else {
-                    return RuntimeError(format!("slice() range must be an (int, int) range"))
-                        .into();
-                };
+                    let start = start.get_int()?;
 
-                let Value::Numeric(end) = runtime.get_value(*end) else {
-                    return RuntimeError(format!("slice() range must be an (int, int) range"))
-                        .into();
-                };
+                    if start < 0 {
+                        return RuntimeError(format!("slice() range must be an (int, int) range"))
+                            .into();
+                    }
 
-                let end = end.get_int()?;
+                    let Some(end) = range.get(1) else {
+                        return RuntimeError(format!("slice() range must be an (int, int) range"))
+                            .into();
+                    };
 
-                if end < 0 {
-                    return RuntimeError(format!("slice() range must be an (int, int) range"))
-                        .into();
-                }
+                    let Value::Numeric(end) = runtime.get_value(*end) else {
+                        return RuntimeError(format!("slice() range must be an (int, int) range"))
+                            .into();
+                    };
 
-                let slice_els = list[(start as usize)..(end as usize).min(list.len())]
-                    .into_iter()
-                    .map(|v| runtime.clone(*v).0)
-                    .collect::<Vec<_>>();
+                    let end = end.get_int()?;
 
-                Ok(runtime.new_value(Value::List(el_type, slice_els)))
-            }),
+                    if end < 0 {
+                        return RuntimeError(format!("slice() range must be an (int, int) range"))
+                            .into();
+                    }
+
+                    let slice_els = list[(start as usize)..(end as usize).min(list.len())]
+                        .into_iter()
+                        .map(|v| runtime.clone(*v).0)
+                        .collect::<Vec<_>>();
+
+                    Ok(runtime.new_value(Value::List(el_type, slice_els)))
+                },
+            ),
         ],
     );
 
     runtime.builtin(
         "clone",
-        [signature(["data"], |runtime, scope| {
+        [signature(["data"], "any", |runtime, scope| {
             let data = runtime.get_scope(scope).get_unchecked("data");
 
             Ok(runtime.clone(data))
@@ -1528,7 +1589,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "hash",
-        [signature(["data"], |runtime, scope| {
+        [signature(["data"], "any", |runtime, scope| {
             let data = runtime.get_scope(scope).get_unchecked("data");
 
             Ok(runtime.new_value(Value::Numeric(Numeric::Int(runtime.hash(data) as i64))))
@@ -1537,7 +1598,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "trim",
-        [signature(["text: str"], |runtime, scope| {
+        [signature(["text: str"], "any", |runtime, scope| {
             let text = runtime.get_scope(scope).get_unchecked("text");
 
             let Value::Str(text) = runtime.get_value(text) else {
@@ -1554,26 +1615,33 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "len",
-        [signature(["data: list | tuple | str"], |runtime, scope| {
-            let data = runtime.get_scope(scope).get_unchecked("data");
+        [signature(
+            ["data: list | tuple | str"],
+            "any",
+            |runtime, scope| {
+                let data = runtime.get_scope(scope).get_unchecked("data");
 
-            let len = match runtime.get_value(data) {
-                Value::Str(text) => text.len(),
-                Value::List(_, list) => list.len(),
-                Value::Tuple(_, tuple) => tuple.len(),
-                _ => {
-                    return RuntimeError(format!("cannot get len of: {}", runtime.get_ty(data)))
+                let len = match runtime.get_value(data) {
+                    Value::Str(text) => text.len(),
+                    Value::List(_, list) => list.len(),
+                    Value::Tuple(_, tuple) => tuple.len(),
+                    _ => {
+                        return RuntimeError(format!(
+                            "cannot get len of: {}",
+                            runtime.get_ty(data)
+                        ))
                         .into();
-                }
-            };
+                    }
+                };
 
-            Ok(runtime.new_value(Value::Numeric(Numeric::Int(len as i64))))
-        })],
+                Ok(runtime.new_value(Value::Numeric(Numeric::Int(len as i64))))
+            },
+        )],
     );
 
     runtime.builtin(
         "chars",
-        [signature(["text: str"], |runtime, scope| {
+        [signature(["text: str"], "any", |runtime, scope| {
             let text = runtime.get_scope(scope).get_unchecked("text");
 
             let Value::Str(text) = runtime.get_value(text).clone() else {
@@ -1595,7 +1663,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "assert",
-        [signature(["data"], |runtime, scope| {
+        [signature(["data"], "any", |runtime, scope| {
             let data = runtime.get_scope(scope).get_unchecked("data");
 
             if !runtime.get_value(data).truthy() {
@@ -1609,14 +1677,14 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
     runtime.builtin(
         "int",
         [
-            signature(["data"], |runtime, scope| {
+            signature(["data"], "any", |runtime, scope| {
                 let data = runtime.get_scope(scope).get_unchecked("data");
 
                 let result = runtime.get_value(data).auto_coerce_int()?;
 
                 Ok(runtime.new_value(Value::Numeric(Numeric::Int(result))))
             }),
-            signature(["data: str", "radix: int"], |runtime, scope| {
+            signature(["data: str", "radix: int"], "any", |runtime, scope| {
                 let data = runtime.get_scope(scope).get_unchecked("data");
 
                 let Value::Str(s) = runtime.get_value(data) else {
@@ -1656,7 +1724,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "sqrt",
-        [signature(["num: num"], |runtime, scope| {
+        [signature(["num: num"], "any", |runtime, scope| {
             let num = runtime.get_scope(scope).get_unchecked("num");
 
             let Value::Numeric(num) = runtime.get_value(num) else {
@@ -1673,7 +1741,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "ceil",
-        [signature(["num: num"], |runtime, scope| {
+        [signature(["num: num"], "any", |runtime, scope| {
             let num = runtime.get_scope(scope).get_unchecked("num");
 
             let Value::Numeric(num) = runtime.get_value(num) else {
@@ -1690,7 +1758,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "floor",
-        [signature(["num: num"], |runtime, scope| {
+        [signature(["num: num"], "any", |runtime, scope| {
             let num = runtime.get_scope(scope).get_unchecked("num");
 
             let Value::Numeric(num) = runtime.get_value(num) else {
@@ -1707,7 +1775,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "abs",
-        [signature(["num: num"], |runtime, scope| {
+        [signature(["num: num"], "any", |runtime, scope| {
             let num = runtime.get_scope(scope).get_unchecked("num");
 
             let Value::Numeric(num) = runtime.get_value(num) else {
@@ -1729,7 +1797,7 @@ pub fn implement_stdlib(runtime: &mut Runtime) {
 
     runtime.builtin(
         "round",
-        [signature(["num: num"], |runtime, scope| {
+        [signature(["num: num"], "any", |runtime, scope| {
             let num = runtime.get_scope(scope).get_unchecked("num");
 
             let Value::Numeric(num) = runtime.get_value(num) else {

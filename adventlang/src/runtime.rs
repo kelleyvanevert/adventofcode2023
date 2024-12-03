@@ -17,6 +17,7 @@ use crate::{
     },
     fmt::Fmt,
     parse::parse_document,
+    runtime_builtins::RuntimeLike,
     stdlib::implement_stdlib,
     types::param_permits_arg,
     value::{AlRegex, EvalOther, EvaluationResult, Numeric, RuntimeError},
@@ -94,6 +95,7 @@ impl std::hash::Hash for FnDef {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FnSig {
     pub params: Vec<Declarable>,
+    pub result: Type,
     pub body: FnBody,
 }
 
@@ -108,7 +110,7 @@ impl Display for FnSig {
             write!(f, "{}", param)?;
             i += 1;
         }
-        write!(f, ") <body>")?;
+        write!(f, ") -> {}", self.result)?;
         Ok(())
     }
 }
@@ -850,16 +852,6 @@ impl Runtime {
         }
     }
 
-    pub fn builtin(&mut self, name: &str, signatures: impl IntoIterator<Item = FnSig>) {
-        let (def, _) = self.new_value(Value::FnDef(FnDef {
-            name: Some(name.into()),
-            parent_scope: 0,
-            signatures: signatures.into_iter().collect(),
-        }));
-
-        self.get_scope_mut(0).values.insert(name.into(), def);
-    }
-
     pub fn lookup(&self, scope_id: usize, id: &Identifier) -> EvaluationResult<(usize, usize)> {
         let scope = self.get_scope(scope_id);
 
@@ -912,6 +904,7 @@ impl Runtime {
                     signatures: vec![FnSig {
                         params: params.clone(),
                         body: FnBody::Code(body.clone()), // TODO somehow avoid clone
+                        result: Type::Any,
                     }],
                 }));
 
@@ -1014,7 +1007,8 @@ impl Runtime {
                         .chain(std::iter::repeat(self.new_value(Value::Nil).0)),
                 ) {
                     if let Some(fallback_expr) = fallback
-                        && self.get_value(value) == &Value::Nil {
+                        && self.get_value(value) == &Value::Nil
+                    {
                         value = self.evaluate(scope, fallback_expr)?.0;
                     }
 
@@ -1062,7 +1056,8 @@ impl Runtime {
                         .chain(std::iter::repeat(self.new_value(Value::Nil).0)),
                 ) {
                     if let Some(fallback_expr) = fallback
-                        && self.get_value(value) == &Value::Nil {
+                        && self.get_value(value) == &Value::Nil
+                    {
                         value = self.evaluate(scope, fallback_expr)?.0;
                     }
 
@@ -1265,13 +1260,21 @@ impl Runtime {
             signatures,
         } = def.clone();
 
-        let Some((FnSig { params, body }, assignments)) = self.select_signature(
+        let Some((
+            FnSig {
+                params,
+                body,
+                result,
+            },
+            assignments,
+        )) = self.select_signature(
             name.clone(),
             signatures,
             args.iter()
                 .map(|(id, v)| (id, self.get_ty(*v)))
                 .collect::<Vec<_>>(),
-        ) else {
+        )
+        else {
             return RuntimeError(format!(
                 "could not find matching signature, fn: {}, arg types: ({})",
                 name.map(|n| n.0).unwrap_or("<unknown>".into()),
@@ -1289,7 +1292,8 @@ impl Runtime {
             if let Some(arg_index) = assign_arg {
                 let mut arg_val = args[arg_index].1;
                 if let Some(fallback_expr) = &params[param_index].fallback
-                    && self.get_value(arg_val) == &Value::Nil {
+                    && self.get_value(arg_val) == &Value::Nil
+                {
                     arg_val = self.evaluate(parent_scope, &fallback_expr)?.0;
                 }
                 if self
@@ -1689,6 +1693,7 @@ impl Runtime {
                 signatures: vec![FnSig {
                     params: params.clone(),
                     body: FnBody::Code(body.clone()), // TODO somehow avoid clone
+                    result: Type::Any,
                 }],
             }))),
             Expr::If {
@@ -1941,6 +1946,18 @@ impl Runtime {
             }
             _ => RuntimeError(format!("cannot index into: {}", collection.ty())).into(),
         }
+    }
+}
+
+impl RuntimeLike for Runtime {
+    fn builtin(&mut self, name: &str, signatures: impl IntoIterator<Item = FnSig>) {
+        let (def, _) = self.new_value(Value::FnDef(FnDef {
+            name: Some(name.into()),
+            parent_scope: 0,
+            signatures: signatures.into_iter().collect(),
+        }));
+
+        self.get_scope_mut(0).values.insert(name.into(), def);
     }
 }
 

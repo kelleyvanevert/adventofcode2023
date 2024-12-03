@@ -6,7 +6,10 @@ use std::{
     time::Instant,
 };
 
-use adventlang::{parse::parse_document, repl::repl, runtime::Runtime, value::EvalOther};
+use adventlang::{
+    parse::parse_document, repl::repl, runtime::Runtime, runtime_builtins::RuntimeBuiltinDefs,
+    stdlib::implement_stdlib, value::EvalOther,
+};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -37,6 +40,9 @@ enum Commands {
         /// File to run
         file: PathBuf,
     },
+
+    /// Prints the standard library function signatures to stdout
+    Stdlib {},
 
     /// Run a REPL
     Repl {},
@@ -106,6 +112,20 @@ fn main() {
                 let t0 = Instant::now();
                 runtime.gc([]);
                 eprintln!("GC'd in {:?}", t0.elapsed());
+            }
+        }
+
+        Commands::Stdlib {} => {
+            let mut builtins = RuntimeBuiltinDefs::new();
+
+            implement_stdlib(&mut builtins);
+
+            builtins.builtins.sort_by_key(|t| t.0.clone());
+
+            for (name, sigs) in builtins.builtins {
+                for sig in sigs {
+                    println!("{name}: {sig}");
+                }
             }
         }
 

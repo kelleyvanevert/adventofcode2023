@@ -10,6 +10,7 @@ pub mod parse;
 pub mod parser_combinators;
 pub mod repl;
 pub mod runtime;
+pub mod runtime_builtins;
 pub mod stdlib;
 pub mod types;
 pub mod value;
