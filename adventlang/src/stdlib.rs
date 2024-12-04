@@ -251,6 +251,39 @@ pub fn implement_stdlib<R: RuntimeLike>(runtime: &mut R) {
     // :|
     // surely I can do better!
     runtime.builtin(
+        "sort",
+        [signature(["items"], "any", |runtime, scope| {
+            let items = runtime.get_scope(scope).get_unchecked("items");
+
+            let Value::List(t, list) = runtime.get_value(items).clone() else {
+                return RuntimeError(format!(
+                    "sort_by_key() items must be a list, is a: {}",
+                    runtime.get_ty(items)
+                ))
+                .into();
+            };
+
+            let mut sorted = list.clone().into_iter().enumerate().collect::<Vec<_>>();
+
+            sorted.sort_by(|a, b| runtime.cmp(a.1, b.1));
+
+            let mut result = list
+                .iter()
+                .map(|_| runtime.new_value(Value::Nil).0)
+                .collect::<Vec<_>>();
+
+            for (dest, (source, _)) in sorted.iter().enumerate() {
+                result[dest] = list[*source].clone();
+            }
+
+            Ok(runtime.new_value(Value::List(t.clone(), result)))
+        })],
+    );
+
+    // holy fuck so many clones..
+    // :|
+    // surely I can do better!
+    runtime.builtin(
         "sort_by_key",
         [signature(["items", "cb"], "any", |runtime, scope| {
             let items = runtime.get_scope(scope).get_unchecked("items");
