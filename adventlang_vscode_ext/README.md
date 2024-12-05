@@ -1,6 +1,6 @@
 # Adventlang language features
 
-Language features for the _Adventlang_ programming language, which I (Kelley) created for 2023's Advent of Code.
+Language features for the _Adventlang_ programming language, which I created for 2023's Advent of Code.
 
 Will evolve over the course of the rest of December :)
 
