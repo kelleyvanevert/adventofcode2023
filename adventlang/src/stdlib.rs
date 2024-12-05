@@ -847,6 +847,40 @@ pub fn implement_stdlib<R: RuntimeLike>(runtime: &mut R) {
     );
 
     runtime.builtin(
+        "first",
+        [signature(["items"], "any", |runtime, scope| {
+            let items = runtime.get_scope(scope).get_unchecked("items");
+
+            let Value::List(_, list) = runtime.get_value(items) else {
+                return RuntimeError(format!("cannot get first of: {}", runtime.get_ty(items)))
+                    .into();
+            };
+
+            match list.first() {
+                Some(n) => Ok((*n, false)),
+                None => Ok(runtime.new_value(Value::Nil)),
+            }
+        })],
+    );
+
+    runtime.builtin(
+        "last",
+        [signature(["items"], "any", |runtime, scope| {
+            let items = runtime.get_scope(scope).get_unchecked("items");
+
+            let Value::List(_, list) = runtime.get_value(items) else {
+                return RuntimeError(format!("cannot get first of: {}", runtime.get_ty(items)))
+                    .into();
+            };
+
+            match list.last() {
+                Some(n) => Ok((*n, false)),
+                None => Ok(runtime.new_value(Value::Nil)),
+            }
+        })],
+    );
+
+    runtime.builtin(
         "find",
         [signature(["items", "cb"], "any", |runtime, scope| {
             let items = runtime.get_scope(scope).get_unchecked("items");
@@ -1112,6 +1146,49 @@ pub fn implement_stdlib<R: RuntimeLike>(runtime: &mut R) {
                     .join(glue.as_str());
 
                 Ok(runtime.new_value(Value::Str(result.into())))
+            },
+        )],
+    );
+
+    runtime.builtin(
+        "insert",
+        [signature(
+            ["items: [any]", "index: num", "item"],
+            "[any]",
+            |runtime, scope| {
+                let items = runtime.get_scope(scope).get_unchecked("items");
+
+                let Value::List(_, mut items) = runtime.get_value(items).clone() else {
+                    return RuntimeError(format!(
+                        "insert() items must be a list, is a: {}",
+                        runtime.get_ty(items)
+                    ))
+                    .into();
+                };
+
+                let index = runtime.get_scope(scope).get_unchecked("index");
+
+                let Value::Numeric(Numeric::Int(index)) = runtime.get_value(index).clone() else {
+                    return RuntimeError(format!(
+                        "insert() index must be an int, is a: {}",
+                        runtime.get_ty(index)
+                    ))
+                    .into();
+                };
+
+                if index < 0 {
+                    return RuntimeError(format!(
+                        "insert() index must be a positive int, is: {}",
+                        index
+                    ))
+                    .into();
+                }
+
+                let item = runtime.get_scope(scope).get_unchecked("item");
+
+                items.insert(index as usize, runtime.clone(item).0);
+
+                Ok(runtime.new_value(Value::List(Type::Any, items)))
             },
         )],
     );
