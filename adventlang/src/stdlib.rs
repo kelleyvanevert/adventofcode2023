@@ -1833,6 +1833,17 @@ pub fn implement_stdlib<R: RuntimeLike>(runtime: &mut R) {
     );
 
     runtime.builtin(
+        "str",
+        [signature(["data"], "any", |runtime, scope| {
+            let data = runtime.get_scope(scope).get_unchecked("data");
+
+            let result = runtime.get_value(data).auto_coerce_str();
+
+            Ok(runtime.new_value(Value::Str(Substr::from(result))))
+        })],
+    );
+
+    runtime.builtin(
         "sqrt",
         [signature(["num: num"], "any", |runtime, scope| {
             let num = runtime.get_scope(scope).get_unchecked("num");
