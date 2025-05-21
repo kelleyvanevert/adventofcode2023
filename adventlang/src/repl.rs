@@ -59,7 +59,7 @@ pub fn repl() {
                     }
                 }
 
-                runtime.gc([]);
+                runtime.heap.gc();
             }
             Err(ReadlineError::Eof) => {
                 // Ctrl+D

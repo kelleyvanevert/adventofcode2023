@@ -8,6 +8,7 @@ use std::{
 use arcstr::Substr;
 use either::Either;
 use fxhash::FxHashMap;
+use safe_gc::{Gc, Heap, Root, Trace};
 use try_map::FallibleMapExt;
 
 use crate::{
@@ -23,8 +24,20 @@ use crate::{
     value::{AlRegex, EvalOther, EvaluationResult, Numeric, RuntimeError},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Dict(FxHashMap<u64, Vec<(usize, usize)>>);
+#[derive(Debug, Clone, PartialEq)]
+pub struct Dict {
+    ty: Option<(Type, Type)>,
+    data: FxHashMap<u64, Vec<(Value, Value)>>,
+}
+
+impl Trace for Dict {
+    fn trace(&self, collector: &mut safe_gc::Collector) {
+        for (key, value) in self.entries() {
+            key.trace(collector);
+            value.trace(collector);
+        }
+    }
+}
 
 impl std::hash::Hash for Dict {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -34,21 +47,24 @@ impl std::hash::Hash for Dict {
 
 impl Dict {
     pub fn new() -> Dict {
-        Self(FxHashMap::default())
+        Self {
+            ty: None,
+            data: FxHashMap::default(),
+        }
     }
 
-    pub fn entries<'a>(&'a self) -> impl Iterator<Item = (usize, usize)> + 'a {
-        self.0
+    pub fn entries<'a>(&'a self) -> impl Iterator<Item = (&'a Value, &'a Value)> + 'a {
+        self.data
             .iter()
             .flat_map(|(_, bucket_entries)| bucket_entries.iter())
-            .map(|(k, v)| (*k, *v))
+            .map(|(k, v)| (k, v))
     }
 
-    pub fn get(&self, runtime: &Runtime, k: usize) -> Option<(usize, usize)> {
-        if let Some(bucket) = self.0.get(&runtime.hash(k)) {
-            for &(q, v) in bucket {
-                if runtime.eq(k, q) {
-                    return Some((k, v));
+    pub fn get(&self, runtime: &Runtime, k: Value) -> Option<(Value, Value)> {
+        if let Some(bucket) = self.data.get(&runtime.hash(&k)) {
+            for (q, v) in bucket {
+                if runtime.eq(&k, q) {
+                    return Some((k, v.clone()));
                 }
             }
         }
@@ -56,13 +72,13 @@ impl Dict {
         None
     }
 
-    pub fn insert(&mut self, runtime: &Runtime, k: usize, v: usize) {
-        let key_hash = runtime.hash(k);
-        self.0.entry(key_hash).or_default().push((k, v));
+    pub fn insert(&mut self, runtime: &Runtime, k: Value, v: Value) {
+        let key_hash = runtime.hash(&k);
+        self.insert_known_hash(key_hash, k, v);
     }
 
-    pub fn insert_known_hash(&mut self, key_hash: u64, k: usize, v: usize) {
-        self.0.entry(key_hash).or_default().push((k, v));
+    pub fn insert_known_hash(&mut self, key_hash: u64, k: Value, v: Value) {
+        let vec = self.data.entry(key_hash).or_default().push((k, v));
     }
 
     // pub fn entry(&self, runtime: &Runtime) {}
@@ -78,7 +94,7 @@ fn id(id: &str) -> Identifier {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FnDef {
     name: Option<Identifier>,
-    parent_scope: usize,
+    parent_scope: Gc<Scope>,
     signatures: Vec<FnSig>,
 }
 
@@ -125,7 +141,7 @@ impl std::hash::Hash for FnSig {
 #[derive(Debug, Clone, PartialEq)]
 pub enum FnBody {
     Code(Block),
-    Builtin(fn(&mut Runtime, usize) -> EvaluationResult<(usize, bool)>),
+    Builtin(fn(&mut Runtime, Gc<Scope>) -> EvaluationResult<Value>),
 }
 
 impl std::hash::Hash for FnBody {
@@ -248,61 +264,61 @@ pub enum Value {
     Numeric(Numeric),
     Regex(AlRegex),
     FnDef(FnDef),
-    List(Type, Vec<usize>),
-    Tuple(Option<Vec<Type>>, Vec<usize>),
-    Dict(Option<(Type, Type)>, Dict),
+    List(Gc<List>),
+    Tuple(Gc<Tuple>),
+    Dict(Gc<Dict>),
 }
 
-impl Display for Value {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Value {
+    // intentionally not as implementation of `Trace`, so I don't accidentally put a `Value` on the heap
+    fn trace(&self, collector: &mut safe_gc::Collector) {
         match self {
-            Value::Nil => write!(f, "nil"),
-            Value::Bool(b) => write!(f, "{b}"),
-            Value::Str(str) => write!(f, "{}", str),
-            Value::Numeric(num) => write!(f, "{num}"),
-            Value::Regex(r) => write!(f, "/{}/", r.0.as_str()),
-            Value::FnDef(_) => write!(f, "[fn]"),
-            Value::List(_, list) => {
-                write!(f, "[")?;
-                let len = list.len();
-                for (i, item) in list.iter().enumerate() {
-                    write!(f, "{item}")?;
-                    if i < len - 1 {
-                        write!(f, ", ")?;
-                    }
-                }
-                write!(f, "]")
-            }
-            Value::Tuple(_, list) => {
-                write!(f, "(")?;
-                let len = list.len();
-                for (i, item) in list.iter().enumerate() {
-                    write!(f, "{item}")?;
-                    if i < len - 1 {
-                        write!(f, ", ")?;
-                    }
-                }
-                if len == 1 {
-                    write!(f, ",")?;
-                }
-                write!(f, ")")
-            }
-            Value::Dict(_, dict) => {
-                write!(f, "@{{")?;
-                let pairs = dict.entries().collect::<Vec<_>>();
-                let len = pairs.len();
-                for (i, (key, value)) in pairs.iter().enumerate() {
-                    write!(f, ".{key} {value}")?;
-                    if i < len - 1 {
-                        write!(f, ", ")?;
-                    }
-                }
-                if len == 1 {
-                    write!(f, ",")?;
-                }
-                write!(f, "}}")
-            }
+            Value::List(list) => collector.edge(*list),
+            Value::Tuple(tuple) => collector.edge(*tuple),
+            Value::Dict(dict) => collector.edge(*dict),
+            Value::FnDef(def) => collector.edge(def.parent_scope),
+            _ => {}
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct List {
+    pub ty: Type,
+    pub elements: Vec<Value>,
+}
+
+impl Trace for List {
+    fn trace(&self, collector: &mut safe_gc::Collector) {
+        for el in &self.elements {
+            el.trace(collector);
+        }
+    }
+}
+
+impl List {
+    fn ty(&self) -> Type {
+        Type::List(self.ty.clone().into())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Tuple {
+    pub ty: Option<Vec<Type>>,
+    pub elements: Vec<Value>,
+}
+
+impl Trace for Tuple {
+    fn trace(&self, collector: &mut safe_gc::Collector) {
+        for el in &self.elements {
+            el.trace(collector);
+        }
+    }
+}
+
+impl Tuple {
+    fn ty(&self) -> Type {
+        Type::Tuple(self.ty.clone())
     }
 }
 
@@ -313,9 +329,9 @@ impl Value {
             Value::Bool(b) => Ok(Value::Bool(!b)),
             Value::Str(_) => RuntimeError(format!("Can't negate str")).into(),
             Value::Numeric(n) => Ok(Value::Numeric(n.negate()?)),
-            Value::Tuple(_, _) => Ok(Value::Bool(false)),
-            Value::List(_, _) => Ok(Value::Bool(false)),
-            Value::Dict(_, _) => Ok(Value::Bool(false)),
+            Value::Tuple(_) => Ok(Value::Bool(false)),
+            Value::List(_) => Ok(Value::Bool(false)),
+            Value::Dict(_) => Ok(Value::Bool(false)),
             _ => RuntimeError(format!("Can't negate {}", self.ty())).into(),
         }
     }
@@ -390,9 +406,9 @@ impl Value {
             Value::Numeric(n) => format!("{n}"),
             Value::Regex(r) => format!("/{}/", r.0.as_str()),
             Value::FnDef(_) => "<fn>".into(),
-            Value::List(_, _) => "<list>".into(),
-            Value::Tuple(_, _) => "<tuple>".into(),
-            Value::Dict(_, _) => "<dict>".into(),
+            Value::List(_) => "<list>".into(),
+            Value::Tuple(_) => "<tuple>".into(),
+            Value::Dict(_) => "<dict>".into(),
         }
     }
 
@@ -425,11 +441,25 @@ impl Value {
             Value::Numeric(_) => Type::Numeric,
             Value::Regex(_) => Type::Regex,
             Value::FnDef(_) => Type::FnDef,
-            Value::List(t, _) => Type::List(t.clone().into()),
-            Value::Tuple(ts, _) => Type::Tuple(ts.clone()),
-            Value::Dict(_, _) => Type::Dict(None),
+            Value::List(_) => Type::List(Type::Any.into()),
+            Value::Tuple(_) => Type::Tuple(None),
+            Value::Dict(_) => Type::Dict(None),
         }
     }
+
+    // pub fn ty(&self, heap: &Heap) -> Type {
+    //     match self {
+    //         Value::Nil => Type::Nil,
+    //         Value::Bool(_) => Type::Bool,
+    //         Value::Str(_) => Type::Str,
+    //         Value::Numeric(_) => Type::Numeric,
+    //         Value::Regex(_) => Type::Regex,
+    //         Value::FnDef(_) => Type::FnDef,
+    //         Value::List(list) => heap[*list].ty(),
+    //         Value::Tuple(tuple) => heap[*tuple].ty(),
+    //         Value::Dict(_) => Type::Dict(None),
+    //     }
+    // }
 
     pub fn is_nil(&self) -> bool {
         self == &Value::Nil
@@ -446,15 +476,29 @@ impl Value {
 
 // This type is to `AssignLocation` what `Value` is to `Expr` -- the runtime-internal evaluated version, say
 pub enum Location {
-    Single(usize),
+    Single(Gc<Scope>, Identifier),
+    ListIndex(Gc<List>, usize),
+    TupleIndex(Gc<Tuple>, usize),
+    DictIndex(Gc<Dict>, Value),
     List(Vec<Location>),
     Tuple(Vec<Location>),
 }
 
 #[derive(Debug)]
 pub struct Scope {
-    pub parent_scope: Option<usize>,
-    pub values: FxHashMap<Identifier, usize>,
+    pub parent_scope: Option<Gc<Scope>>,
+    pub values: FxHashMap<Identifier, Value>,
+}
+
+impl Trace for Scope {
+    fn trace(&self, collector: &mut safe_gc::Collector) {
+        if let Some(parent_scope) = self.parent_scope {
+            collector.edge(parent_scope);
+        }
+        for val in self.values.values() {
+            val.trace(collector);
+        }
+    }
 }
 
 impl Scope {
@@ -464,26 +508,22 @@ impl Scope {
             values: FxHashMap::default(),
         }
     }
-
-    pub fn get_unchecked(&self, name: &str) -> usize {
-        *self.values.get(&Identifier(name.into())).unwrap()
-    }
 }
 
 pub struct Runtime {
     random_state: RandomState,
-    scopes: Vec<Scope>,
-    heap: Vec<Option<Value>>,
-    reclaimed: Vec<usize>,
+    root_scope: Root<Scope>,
+    pub heap: Heap,
 }
 
 impl Runtime {
     pub fn new() -> Runtime {
+        let mut heap = Heap::new();
+
         let mut runtime = Runtime {
             random_state: RandomState::new(),
-            scopes: vec![Scope::root()],
-            heap: vec![],
-            reclaimed: vec![],
+            root_scope: heap.alloc(Scope::root()),
+            heap,
         };
 
         implement_stdlib(&mut runtime);
@@ -496,14 +536,16 @@ impl Runtime {
         doc: &Document,
         stdin: Option<String>,
     ) -> EvaluationResult<Ev> {
+        let scope = &self.root_scope;
+
         if let Some(stdin) = stdin {
-            let stdin_loc = self.new_value(Value::Str(Substr::from(stdin))).0;
-            self.get_scope_mut(0).values.insert(id("stdin"), stdin_loc);
+            let val = Value::Str(Substr::from(stdin));
+            self.heap[scope].values.insert(id("stdin"), val);
         }
 
-        let res_loc = self.execute_block(0, &doc.body)?.0;
+        let val = self.execute_block(scope.unrooted(), &doc.body)?;
 
-        let value = match self.get_value_ext(res_loc) {
+        let value = match self.convert_value(&val) {
             Err(e) => {
                 return RuntimeError(format!("could not externalize runtime result: {}", e)).into();
             }
@@ -513,62 +555,24 @@ impl Runtime {
         Ok(value)
     }
 
-    pub fn get_scope(&self, id: usize) -> &Scope {
-        &self.scopes[id]
+    pub fn get_unchecked(&self, scope: Gc<Scope>, name: &str) -> &Value {
+        self.heap[scope]
+            .values
+            .get(&Identifier(name.into()))
+            .unwrap()
     }
 
-    pub fn get_scope_mut(&mut self, id: usize) -> &mut Scope {
-        &mut self.scopes[id]
+    pub fn create_subscope(&mut self, parent_scope: Gc<Scope>) -> Gc<Scope> {
+        self.heap
+            .alloc(Scope {
+                parent_scope: Some(parent_scope),
+                values: FxHashMap::default(),
+            })
+            .unrooted()
     }
 
-    pub fn new_scope(&mut self, parent_id: usize) -> usize {
-        let id = self.scopes.len();
-        self.scopes.push(Scope {
-            parent_scope: Some(parent_id),
-            values: FxHashMap::default(),
-        });
-        id
-    }
-
-    pub fn get_value(&self, id: usize) -> &Value {
-        match self.heap.get(id) {
-            Some(Some(value)) => value,
-            _ => panic!("no value at position: {}", id),
-        }
-    }
-
-    pub fn get_value_mut(&mut self, id: usize) -> &mut Value {
-        match self.heap.get_mut(id) {
-            Some(Some(value)) => value,
-            _ => panic!("no value at position: {}", id),
-        }
-    }
-
-    pub fn get_ty(&self, id: usize) -> Type {
-        self.get_value(id).ty()
-    }
-
-    pub fn replace_value(&mut self, loc: usize, value: Value) {
-        // if let Some(i) = self.reclaimed.iter().position(|el| el == &loc) {
-        //     self.reclaimed.remove(i);
-        // }
-
-        self.heap[loc] = Some(value);
-    }
-
-    pub fn new_value(&mut self, value: Value) -> (usize, bool) {
-        if let Some(i) = self.reclaimed.pop() {
-            self.heap[i] = Some(value);
-            (i, true)
-        } else {
-            let i = self.heap.len();
-            self.heap.push(Some(value));
-            (i, true)
-        }
-    }
-
-    pub fn get_value_ext(&self, loc: usize) -> Result<Ev, String> {
-        match self.get_value(loc) {
+    pub fn convert_value(&self, val: &Value) -> Result<Ev, String> {
+        match val {
             Value::Nil => Ok(Ev::Nil),
             Value::Bool(b) => Ok(Ev::Bool(*b)),
             Value::Str(s) => Ok(Ev::Str(s.to_string())),
@@ -576,24 +580,24 @@ impl Runtime {
             Value::Numeric(Numeric::Double(d)) => Ok(Ev::Double(*d)),
             Value::Regex(_) => Ok(Ev::Regex),
             Value::FnDef(_) => Ok(Ev::FnDef),
-            Value::List(_, items) => Ok(Ev::List(
-                items
-                    .into_iter()
-                    .map(|loc| self.get_value_ext(*loc))
+            Value::List(items) => Ok(Ev::List(
+                self.heap[*items]
+                    .elements
+                    .iter()
+                    .map(|val| self.convert_value(val))
                     .collect::<Result<Vec<_>, _>>()?,
             )),
-            Value::Tuple(_, items) => Ok(Ev::Tuple(
-                items
-                    .into_iter()
-                    .map(|loc| self.get_value_ext(*loc))
+            Value::Tuple(items) => Ok(Ev::Tuple(
+                self.heap[*items]
+                    .elements
+                    .iter()
+                    .map(|val| self.convert_value(val))
                     .collect::<Result<Vec<_>, _>>()?,
             )),
-            Value::Dict(_, dict) => {
-                let pairs = dict
+            Value::Dict(dict) => {
+                let pairs = self.heap[*dict]
                     .entries()
-                    .map(|(key_loc, value_loc)| {
-                        Ok((self.get_value_ext(key_loc)?, self.get_value_ext(value_loc)?))
-                    })
+                    .map(|(key, val)| Ok((self.convert_value(&key)?, self.convert_value(&val)?)))
                     .collect::<Result<Vec<_>, String>>()?;
 
                 Ok(Ev::Dict(FxHashMap::from_iter(pairs.into_iter())))
@@ -601,55 +605,57 @@ impl Runtime {
         }
     }
 
-    pub fn ensure_new(&mut self, (orig, is_new): (usize, bool)) -> usize {
-        if is_new {
-            orig
-        } else {
-            self.new_value(self.get_value(orig).clone()).0
+    // currently a shallow clone
+    pub fn clone(&mut self, val: Value) -> Value {
+        match val {
+            Value::List(list) => {
+                let list = self.heap[list].clone();
+                Value::List(self.heap.alloc(list).unrooted())
+            }
+
+            // primitive
+            _ => val.clone(),
         }
+        // match self.get_value(orig).clone() {
+        //     Value::List(t, items) => {
+        //         let cloned_items = items.into_iter().map(|item| self.clone(item).0).collect();
+        //         self.new_value(Value::List(t, cloned_items))
+        //     }
+        //     Value::Tuple(ts, items) => {
+        //         let cloned_items = items.into_iter().map(|item| self.clone(item).0).collect();
+        //         self.new_value(Value::Tuple(ts, cloned_items))
+        //     }
+        //     other => self.new_value(other),
+        // }
     }
 
-    pub fn clone(&mut self, orig: usize) -> (usize, bool) {
-        match self.get_value(orig).clone() {
-            Value::List(t, items) => {
-                let cloned_items = items.into_iter().map(|item| self.clone(item).0).collect();
-                self.new_value(Value::List(t, cloned_items))
-            }
-            Value::Tuple(ts, items) => {
-                let cloned_items = items.into_iter().map(|item| self.clone(item).0).collect();
-                self.new_value(Value::Tuple(ts, cloned_items))
-            }
-            other => self.new_value(other),
-        }
-    }
-
-    pub fn hash(&self, v: usize) -> u64 {
+    pub fn hash(&self, value: &Value) -> u64 {
         let mut h = self.random_state.build_hasher();
-        self.hash_do(&mut h, v);
+        self.hash_do(&mut h, value);
         let hash = h.finish();
         // println!("runtime hash {} => {}", self.display(v, false), hash);
         hash
     }
 
-    fn hash_do<H: Hasher>(&self, h: &mut H, v: usize) {
-        match self.get_value(v) {
+    fn hash_do<H: Hasher>(&self, h: &mut H, value: &Value) {
+        match value {
             Value::Nil => ().hash(h),
             Value::Bool(b) => b.hash(h),
             Value::Str(s) => s.hash(h),
             Value::Numeric(n) => n.hash(h),
             Value::Regex(a) => a.hash(h),
-            Value::Tuple(_, els) => {
-                for &el in els {
+            Value::Tuple(els) => {
+                for el in &self.heap[*els].elements {
                     self.hash_do(h, el);
                 }
             }
-            Value::List(_, els) => {
-                for &el in els {
+            Value::List(els) => {
+                for el in &self.heap[*els].elements {
                     self.hash_do(h, el);
                 }
             }
-            Value::Dict(_, dict) => {
-                for (k, v) in dict.entries() {
+            Value::Dict(dict) => {
+                for (k, v) in self.heap[*dict].entries() {
                     self.hash_do(h, k);
                     self.hash_do(h, v);
                 }
@@ -660,16 +666,19 @@ impl Runtime {
         }
     }
 
-    pub fn cmp(&self, a: usize, b: usize) -> Ordering {
-        match (self.get_value(a), self.get_value(b)) {
+    pub fn cmp(&self, a: &Value, b: &Value) -> Ordering {
+        match (a, b) {
             (Value::Nil, Value::Nil) => Ordering::Equal,
             (Value::Bool(a), Value::Bool(b)) => a.cmp(b),
             (Value::Str(a), Value::Str(b)) => a.cmp(b),
             (Value::Numeric(a), Value::Numeric(b)) => a.cmp(b),
             (Value::Regex(a), Value::Regex(b)) => a.0.as_str().cmp(b.0.as_str()),
-            (Value::Tuple(_, a), Value::Tuple(_, b)) => {
-                for (a, b) in a.into_iter().zip(b.into_iter()) {
-                    match self.cmp(*a, *b) {
+            (Value::Tuple(a), Value::Tuple(b)) => {
+                let a = &self.heap[*a];
+                let b = &self.heap[*b];
+
+                for (a, b) in a.elements.iter().zip(b.elements.iter()) {
+                    match self.cmp(a, b) {
                         Ordering::Equal => {}
                         Ordering::Greater => {
                             return Ordering::Greater;
@@ -680,11 +689,14 @@ impl Runtime {
                     }
                 }
 
-                a.len().cmp(&b.len())
+                a.elements.len().cmp(&b.elements.len())
             }
-            (Value::List(_, a), Value::List(_, b)) => {
-                for (a, b) in a.into_iter().zip(b.into_iter()) {
-                    match self.cmp(*a, *b) {
+            (Value::List(a), Value::List(b)) => {
+                let a = &self.heap[*a];
+                let b = &self.heap[*b];
+
+                for (a, b) in a.elements.iter().zip(b.elements.iter()) {
+                    match self.cmp(a, b) {
                         Ordering::Equal => {}
                         Ordering::Greater => {
                             return Ordering::Greater;
@@ -695,9 +707,9 @@ impl Runtime {
                     }
                 }
 
-                a.len().cmp(&b.len())
+                a.elements.len().cmp(&b.elements.len())
             }
-            (Value::Dict(_, a), Value::Dict(_, b)) => {
+            (Value::Dict(a), Value::Dict(b)) => {
                 todo!("comparing dicts")
                 // a.0.len() == b.0.len()
                 //     && a.0.iter().all(|(k, v)| {
@@ -720,21 +732,21 @@ impl Runtime {
             (_, Value::Nil) => Ordering::Greater,
 
             (a, b) => panic!(
-                "cannot compare values of disparate types: {} (is a {}) v {} (is a {})",
-                a,
+                "cannot compare values of disparate types: {} v {}",
+                // a,
                 a.ty(),
-                b,
+                // b,
                 b.ty()
             ),
         }
     }
 
-    pub fn eq(&self, a: usize, b: usize) -> bool {
+    pub fn eq(&self, a: &Value, b: &Value) -> bool {
         self.cmp(a, b) == Ordering::Equal
     }
 
-    fn display_fmt(&self, f: &mut Formatter, loc: usize, toplevel: bool) -> fmt::Result {
-        match self.get_value(loc) {
+    fn display_fmt(&self, f: &mut Formatter, val: &Value, toplevel: bool) -> fmt::Result {
+        match val {
             Value::Nil => write!(f, "nil"),
             Value::Bool(b) => write!(f, "{b}"),
             Value::Str(str) => {
@@ -747,22 +759,26 @@ impl Runtime {
             Value::Numeric(num) => write!(f, "{num}"),
             Value::Regex(r) => write!(f, "/{}/", r.0.as_str()),
             Value::FnDef(_) => write!(f, "[fn]"),
-            Value::List(_, list) => {
+            Value::List(list) => {
+                let els = &self.heap[*list].elements;
+
                 write!(f, "[")?;
-                let len = list.len();
-                for (i, item) in list.iter().enumerate() {
-                    self.display_fmt(f, *item, false)?;
+                let len = els.len();
+                for (i, item) in els.iter().enumerate() {
+                    self.display_fmt(f, item, false)?;
                     if i < len - 1 {
                         write!(f, ", ")?;
                     }
                 }
                 write!(f, "]")
             }
-            Value::Tuple(_, list) => {
+            Value::Tuple(list) => {
+                let els = &self.heap[*list].elements;
+
                 write!(f, "(")?;
-                let len = list.len();
-                for (i, item) in list.iter().enumerate() {
-                    self.display_fmt(f, *item, false)?;
+                let len = els.len();
+                for (i, item) in els.iter().enumerate() {
+                    self.display_fmt(f, item, false)?;
                     if i < len - 1 {
                         write!(f, ", ")?;
                     }
@@ -772,17 +788,17 @@ impl Runtime {
                 }
                 write!(f, ")")
             }
-            Value::Dict(_, dict) => {
+            Value::Dict(dict) => {
                 write!(f, "@{{")?;
                 let mut i = 0;
-                for (key, value) in dict.entries() {
+                for (key, val) in self.heap[*dict].entries() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
                     write!(f, ".")?;
-                    self.display_fmt(f, key, true)?;
+                    self.display_fmt(f, &key, true)?;
                     write!(f, " ")?;
-                    self.display_fmt(f, value, false)?;
+                    self.display_fmt(f, &val, false)?;
                     i += 1;
                 }
                 if i == 1 {
@@ -793,112 +809,55 @@ impl Runtime {
         }
     }
 
-    pub fn display(&self, loc: usize, toplevel: bool) -> String {
-        format!("{}", Fmt(|f| self.display_fmt(f, loc, toplevel)))
+    pub fn display(&self, val: &Value, toplevel: bool) -> String {
+        format!("{}", Fmt(|f| self.display_fmt(f, val, toplevel)))
     }
 
-    pub fn gc(&mut self, keep: impl IntoIterator<Item = usize>) {
-        let mut reachable = vec![false; self.heap.len()];
-
-        for v in keep {
-            self.gc_reach(v, &mut reachable);
+    pub fn lookup(
+        &self,
+        scope: Gc<Scope>,
+        id: &Identifier,
+    ) -> EvaluationResult<(Gc<Scope>, Value)> {
+        if let Some(val) = self.heap[scope].values.get(id) {
+            return Ok((scope, val.clone()));
         }
 
-        for scope in &self.scopes {
-            for &v in scope.values.values() {
-                self.gc_reach(v, &mut reachable);
-            }
-        }
-
-        let mut num_reclaimed = 0;
-        let mut num_kept = 0;
-
-        for (i, &is_reachable) in reachable.iter().enumerate() {
-            if !is_reachable {
-                self.reclaimed.push(i);
-                self.heap[i] = None;
-                num_reclaimed += 1;
-            } else {
-                num_kept += 1;
-            }
-        }
-
-        //println!("GC stats:");
-        //println!("- reclaimed: {num_reclaimed}");
-        //println!("- heap size: {num_kept}");
-    }
-
-    fn gc_reach(&self, v: usize, reachable: &mut Vec<bool>) {
-        reachable[v] = true;
-
-        match self.get_value(v) {
-            Value::List(_, els) => {
-                for &el in els {
-                    self.gc_reach(el, reachable);
-                }
-            }
-            Value::Tuple(_, els) => {
-                for &el in els {
-                    self.gc_reach(el, reachable);
-                }
-            }
-            Value::Dict(_, dict) => {
-                for (k, v) in dict.entries() {
-                    self.gc_reach(k, reachable);
-                    self.gc_reach(v, reachable);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    pub fn lookup(&self, scope_id: usize, id: &Identifier) -> EvaluationResult<(usize, usize)> {
-        let scope = self.get_scope(scope_id);
-
-        if let Some(&value) = scope.values.get(id) {
-            return Ok((scope_id, value));
-        }
-
-        if let Some(parent_scope_id) = scope.parent_scope {
-            match self.lookup(parent_scope_id, id) {
+        if let Some(parent_scope) = self.heap[scope].parent_scope {
+            match self.lookup(parent_scope, id) {
                 Ok(res) => Ok(res),
                 Err(_) => RuntimeError(format!(
-                    "variable `{id}` does not exist in scope tree: {}",
-                    self.debug_scope(scope_id)
+                    "variable `{id}` does not exist in scope tree",
+                    // self.debug_scope(scope_id)
                 ))
                 .into(),
             }
         } else {
             RuntimeError(format!(
-                "variable `{id}` does not exist in scope tree: {}",
-                self.debug_scope(scope_id)
+                "variable `{id}` does not exist in scope tree",
+                // self.debug_scope(scope_id)
             ))
             .into()
         }
     }
 
-    pub fn execute_block(
-        &mut self,
-        scope: usize,
-        block: &Block,
-    ) -> EvaluationResult<(usize, bool)> {
-        let mut result = self.new_value(Value::Nil);
+    pub fn execute_block(&mut self, scope: Gc<Scope>, block: &Block) -> EvaluationResult<Value> {
+        let mut result = Value::Nil;
 
         for item in &block.items {
-            self.define(scope, &item)?;
+            self.define(scope, item)?;
         }
 
         for stmt in &block.stmts {
-            result = self.execute(scope, &stmt)?;
+            result = self.execute(scope, stmt)?;
         }
 
         Ok(result)
     }
 
-    pub fn define(&mut self, scope: usize, item: &Item) -> EvaluationResult<()> {
+    pub fn define(&mut self, scope: Gc<Scope>, item: &Item) -> EvaluationResult<()> {
         match item {
             Item::NamedFn { name, params, body } => {
-                let (def, _) = self.new_value(Value::FnDef(FnDef {
+                let def = Value::FnDef(FnDef {
                     name: Some(name.clone()),
                     parent_scope: scope,
                     signatures: vec![FnSig {
@@ -906,32 +865,46 @@ impl Runtime {
                         body: FnBody::Code(body.clone()), // TODO somehow avoid clone
                         result: Type::Any,
                     }],
-                }));
+                });
 
-                self.get_scope_mut(scope).values.insert(name.clone(), def);
+                self.heap[scope].values.insert(name.clone(), def);
             }
         }
 
         Ok(())
     }
 
-    pub fn assign(&mut self, location: Location, value: usize) -> EvaluationResult<()> {
+    pub fn assign(&mut self, location: Location, value: Value) -> EvaluationResult<()> {
         match location {
-            Location::Single(loc) => {
-                self.heap[loc] = self.heap[value].clone();
+            Location::Single(scope, id) => {
+                self.heap[scope].values.insert(id, value);
+                Ok(())
+            }
+            Location::ListIndex(list, index) => {
+                self.heap[list].elements[index] = value;
+                Ok(())
+            }
+            Location::TupleIndex(tuple, index) => {
+                self.heap[tuple].elements[index] = value;
+                Ok(())
+            }
+            Location::DictIndex(dict, key) => {
+                let key_hash = self.hash(&key);
+                self.heap[dict].insert_known_hash(key_hash, key, value);
                 Ok(())
             }
             Location::List(elements) => {
-                let value = self.get_value(value).clone();
-                let Value::List(_, items) = value else {
+                let Value::List(list) = value else {
                     return RuntimeError(format!("cannot assign to list pattern: {}", value.ty()))
                         .into();
                 };
 
                 for (location, value) in elements.into_iter().zip(
-                    items
+                    self.heap[list]
+                        .elements
+                        .clone()
                         .into_iter()
-                        .chain(std::iter::repeat(self.new_value(Value::Nil).0)),
+                        .chain(std::iter::repeat(Value::Nil)),
                 ) {
                     self.assign(location, value)?;
                 }
@@ -939,16 +912,17 @@ impl Runtime {
                 Ok(())
             }
             Location::Tuple(elements) => {
-                let value = self.get_value(value).clone();
-                let Value::Tuple(_, items) = value else {
+                let Value::Tuple(tuple) = value else {
                     return RuntimeError(format!("cannot assign to tuple pattern: {}", value.ty()))
                         .into();
                 };
 
                 for (location, value) in elements.into_iter().zip(
-                    items
+                    self.heap[tuple]
+                        .elements
+                        .clone()
                         .into_iter()
-                        .chain(std::iter::repeat(self.new_value(Value::Nil).0)),
+                        .chain(std::iter::repeat(Value::Nil)),
                 ) {
                     self.assign(location, value)?;
                 }
@@ -960,13 +934,13 @@ impl Runtime {
 
     pub fn check_declare_guard(
         &mut self,
-        _scope: usize,
+        _scope: Gc<Scope>,
         guard: &DeclareGuardExpr,
-        value: usize,
+        value: &Value,
     ) -> (Identifier, bool) {
         match guard {
             DeclareGuardExpr::Unguarded(id) => (id.clone(), true),
-            DeclareGuardExpr::Some(id) => (id.clone(), self.get_value(value) != &Value::Nil),
+            DeclareGuardExpr::Some(id) => (id.clone(), value != &Value::Nil),
         }
     }
 
@@ -975,41 +949,44 @@ impl Runtime {
     /// - else -> Some(whether evaluates truthy)
     pub fn declare(
         &mut self,
-        scope: usize,
+        scope: Gc<Scope>,
         pattern: &DeclarePattern,
-        value: usize,
+        value: Value,
     ) -> EvaluationResult<Option<bool>> {
         match pattern {
             DeclarePattern::Declare { guard, .. } => {
-                let (id, evaluates_truthy) = self.check_declare_guard(scope, guard, value);
-                self.get_scope_mut(scope).values.insert(id, value);
+                let (id, evaluates_truthy) = self.check_declare_guard(scope, guard, &value);
+                self.heap[scope].values.insert(id, value);
                 Ok(Some(evaluates_truthy))
             }
             DeclarePattern::List { elements, rest } => {
-                let value = self.get_value(value).clone();
-                let Value::List(item_type, mut items) = value else {
+                // list = { item_type, mut items}
+                let Value::List(list) = value else {
                     return Ok(None);
                 };
 
+                let item_type = self.heap[list].ty.clone();
+                let list = &mut self.heap[list];
+
                 let assign_rest_later = rest.clone().try_map(|(id, t)| {
-                    Ok::<(Identifier, Option<Type>, Vec<usize>), EvalOther>((
+                    Ok::<(Identifier, Option<Type>, Vec<Value>), EvalOther>((
                         id,
                         t,
-                        items.split_off(elements.len().min(items.len())),
+                        list.elements
+                            .split_off(elements.len().min(list.elements.len())),
                     ))
                 })?;
 
-                let items = items.clone();
+                let items = list.elements.clone();
 
-                for (Declarable { pattern, fallback }, mut value) in elements.into_iter().zip(
-                    items
-                        .into_iter()
-                        .chain(std::iter::repeat(self.new_value(Value::Nil).0)),
-                ) {
+                for (Declarable { pattern, fallback }, mut value) in elements
+                    .into_iter()
+                    .zip(items.into_iter().chain(std::iter::repeat(Value::Nil)))
+                {
                     if let Some(fallback_expr) = fallback
-                        && self.get_value(value) == &Value::Nil
+                        && &value == &Value::Nil
                     {
-                        value = self.evaluate(scope, fallback_expr)?.0;
+                        value = self.evaluate(scope, fallback_expr)?;
                     }
 
                     if self.declare(scope, pattern, value)?.is_none() {
@@ -1018,7 +995,14 @@ impl Runtime {
                 }
 
                 if let Some((id, ty, items)) = assign_rest_later {
-                    let (list, _) = self.new_value(Value::List(item_type.clone(), items));
+                    let list = Value::List(
+                        self.heap
+                            .alloc(List {
+                                ty: item_type.clone(),
+                                elements: items,
+                            })
+                            .unrooted(),
+                    );
                     if self
                         .declare(
                             scope,
@@ -1037,81 +1021,80 @@ impl Runtime {
                 Ok(Some(true))
             }
             DeclarePattern::Tuple { elements, rest } => {
-                let value = self.get_value(value).clone();
-                let Value::Tuple(ts, mut items) = value else {
-                    return Ok(None);
-                };
+                todo!()
+                // let value = self.get_value(value).clone();
+                // let Value::Tuple(ts, mut items) = value else {
+                //     return Ok(None);
+                // };
 
-                let assign_rest_later = rest.clone().try_map(|(id, t)| {
-                    Ok::<(Identifier, Option<Type>, Vec<usize>), EvalOther>((
-                        id,
-                        t,
-                        items.split_off(elements.len().min(items.len())),
-                    ))
-                })?;
+                // let assign_rest_later = rest.clone().try_map(|(id, t)| {
+                //     Ok::<(Identifier, Option<Type>, Vec<usize>), EvalOther>((
+                //         id,
+                //         t,
+                //         items.split_off(elements.len().min(items.len())),
+                //     ))
+                // })?;
 
-                for (Declarable { pattern, fallback }, mut value) in elements.into_iter().zip(
-                    items
-                        .into_iter()
-                        .chain(std::iter::repeat(self.new_value(Value::Nil).0)),
-                ) {
-                    if let Some(fallback_expr) = fallback
-                        && self.get_value(value) == &Value::Nil
-                    {
-                        value = self.evaluate(scope, fallback_expr)?.0;
-                    }
+                // for (Declarable { pattern, fallback }, mut value) in elements.into_iter().zip(
+                //     items
+                //         .into_iter()
+                //         .chain(std::iter::repeat(self.new_value(Value::Nil).0)),
+                // ) {
+                //     if let Some(fallback_expr) = fallback
+                //         && self.get_value(value) == &Value::Nil
+                //     {
+                //         value = self.evaluate(scope, fallback_expr)?.0;
+                //     }
 
-                    if self.declare(scope, pattern, value)?.is_none() {
-                        return Ok(None);
-                    }
-                }
+                //     if self.declare(scope, pattern, value)?.is_none() {
+                //         return Ok(None);
+                //     }
+                // }
 
-                if let Some((id, ty, items)) = assign_rest_later {
-                    let (tuple, _) = self.new_value(Value::Tuple(ts, items));
-                    if self
-                        .declare(
-                            scope,
-                            &DeclarePattern::Declare {
-                                guard: DeclareGuardExpr::Unguarded(id),
-                                ty,
-                            },
-                            tuple,
-                        )?
-                        .is_none()
-                    {
-                        return Ok(None);
-                    }
-                }
+                // if let Some((id, ty, items)) = assign_rest_later {
+                //     let (tuple, _) = self.new_value(Value::Tuple(ts, items));
+                //     if self
+                //         .declare(
+                //             scope,
+                //             &DeclarePattern::Declare {
+                //                 guard: DeclareGuardExpr::Unguarded(id),
+                //                 ty,
+                //             },
+                //             tuple,
+                //         )?
+                //         .is_none()
+                //     {
+                //         return Ok(None);
+                //     }
+                // }
 
-                Ok(Some(true))
+                // Ok(Some(true))
             }
         }
     }
 
-    pub fn execute(&mut self, scope: usize, stmt: &Stmt) -> EvaluationResult<(usize, bool)> {
+    pub fn execute(&mut self, scope: Gc<Scope>, stmt: &Stmt) -> EvaluationResult<Value> {
         match stmt {
-            Stmt::Continue { label } => Err(EvalOther::Continue(label.clone())),
+            Stmt::Continue { label } => {
+                return Err(EvalOther::Continue(label.clone()));
+            }
             Stmt::Break { expr } => {
-                let value = expr
-                    .clone()
-                    .try_map(|expr| self.evaluate(scope, &expr))?
-                    .unwrap_or(self.new_value(Value::Nil));
-
-                Err(EvalOther::Break(value))
+                return Err(EvalOther::Break(
+                    expr.clone()
+                        .try_map(|expr| self.evaluate(scope, &expr))?
+                        .unwrap_or(Value::Nil),
+                ));
             }
             Stmt::Return { expr } => {
-                let value = expr
-                    .clone()
-                    .try_map(|expr| self.evaluate(scope, &expr))?
-                    .unwrap_or(self.new_value(Value::Nil));
-
-                Err(EvalOther::Return(value))
+                return Err(EvalOther::Return(
+                    expr.clone()
+                        .try_map(|expr| self.evaluate(scope, &expr))?
+                        .unwrap_or(Value::Nil),
+                ));
             }
             Stmt::Expr { expr } => self.evaluate(scope, expr),
             Stmt::Declare { pattern, expr } => {
                 let value = self.evaluate(scope, expr)?;
-
-                let value = self.ensure_new(value);
 
                 if self.declare(scope, pattern, value)?.is_none() {
                     return RuntimeError(format!(
@@ -1121,18 +1104,16 @@ impl Runtime {
                     .into();
                 }
 
-                Ok(self.new_value(Value::Nil))
+                Ok(Value::Nil)
             }
             Stmt::Assign { pattern, expr } => {
                 let value = self.evaluate(scope, expr)?;
 
                 let assignable = self.resolve(scope, &pattern)?;
 
-                let value = self.ensure_new(value);
-
                 self.assign(assignable, value)?;
 
-                Ok(self.new_value(Value::Nil))
+                Ok(Value::Nil)
             }
         }
     }
@@ -1241,16 +1222,11 @@ impl Runtime {
 
     pub fn invoke(
         &mut self,
-        def: usize,
-        args: Vec<(Option<Identifier>, usize)>,
-    ) -> EvaluationResult<(usize, bool)> {
-        let Value::FnDef(def) = self.get_value(def) else {
-            return RuntimeError(format!(
-                "cannot call {} ({} args)",
-                self.get_value(def).ty(),
-                args.len()
-            ))
-            .into();
+        def: &Value,
+        args: Vec<(Option<Identifier>, Value)>,
+    ) -> EvaluationResult<Value> {
+        let Value::FnDef(def) = def else {
+            return RuntimeError(format!("cannot call {} ({} args)", def.ty(), args.len())).into();
         };
 
         // todo find a way to not have to clone this
@@ -1270,31 +1246,29 @@ impl Runtime {
         )) = self.select_signature(
             name.clone(),
             signatures,
-            args.iter()
-                .map(|(id, v)| (id, self.get_ty(*v)))
-                .collect::<Vec<_>>(),
+            args.iter().map(|(id, v)| (id, v.ty())).collect::<Vec<_>>(),
         )
         else {
             return RuntimeError(format!(
                 "could not find matching signature, fn: {}, arg types: ({})",
                 name.map(|n| n.0).unwrap_or("<unknown>".into()),
                 args.iter()
-                    .map(|arg| format!("{}", self.get_ty(arg.1)))
+                    .map(|arg| format!("{}", arg.1.ty()))
                     .collect::<Vec<_>>()
                     .join(", ")
             ))
             .into();
         };
 
-        let execution_scope = self.new_scope(parent_scope);
+        let execution_scope = self.create_subscope(parent_scope);
 
         for (param_index, assign_arg) in assignments.into_iter().enumerate() {
             if let Some(arg_index) = assign_arg {
-                let mut arg_val = args[arg_index].1;
+                let mut arg_val = args[arg_index].1.clone();
                 if let Some(fallback_expr) = &params[param_index].fallback
-                    && self.get_value(arg_val) == &Value::Nil
+                    && arg_val == Value::Nil
                 {
-                    arg_val = self.evaluate(parent_scope, &fallback_expr)?.0;
+                    arg_val = self.evaluate(parent_scope, &fallback_expr)?;
                 }
                 if self
                     .declare(execution_scope, &params[param_index].pattern, arg_val)?
@@ -1313,7 +1287,8 @@ impl Runtime {
                     .as_ref()
                     .expect("already checked that this param has a fallback");
 
-                let arg_val = self.evaluate(parent_scope, &fallback_expr)?.0;
+                let arg_val = self.evaluate(parent_scope, &fallback_expr)?;
+
                 if self
                     .declare(execution_scope, &params[param_index].pattern, arg_val)?
                     .is_none()
@@ -1338,41 +1313,57 @@ impl Runtime {
         }
     }
 
-    pub fn resolve(&mut self, scope: usize, pattern: &AssignPattern) -> EvaluationResult<Location> {
+    pub fn resolve(
+        &mut self,
+        scope: Gc<Scope>,
+        pattern: &AssignPattern,
+    ) -> EvaluationResult<Location> {
         match pattern {
             AssignPattern::Id(id) => {
-                let (_, location) = self.lookup(scope, id)?;
-                Ok(Location::Single(location))
+                let (scope, _) = self.lookup(scope, id)?;
+                Ok(Location::Single(scope, id.clone()))
             }
             AssignPattern::Index(pattern, maybe_index_expr) => {
                 match self.resolve(scope, &pattern)? {
-                    Location::Single(parent) => {
-                        let index_loc = maybe_index_expr
+                    Location::Single(container_scope, container_id) => {
+                        let index = maybe_index_expr
                             .clone()
-                            .try_map(|expr| self.evaluate(scope, &expr))?
-                            .map(|(v, _)| v);
+                            .try_map(|expr| self.evaluate(scope, &expr))?;
 
-                        let index_val = index_loc.map(|i| self.get_value(i)).cloned();
+                        let container = self.heap[container_scope]
+                            .values
+                            .get(&container_id)
+                            .unwrap()
+                            .clone();
 
-                        let matching_dict_key = match (self.get_value(parent), index_loc) {
-                            (Value::Dict(_, dict), Some(i)) => {
-                                dict.get(&self, i).map(|(key, _)| key)
+                        // This is a push operation, e.g.:
+                        // arr []= el
+                        if index.is_none() {
+                            match container {
+                                Value::List(list) => {
+                                    let i = self.heap[list].elements.len();
+                                    self.heap[list].elements.push(Value::Nil);
+                                    return Ok(Location::ListIndex(list, i));
+                                }
+                                Value::Tuple(tuple) => {
+                                    let i = self.heap[tuple].elements.len();
+                                    self.heap[tuple].elements.push(Value::Nil);
+                                    return Ok(Location::TupleIndex(tuple, i));
+                                }
+                                _ => panic!("cannot push into {}", container.ty()),
                             }
-                            _ => None,
-                        };
+                        }
 
-                        // PUSH
-                        let nil = self.new_value(Value::Nil).0;
-                        match (self.get_value_mut(parent), index_loc) {
-                            (Value::List(_, items), None) | (Value::Tuple(_, items), None) => {
-                                items.push(nil);
-                                return Ok(Location::Single(nil));
-                            }
-                            _ => {}
-                        };
+                        let index = index.unwrap();
 
-                        let listy_items = match self.get_value(parent).clone() {
-                            Value::List(_, items) | Value::Tuple(_, items) => Some(items),
+                        // let matching_dict_key = match container {
+                        //     Value::Dict(dict) => self.heap[dict].get(&self, index).clone(),
+                        //     _ => None,
+                        // };
+
+                        let listy_items = match container {
+                            Value::List(list) => Some(self.heap[list].elements.clone()),
+                            Value::Tuple(tuple) => Some(self.heap[tuple].elements.clone()),
                             _ => None,
                         };
 
@@ -1380,8 +1371,6 @@ impl Runtime {
                         let mut listy_index = None;
                         let mut resized_items = None;
                         if let Some(items) = listy_items {
-                            let index = index_val.clone().unwrap();
-
                             let Value::Numeric(Numeric::Int(index)) = index else {
                                 return RuntimeError(format!(
                                     "list/tuple assign index must be an int, is a: {}",
@@ -1404,39 +1393,45 @@ impl Runtime {
                             if i >= items.len() {
                                 let mut new_items = vec![];
                                 for _ in items.len()..(i + 1) {
-                                    new_items.push(self.new_value(Value::Nil).0);
+                                    new_items.push(Value::Nil);
                                 }
                                 resized_items = Some(new_items);
                             }
                         }
 
-                        let index_value_hash = index_loc.map(|i| self.hash(i));
+                        let index_hash = self.hash(&index);
 
-                        match self.get_value_mut(parent) {
-                            Value::List(_, items) | Value::Tuple(_, items) => {
+                        match container.clone() {
+                            Value::List(list) => {
                                 let i = listy_index.unwrap();
 
                                 if let Some(new_items) = resized_items {
-                                    items.extend(new_items);
+                                    self.heap[list].elements.extend(new_items);
                                 }
 
-                                Ok(Location::Single(items[i]))
+                                Ok(Location::ListIndex(list, i))
                             }
-                            Value::Dict(_, ref mut dict) => {
-                                if let Some(index_loc) = index_loc {
-                                    if let Some(loc) = matching_dict_key {
-                                        Ok(Location::Single(loc))
-                                    } else {
-                                        dict.insert_known_hash(
-                                            index_value_hash.expect("known index hash"),
-                                            index_loc,
-                                            nil,
-                                        );
-                                        Ok(Location::Single(nil))
-                                    }
-                                } else {
-                                    RuntimeError(format!("cannot push new items into dict")).into()
+                            Value::Tuple(tuple) => {
+                                let i = listy_index.unwrap();
+
+                                if let Some(new_items) = resized_items {
+                                    self.heap[tuple].elements.extend(new_items);
                                 }
+
+                                Ok(Location::TupleIndex(tuple, i))
+                            }
+                            Value::Dict(dict) => {
+                                Ok(Location::DictIndex(dict, index))
+                                // if let Some((key, _)) = matching_dict_key {
+                                //     Ok(Location::DictIndex(dict, index))
+                                // } else {
+                                //     dict.insert_known_hash(
+                                //         index_hash.expect("known index hash"),
+                                //         index,
+                                //         nil,
+                                //     );
+                                //     Ok(Location::Single(nil))
+                                // }
                             }
                             v => RuntimeError(format!(
                                 "cannot assign index of value other than list/tuple/dict, is a: {}",
@@ -1459,54 +1454,56 @@ impl Runtime {
                 Ok(Location::List(assignable_elements))
             }
             AssignPattern::Tuple { elements } => {
-                let mut assignable_elements = Vec::with_capacity(elements.len());
-                for pattern in elements {
-                    assignable_elements.push(self.resolve(scope, pattern)?);
-                }
-                Ok(Location::Tuple(assignable_elements))
+                // let mut assignable_elements = Vec::with_capacity(elements.len());
+                // for pattern in elements {
+                //     assignable_elements.push(self.resolve(scope, pattern)?);
+                // }
+                // Ok(Location::Tuple(assignable_elements))
+                todo!()
             }
         }
     }
 
-    pub fn debug_scope(&self, scope: usize) -> String {
-        if scope == 0 {
-            "RootScope".into()
-        } else {
-            format!(
-                "Scope({}){}",
-                self.get_scope(scope)
-                    .values
-                    .iter()
-                    .map(|(key, k)| { format!("{key}: {}", self.get_value(*k).ty()) })
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                match self.get_scope(scope).parent_scope {
-                    None => "".into(),
-                    Some(parent_id) => format!(" <- {}", self.debug_scope(parent_id)),
-                }
-            )
-        }
-    }
+    // pub fn debug_scope(&self, scope: usize) -> String {
+    //     if scope == 0 {
+    //         "RootScope".into()
+    //     } else {
+    //         format!(
+    //             "Scope({}){}",
+    //             self.get_scope(scope)
+    //                 .values
+    //                 .iter()
+    //                 .map(|(key, k)| { format!("{key}: {}", self.get_value(*k).ty()) })
+    //                 .collect::<Vec<_>>()
+    //                 .join(", "),
+    //             match self.get_scope(scope).parent_scope {
+    //                 None => "".into(),
+    //                 Some(parent_id) => format!(" <- {}", self.debug_scope(parent_id)),
+    //             }
+    //         )
+    //     }
+    // }
 
     /// (location of the value, whether it was copied or newly computed already during evaluation)
-    pub fn evaluate(&mut self, scope: usize, expr: &Expr) -> EvaluationResult<(usize, bool)> {
+    pub fn evaluate(&mut self, scope: Gc<Scope>, expr: &Expr) -> EvaluationResult<Value> {
         match expr {
-            Expr::Bool(b) => Ok(self.new_value(Value::Bool(*b))),
-            Expr::NilLiteral => Ok(self.new_value(Value::Nil)),
+            Expr::Bool(b) => Ok(Value::Bool(*b)),
+            Expr::NilLiteral => Ok(Value::Nil),
             Expr::DictLiteral { elements } => {
                 let mut dict = Dict::new();
+
                 for (key, value_expr) in elements {
-                    let (k, _) = match key {
-                        Either::Left(name) => self.new_value(Value::Str(name.0.to_string().into())),
+                    let key = match key {
+                        Either::Left(name) => Value::Str(name.0.to_string().into()),
                         Either::Right(key_expr) => self.evaluate(scope, key_expr)?,
                     };
 
-                    let (expr_value, _) = self.evaluate(scope, value_expr)?;
+                    let val = self.evaluate(scope, value_expr)?;
 
-                    dict.insert(&self, k, expr_value);
+                    dict.insert(&self, key, val);
                 }
 
-                Ok(self.new_value(Value::Dict(None, dict)))
+                Ok(Value::Dict(self.heap.alloc(dict).unrooted()))
             }
             Expr::StrLiteral { pieces } => {
                 let mut build = "".to_string();
@@ -1517,27 +1514,26 @@ impl Runtime {
                             build += fragment;
                         }
                         StrLiteralPiece::Interpolation(expr) => {
-                            let (value_loc, _) = self.evaluate(scope, expr)?;
-                            build += &format!("{}", self.display(value_loc, true));
+                            let value = self.evaluate(scope, expr)?;
+                            build += &format!("{}", self.display(&value, true));
                             // build += &value.auto_coerce_str();
                         }
                     }
                 }
 
-                Ok(self.new_value(Value::Str(Substr::from(build))))
+                Ok(Value::Str(Substr::from(build)))
             }
-            Expr::Numeric(num) => Ok(self.new_value(Value::Numeric(num.clone()))),
-            Expr::RegexLiteral { regex } => Ok(self.new_value(Value::Regex(regex.clone()))),
+            Expr::Numeric(num) => Ok(Value::Numeric(num.clone())),
+            Expr::RegexLiteral { regex } => Ok(Value::Regex(regex.clone())),
             Expr::Variable(id) => {
-                let (_, k) = self.lookup(scope, id)?;
+                let (_, val) = self.lookup(scope, id)?;
 
-                Ok((k, false))
+                Ok(val)
             }
             Expr::UnaryExpr { expr, op } => {
-                let k = self.evaluate(scope, expr)?;
-                let value = self.get_value(k.0);
+                let value = self.evaluate(scope, expr)?;
                 match op.as_str() {
-                    "!" => Ok(self.new_value(value.negate()?)),
+                    "!" => Ok(value.negate()?),
                     _ => RuntimeError(format!("Unknown unary operation: {op}")).into(),
                 }
             }
@@ -1547,21 +1543,21 @@ impl Runtime {
                 // short-circuiting ops
                 match op.as_str() {
                     "&&" => {
-                        if !self.get_value(le.0).truthy() {
+                        if !le.truthy() {
                             return Ok(le);
                         } else {
                             return Ok(self.evaluate(scope, right)?);
                         }
                     }
                     "||" => {
-                        if self.get_value(le.0).truthy() {
+                        if le.truthy() {
                             return Ok(le);
                         } else {
                             return Ok(self.evaluate(scope, right)?);
                         }
                     }
                     "??" => {
-                        if self.get_value(le.0) != &Value::Nil {
+                        if le != Value::Nil {
                             return Ok(le);
                         } else {
                             return Ok(self.evaluate(scope, right)?);
@@ -1575,37 +1571,33 @@ impl Runtime {
                 match op.as_str() {
                     "+" => {
                         let (_, add) = self.lookup(scope, &Identifier("add".into()))?;
-                        return Ok(self.invoke(add, vec![(None, le.0), (None, ri.0)])?);
+                        return Ok(self.invoke(&add, vec![(None, le), (None, ri)])?);
                     }
                     _ => {}
                 }
 
-                let left_value = self.get_value(le.0);
-                let right_value = self.get_value(ri.0);
-
                 match op.as_str() {
-                    "^" => return Ok(self.new_value(left_value.pow(right_value)?)),
-                    "<<" => return Ok(self.new_value(left_value.left_shift(right_value)?)),
-                    // "+" => return Ok(self.new_value(left_value.add(right_value)?)),
-                    "-" => return Ok(self.new_value(left_value.sub(right_value)?)),
-                    "*" => return Ok(self.new_value(left_value.mul(right_value)?)),
-                    "/" => return Ok(self.new_value(left_value.div(right_value)?)),
-                    "%" => return Ok(self.new_value(left_value.modulo(right_value)?)),
+                    "^" => return Ok(le.pow(&ri)?),
+                    "<<" => return Ok(le.left_shift(&ri)?),
+                    // "+" => return Ok(le.add(ri)?),
+                    "-" => return Ok(le.sub(&ri)?),
+                    "*" => return Ok(le.mul(&ri)?),
+                    "/" => return Ok(le.div(&ri)?),
+                    "%" => return Ok(le.modulo(&ri)?),
                     _ => {}
                 };
 
-                let ord = self.cmp(le.0, ri.0);
+                let ord = self.cmp(&le, &ri);
 
                 match op.as_str() {
-                    "<" => Ok(self.new_value(Value::Bool(ord == Ordering::Less))),
-                    ">" => Ok(self.new_value(Value::Bool(ord == Ordering::Greater))),
-                    "==" => Ok(self.new_value(Value::Bool(ord == Ordering::Equal))),
-                    "!=" => Ok(self.new_value(Value::Bool(ord != Ordering::Equal))),
-                    ">=" => Ok(self.new_value(Value::Bool(
+                    "<" => Ok(Value::Bool(ord == Ordering::Less)),
+                    ">" => Ok(Value::Bool(ord == Ordering::Greater)),
+                    "==" => Ok(Value::Bool(ord == Ordering::Equal)),
+                    "!=" => Ok(Value::Bool(ord != Ordering::Equal)),
+                    ">=" => Ok(Value::Bool(
                         ord == Ordering::Equal || ord == Ordering::Greater,
-                    ))),
-                    "<=" => Ok(self
-                        .new_value(Value::Bool(ord == Ordering::Equal || ord == Ordering::Less))),
+                    )),
+                    "<=" => Ok(Value::Bool(ord == Ordering::Equal || ord == Ordering::Less)),
                     _ => RuntimeError(format!("Unknown binary operation: {op}")).into(),
                 }
             }
@@ -1619,31 +1611,36 @@ impl Runtime {
                     // } else {
                     //     return RuntimeError("list contains distinct types".into()).into();
                     // }
-                    element_values.push(expr_value.0);
+                    element_values.push(expr_value);
                 }
 
                 if let Some(splat) = splat {
                     let splat_value = self.evaluate(scope, splat)?;
-                    match self.get_value(splat_value.0).clone() {
-                        Value::List(_, copy_els) => {
-                            for el in copy_els {
-                                element_values.push(self.ensure_new((el, splat_value.1)));
+                    match splat_value.clone() {
+                        Value::List(list) => {
+                            for el in &self.heap[list].elements {
+                                element_values.push(el.clone());
                             }
                         }
                         Value::Nil => {
                             // that's OK
                         }
                         _ => {
-                            return RuntimeError(format!(
-                                "cannot splat: {}",
-                                self.get_ty(splat_value.0)
-                            ))
-                            .into()
+                            return RuntimeError(format!("cannot splat: {}", splat_value.ty()))
+                                .into()
                         }
                     }
                 }
 
-                Ok(self.new_value(Value::List(ty, element_values)))
+                let list = self
+                    .heap
+                    .alloc(List {
+                        ty,
+                        elements: element_values,
+                    })
+                    .unrooted();
+
+                Ok(Value::List(list))
             }
             Expr::TupleLiteral { elements } => {
                 let ts = None;
@@ -1651,16 +1648,26 @@ impl Runtime {
                 let mut element_values = vec![];
                 for expr in elements {
                     let expr_value = self.evaluate(scope, expr)?;
-                    element_values.push(expr_value.0);
+                    element_values.push(expr_value);
                 }
 
-                Ok(self.new_value(Value::Tuple(ts, element_values)))
+                let tuple = self
+                    .heap
+                    .alloc(Tuple {
+                        ty: ts,
+                        elements: element_values,
+                    })
+                    .unrooted();
+
+                Ok(Value::Tuple(tuple))
             }
             Expr::Index {
                 expr,
                 coalesce,
                 index,
-            } => self.evaluate_indexed(scope, expr, *coalesce, index),
+            } => {
+                return self.evaluate_indexed(scope, expr, *coalesce, index);
+            }
             Expr::Invocation {
                 expr,
                 postfix,
@@ -1669,7 +1676,7 @@ impl Runtime {
             } => {
                 let fn_expr_value = self.evaluate(scope, expr)?;
 
-                if *coalesce && !postfix && self.get_value(fn_expr_value.0) == &Value::Nil {
+                if *coalesce && !postfix && fn_expr_value == Value::Nil {
                     return Ok(fn_expr_value);
                 }
 
@@ -1677,25 +1684,26 @@ impl Runtime {
                 for (i, arg) in args.into_iter().enumerate() {
                     let arg_value = self.evaluate(scope, &arg.expr)?;
 
-                    if i == 0 && *coalesce && *postfix && self.get_value(arg_value.0) == &Value::Nil
-                    {
+                    if i == 0 && *coalesce && *postfix && arg_value == Value::Nil {
                         return Ok(arg_value);
                     }
 
-                    evaluated_args.push((arg.name.clone(), arg_value.0));
+                    evaluated_args.push((arg.name.clone(), arg_value));
                 }
 
-                Ok(self.invoke(fn_expr_value.0, evaluated_args)?)
+                Ok(self.invoke(&fn_expr_value, evaluated_args)?)
             }
-            Expr::AnonymousFn { params, body } => Ok(self.new_value(Value::FnDef(FnDef {
-                name: None,
-                parent_scope: scope,
-                signatures: vec![FnSig {
-                    params: params.clone(),
-                    body: FnBody::Code(body.clone()), // TODO somehow avoid clone
-                    result: Type::Any,
-                }],
-            }))),
+            Expr::AnonymousFn { params, body } => {
+                return Ok(Value::FnDef(FnDef {
+                    name: None,
+                    parent_scope: scope,
+                    signatures: vec![FnSig {
+                        params: params.clone(),
+                        body: FnBody::Code(body.clone()), // TODO somehow avoid clone
+                        result: Type::Any,
+                    }],
+                }));
+            }
             Expr::If {
                 pattern,
                 cond,
@@ -1704,12 +1712,12 @@ impl Runtime {
             } => {
                 let cond_value = self.evaluate(scope, cond)?;
 
-                let execution_scope = self.new_scope(scope);
+                let execution_scope = self.create_subscope(scope);
 
                 let ok = match pattern {
-                    None => self.get_value(cond_value.0).truthy(),
+                    None => cond_value.truthy(),
                     Some(pattern) => {
-                        self.declare(execution_scope, pattern, cond_value.0)? == Some(true)
+                        self.declare(execution_scope, pattern, cond_value)? == Some(true)
                     }
                 };
 
@@ -1718,7 +1726,7 @@ impl Runtime {
                 } else if let Some(els) = els {
                     self.execute_block(execution_scope, els)?
                 } else {
-                    self.new_value(Value::Nil)
+                    Value::Nil
                 };
 
                 Ok(result)
@@ -1729,16 +1737,17 @@ impl Runtime {
                 cond,
                 body,
             } => {
-                let mut result = self.new_value(Value::Nil);
+                let mut result = Value::Nil;
+
                 loop {
                     let cond_value = self.evaluate(scope, cond)?;
 
-                    let execution_scope = self.new_scope(scope);
+                    let execution_scope = self.create_subscope(scope);
 
                     let ok = match pattern {
-                        None => self.get_value(cond_value.0).truthy(),
+                        None => cond_value.truthy(),
                         Some(pattern) => {
-                            self.declare(execution_scope, pattern, cond_value.0)? == Some(true)
+                            self.declare(execution_scope, pattern, cond_value)? == Some(true)
                         }
                     };
 
@@ -1780,7 +1789,7 @@ impl Runtime {
 
                     if let Some(cond) = cond {
                         let cond_value = self.evaluate(scope, cond)?;
-                        if !self.get_value(cond_value.0).truthy() {
+                        if !cond_value.truthy() {
                             return Ok(result);
                         }
                     } else {
@@ -1808,11 +1817,11 @@ impl Runtime {
                 body,
             } => {
                 let k = self.evaluate(scope, range)?;
-                let range_value = self.get_value(k.0).clone();
+                let range_value = k.clone();
 
                 let range = match range_value {
-                    Value::List(_, values) => values,
-                    Value::Tuple(_, values) => values,
+                    Value::List(list) => self.heap[list].elements.clone(),
+                    Value::Tuple(tuple) => self.heap[tuple].elements.clone(),
                     _ => {
                         return RuntimeError(format!("cannot for-loop over {}", range_value.ty()))
                             .into();
@@ -1821,7 +1830,7 @@ impl Runtime {
 
                 let mut result = None;
                 for item in range {
-                    let execution_scope = self.new_scope(scope);
+                    let execution_scope = self.create_subscope(scope);
 
                     self.declare(execution_scope, pattern, item)?;
 
@@ -1841,89 +1850,83 @@ impl Runtime {
                     }
                 }
 
-                Ok(result.unwrap_or_else(|| self.new_value(Value::Nil)))
+                Ok(result.unwrap_or(Value::Nil))
             }
         }
     }
 
     pub fn evaluate_indexed(
         &mut self,
-        scope: usize,
+        scope: Gc<Scope>,
         expr: &Expr,
         coalesce: bool,
         index: &Expr,
-    ) -> EvaluationResult<(usize, bool)> {
-        let collection_loc = self.evaluate(scope, expr)?;
-        let collection = self.get_value(collection_loc.0).clone();
+    ) -> EvaluationResult<Value> {
+        let collection = self.evaluate(scope, expr)?;
 
         match collection {
-            Value::Nil if coalesce => Ok(self.new_value(Value::Nil)),
-            Value::Dict(_, dict) => {
-                let (key, _) = self.evaluate(scope, index)?;
-                Ok(dict
+            Value::Nil if coalesce => Ok(Value::Nil),
+            Value::Dict(dict) => {
+                let key = self.evaluate(scope, index)?;
+                Ok(self.heap[dict]
                     .get(&self, key)
-                    .map(|(_, value)| (value, false))
-                    .unwrap_or(self.new_value(Value::Nil)))
+                    .map(|(_, value)| value)
+                    .unwrap_or(Value::Nil))
             }
-            Value::List(_, items) => {
-                let (i, _) = self.evaluate(scope, index)?;
+            Value::List(list) => {
+                let i = self.evaluate(scope, index)?;
 
-                let Value::Numeric(i) = self.get_value(i) else {
-                    return RuntimeError(format!(
-                        "index() i must be an int, is a: {}",
-                        self.get_ty(i)
-                    ))
-                    .into();
+                let Value::Numeric(i) = i else {
+                    return RuntimeError(format!("index() i must be an int, is a: {}", i.ty()))
+                        .into();
                 };
 
                 let i = i.get_int()?;
 
+                let elements = &self.heap[list].elements;
+
                 let el = (match i {
-                    i if i >= 0 => items.get(i as usize).cloned(),
-                    i if items.len() as i64 + i >= 0 => {
-                        items.get((items.len() as i64 + i) as usize).cloned()
+                    i if i >= 0 => elements.get(i as usize).cloned(),
+                    i if elements.len() as i64 + i >= 0 => {
+                        elements.get((elements.len() as i64 + i) as usize).cloned()
                     }
                     _ => None,
                 })
-                .map(|v| (v, false))
-                .unwrap_or(self.new_value(Value::Nil));
+                .map(|v| v)
+                .unwrap_or(Value::Nil);
 
                 Ok(el)
             }
-            Value::Tuple(_, items) => {
-                let (i, _) = self.evaluate(scope, index)?;
+            Value::Tuple(tuple) => {
+                let i = self.evaluate(scope, index)?;
 
-                let Value::Numeric(i) = self.get_value(i) else {
-                    return RuntimeError(format!(
-                        "index() i must be an int, is a: {}",
-                        self.get_ty(i)
-                    ))
-                    .into();
+                let Value::Numeric(i) = i else {
+                    return RuntimeError(format!("index() i must be an int, is a: {}", i.ty()))
+                        .into();
                 };
 
                 let i = i.get_int()?;
 
+                let elements = &self.heap[tuple].elements;
+
                 let el = (match i {
-                    i if i >= 0 => items.get(i as usize).cloned(),
-                    i if items.len() as i64 + i >= 0 => {
-                        items.get((items.len() as i64 + i) as usize).cloned()
+                    i if i >= 0 => elements.get(i as usize).cloned(),
+                    i if elements.len() as i64 + i >= 0 => {
+                        elements.get((elements.len() as i64 + i) as usize).cloned()
                     }
                     _ => None,
                 })
-                .map(|v| (v, false))
-                .unwrap_or(self.new_value(Value::Nil));
+                .map(|v| v)
+                .unwrap_or(Value::Nil);
 
                 Ok(el)
             }
             Value::Str(text) => {
-                let (i, _) = self.evaluate(scope, index)?;
+                let i = self.evaluate(scope, index)?;
 
-                let Value::Numeric(i) = self.get_value(i) else {
-                    return RuntimeError(format!(
-                        "index() i must be an int, is a: {}",
-                        self.get_ty(i)
-                    ))
-                    .into();
+                let Value::Numeric(i) = i else {
+                    return RuntimeError(format!("index() i must be an int, is a: {}", i.ty()))
+                        .into();
                 };
 
                 let i = i.get_int()?;
@@ -1942,7 +1945,7 @@ impl Runtime {
                 .map(|substr| Value::Str(text.substr_from(substr)))
                 .unwrap_or(Value::Nil);
 
-                Ok(self.new_value(result))
+                Ok(result)
             }
             _ => RuntimeError(format!("cannot index into: {}", collection.ty())).into(),
         }
@@ -1951,13 +1954,15 @@ impl Runtime {
 
 impl RuntimeLike for Runtime {
     fn builtin(&mut self, name: &str, signatures: impl IntoIterator<Item = FnSig>) {
-        let (def, _) = self.new_value(Value::FnDef(FnDef {
+        let def = Value::FnDef(FnDef {
             name: Some(name.into()),
-            parent_scope: 0,
+            parent_scope: self.root_scope.unrooted(),
             signatures: signatures.into_iter().collect(),
-        }));
+        });
 
-        self.get_scope_mut(0).values.insert(name.into(), def);
+        self.heap[self.root_scope.unrooted()]
+            .values
+            .insert(name.into(), def);
     }
 }
 
@@ -1970,7 +1975,7 @@ pub fn execute_simple(code: &str) -> EvaluationResult<Ev> {
 
     let value = runtime.execute_document(&doc, None)?;
 
-    // runtime.gc([res_loc]);
+    runtime.heap.gc();
 
     Ok(value)
 }

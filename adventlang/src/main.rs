@@ -110,7 +110,7 @@ fn main() {
             if gc {
                 // (mostly just a proof-of-concept atm)
                 let t0 = Instant::now();
-                runtime.gc([]);
+                runtime.heap.gc();
                 eprintln!("GC'd in {:?}", t0.elapsed());
             }
         }

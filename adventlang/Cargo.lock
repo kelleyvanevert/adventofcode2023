@@ -16,6 +16,7 @@ dependencies = [
  "nom_locate",
  "regex",
  "rustyline",
+ "safe-gc",
  "serde",
  "try_map",
 ]
@@ -459,6 +460,12 @@ name = "ryu"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ad4cc8da4ef723ed60bced201181d83791ad433213d8c24efffda1eec85d741"
+
+[[package]]
+name = "safe-gc"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b7f1295e3cc525cd83fb7dda9e27d31770759a790f1e114c3a0aff89e0281db"
 
 [[package]]
 name = "serde"
