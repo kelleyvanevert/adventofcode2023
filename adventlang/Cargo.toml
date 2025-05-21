@@ -7,7 +7,6 @@ authors = ["Kelley van Evert <hello@klve.nl>"]
 [dependencies]
 arcstr = "1.1.5"
 atty = "0.2.14"
-cached = "0.46.1"
 clap = { version = "4.4.10", features = ["derive"] }
 compact_str = "0.7.1"
 either = "1.9.0"
