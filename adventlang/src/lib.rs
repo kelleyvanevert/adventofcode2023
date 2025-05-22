@@ -6,6 +6,7 @@
 pub mod ast;
 pub mod external;
 pub mod fmt;
+mod gc;
 pub mod parse;
 pub mod parser_combinators;
 pub mod repl;

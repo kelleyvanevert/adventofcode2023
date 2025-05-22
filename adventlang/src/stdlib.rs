@@ -1,10 +1,10 @@
 use std::cmp::Ordering;
 
 use arcstr::Substr;
-use safe_gc::Gc;
 
 use crate::{
     ast::Type,
+    gc::Gc,
     parse::{parse_declarable, parse_type},
     runtime::{Dict, FnBody, FnSig, List, Runtime, Scope, Tuple, Value},
     runtime_builtins::RuntimeLike,
@@ -1590,7 +1590,9 @@ pub fn implement_stdlib<R: RuntimeLike>(runtime: &mut R) {
                 let find = def.elements.get(0).unwrap();
 
                 match find {
-                    Value::Str(find) => Ok(Value::Str(text.replace(find.as_str(), replace).into())),
+                    Value::Str(find) => Ok(Value::Str(
+                        text.replace(find.as_str(), replace.as_str()).into(),
+                    )),
                     Value::Regex(find) => Ok(Value::Str(
                         find.0.replace_all(&text, replace.to_string()).into(),
                     )),

@@ -17,7 +17,7 @@ regex = "1.10.2"
 rustyline = { version = "13.0.0", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 try_map = "0.3.1"
-safe-gc = "1.1.1"
+# safe-gc = "1.1.1"
 
 [profile.release]
 debug = 1

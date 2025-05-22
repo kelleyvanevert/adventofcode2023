@@ -8,7 +8,6 @@ use std::{
 use arcstr::Substr;
 use either::Either;
 use fxhash::FxHashMap;
-use safe_gc::{Gc, Heap, Root, Trace};
 use try_map::FallibleMapExt;
 
 use crate::{
@@ -17,6 +16,7 @@ use crate::{
         Identifier, Item, Stmt, StrLiteralPiece, Type,
     },
     fmt::Fmt,
+    gc::{Collector, Gc, Heap, Root, Trace},
     parse::parse_document,
     runtime_builtins::RuntimeLike,
     stdlib::implement_stdlib,
@@ -31,7 +31,7 @@ pub struct Dict {
 }
 
 impl Trace for Dict {
-    fn trace(&self, collector: &mut safe_gc::Collector) {
+    fn trace(&self, collector: &mut Collector) {
         for (key, value) in self.entries() {
             key.trace(collector);
             value.trace(collector);
@@ -271,7 +271,7 @@ pub enum Value {
 
 impl Value {
     // intentionally not as implementation of `Trace`, so I don't accidentally put a `Value` on the heap
-    fn trace(&self, collector: &mut safe_gc::Collector) {
+    fn trace(&self, collector: &mut Collector) {
         match self {
             Value::List(list) => collector.edge(*list),
             Value::Tuple(tuple) => collector.edge(*tuple),
@@ -289,7 +289,7 @@ pub struct List {
 }
 
 impl Trace for List {
-    fn trace(&self, collector: &mut safe_gc::Collector) {
+    fn trace(&self, collector: &mut Collector) {
         for el in &self.elements {
             el.trace(collector);
         }
@@ -309,7 +309,7 @@ pub struct Tuple {
 }
 
 impl Trace for Tuple {
-    fn trace(&self, collector: &mut safe_gc::Collector) {
+    fn trace(&self, collector: &mut Collector) {
         for el in &self.elements {
             el.trace(collector);
         }
@@ -491,7 +491,7 @@ pub struct Scope {
 }
 
 impl Trace for Scope {
-    fn trace(&self, collector: &mut safe_gc::Collector) {
+    fn trace(&self, collector: &mut Collector) {
         if let Some(parent_scope) = self.parent_scope {
             collector.edge(parent_scope);
         }
