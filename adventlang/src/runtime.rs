@@ -960,7 +960,6 @@ impl Runtime {
                 Ok(Some(evaluates_truthy))
             }
             DeclarePattern::List { elements, rest } => {
-                // list = { item_type, mut items}
                 let Value::List(list) = value else {
                     return Ok(None);
                 };
@@ -1021,54 +1020,66 @@ impl Runtime {
                 Ok(Some(true))
             }
             DeclarePattern::Tuple { elements, rest } => {
-                todo!()
-                // let value = self.get_value(value).clone();
-                // let Value::Tuple(ts, mut items) = value else {
-                //     return Ok(None);
-                // };
+                let Value::Tuple(tuple) = value else {
+                    return Ok(None);
+                };
 
-                // let assign_rest_later = rest.clone().try_map(|(id, t)| {
-                //     Ok::<(Identifier, Option<Type>, Vec<usize>), EvalOther>((
-                //         id,
-                //         t,
-                //         items.split_off(elements.len().min(items.len())),
-                //     ))
-                // })?;
+                let item_types = self.heap[tuple].ty.clone();
+                let tuple = &mut self.heap[tuple];
 
-                // for (Declarable { pattern, fallback }, mut value) in elements.into_iter().zip(
-                //     items
-                //         .into_iter()
-                //         .chain(std::iter::repeat(self.new_value(Value::Nil).0)),
-                // ) {
-                //     if let Some(fallback_expr) = fallback
-                //         && self.get_value(value) == &Value::Nil
-                //     {
-                //         value = self.evaluate(scope, fallback_expr)?.0;
-                //     }
+                let assign_rest_later = rest.clone().try_map(|(id, t)| {
+                    Ok::<(Identifier, Option<Type>, Vec<Value>), EvalOther>((
+                        id,
+                        t,
+                        tuple
+                            .elements
+                            .split_off(elements.len().min(tuple.elements.len())),
+                    ))
+                })?;
 
-                //     if self.declare(scope, pattern, value)?.is_none() {
-                //         return Ok(None);
-                //     }
-                // }
+                let items = tuple.elements.clone();
 
-                // if let Some((id, ty, items)) = assign_rest_later {
-                //     let (tuple, _) = self.new_value(Value::Tuple(ts, items));
-                //     if self
-                //         .declare(
-                //             scope,
-                //             &DeclarePattern::Declare {
-                //                 guard: DeclareGuardExpr::Unguarded(id),
-                //                 ty,
-                //             },
-                //             tuple,
-                //         )?
-                //         .is_none()
-                //     {
-                //         return Ok(None);
-                //     }
-                // }
+                for (Declarable { pattern, fallback }, mut value) in elements
+                    .into_iter()
+                    .zip(items.into_iter().chain(std::iter::repeat(Value::Nil)))
+                {
+                    if let Some(fallback_expr) = fallback
+                        && &value == &Value::Nil
+                    {
+                        value = self.evaluate(scope, fallback_expr)?;
+                    }
 
-                // Ok(Some(true))
+                    if self.declare(scope, pattern, value)?.is_none() {
+                        return Ok(None);
+                    }
+                }
+
+                if let Some((id, ty, items)) = assign_rest_later {
+                    let tuple = Value::Tuple(
+                        self.heap
+                            .alloc(Tuple {
+                                ty: item_types.clone(),
+                                elements: items,
+                            })
+                            .unrooted(),
+                    );
+
+                    if self
+                        .declare(
+                            scope,
+                            &DeclarePattern::Declare {
+                                guard: DeclareGuardExpr::Unguarded(id),
+                                ty,
+                            },
+                            tuple,
+                        )?
+                        .is_none()
+                    {
+                        return Ok(None);
+                    }
+                }
+
+                Ok(Some(true))
             }
         }
     }

@@ -87,49 +87,49 @@ pub fn implement_stdlib<R: RuntimeLike>(runtime: &mut R) {
         ],
     );
 
-    // runtime.builtin(
-    //     "max",
-    //     [
-    //         signature(["items: [any]"], "any", |runtime, scope| {
-    //             let items = runtime.get_unchecked(scope, "items");
+    runtime.builtin(
+        "max",
+        [
+            signature(["items: [any]"], "num", |runtime, scope| {
+                let items = runtime.get_unchecked(scope, "items");
 
-    //             match items {
-    //                 Value::List(_, list) => {
-    //                     if list.len() == 0 {
-    //                         return Ok(runtime.new_value(Value::Nil));
-    //                     }
+                match items {
+                    Value::List(list) => {
+                        let elements = &runtime.heap[*list].elements;
 
-    //                     match list.iter().max_by(|&&a, &&b| runtime.cmp(a, b)) {
-    //                         Some(result) => Ok((*result, false)),
-    //                         None => RuntimeError(
-    //                             "error getting max: could not compare all elements".into(),
-    //                         )
-    //                         .into(),
-    //                     }
-    //                 }
-    //                 _ => {
-    //                     RuntimeError(format!("cannot get max of: {}", items.ty())).into()
-    //                 }
-    //             }
-    //         }),
-    //         signature(["a", "b"], "any", |runtime, scope| {
-    //             let a = runtime.get_unchecked(scope, "a");
-    //             let b = runtime.get_unchecked(scope, "b");
+                        if elements.len() == 0 {
+                            return Ok(Value::Nil);
+                        }
 
-    //             if a == &Value::Nil {
-    //                 return Ok((b, false));
-    //             } else if b == &Value::Nil {
-    //                 return Ok((a, false));
-    //             }
+                        match elements.into_iter().max_by(|&a, &b| runtime.cmp(a, b)) {
+                            Some(result) => Ok(result.clone()),
+                            None => RuntimeError(
+                                "error getting max: could not compare all elements".into(),
+                            )
+                            .into(),
+                        }
+                    }
+                    _ => RuntimeError(format!("cannot get max of: {}", items.ty())).into(),
+                }
+            }),
+            signature(["a", "b"], "num", |runtime, scope| {
+                let a = runtime.get_unchecked(scope, "a");
+                let b = runtime.get_unchecked(scope, "b");
 
-    //             match runtime.cmp(a, b) {
-    //                 Ordering::Greater => Ok((a, false)),
-    //                 Ordering::Less => Ok((b, false)),
-    //                 _ => Ok((a, false)),
-    //             }
-    //         }),
-    //     ],
-    // );
+                if a == &Value::Nil {
+                    return Ok(b.clone());
+                } else if b == &Value::Nil {
+                    return Ok(a.clone());
+                }
+
+                match runtime.cmp(a, b) {
+                    Ordering::Greater => Ok(b.clone()),
+                    Ordering::Less => Ok(a.clone()),
+                    _ => Ok(a.clone()),
+                }
+            }),
+        ],
+    );
 
     runtime.builtin(
         "add",
@@ -589,38 +589,45 @@ pub fn implement_stdlib<R: RuntimeLike>(runtime: &mut R) {
         })],
     );
 
-    // runtime.builtin(
-    //     "flat_map",
-    //     [signature(["items", "cb"], "any", |runtime, scope| {
-    //         let items = runtime.get_unchecked(scope, "items");
+    runtime.builtin(
+        "flat_map",
+        [signature(["items", "cb"], "any", |runtime, scope| {
+            let items = runtime.get_unchecked(scope, "items");
 
-    //         let Value::List(_, list) = items.clone() else {
-    //             return RuntimeError(format!("cannot get max of: {}", items.ty()))
-    //                 .into();
-    //         };
+            let Value::List(list) = items.clone() else {
+                return RuntimeError(format!("cannot get max of: {}", items.ty())).into();
+            };
 
-    //         let cb = runtime.get_unchecked(scope, "cb");
+            let cb = runtime.get_unchecked(scope, "cb").clone();
 
-    //         let mut result = vec![];
-    //         for item in list.into_iter() {
-    //             let value = runtime.invoke(cb, vec![(None, item.clone())])?;
-    //             let Value::List(_, items) = value0) else {
-    //                 return RuntimeError(format!(
-    //                     "flat_map cb should return lists, returned: {}",
-    //                     value.ty()0)
-    //                 ))
-    //                 .into();
-    //             };
+            let mut result = vec![];
+            for item in runtime.heap[list].elements.clone().into_iter() {
+                let value = runtime.invoke(&cb, vec![(None, item.clone())])?;
+                let Value::List(items) = value else {
+                    return RuntimeError(format!(
+                        "flat_map cb should return lists, returned: {}",
+                        value.ty()
+                    ))
+                    .into();
+                };
 
-    //             // TODO type-check
+                // TODO type-check
 
-    //             result.extend(items);
-    //         }
+                result.extend(runtime.heap[items].elements.iter().cloned());
+            }
 
-    //         // TODO type
-    //         Ok(runtime.new_value(Value::List(Type::Any, result)))
-    //     })],
-    // );
+            // TODO type
+            Ok(Value::List(
+                runtime
+                    .heap
+                    .alloc(List {
+                        ty: Type::Any,
+                        elements: result,
+                    })
+                    .unrooted(),
+            ))
+        })],
+    );
 
     // runtime.builtin(
     //     "dict",
@@ -663,112 +670,120 @@ pub fn implement_stdlib<R: RuntimeLike>(runtime: &mut R) {
     //     })],
     // );
 
-    // runtime.builtin(
-    //     "in",
-    //     [
-    //         signature(["needle: str", "haystack: str"], "any", |runtime, scope| {
-    //             let needle = runtime.get_unchecked(scope, "needle");
-    //             let haystack = runtime.get_unchecked(scope, "haystack");
+    runtime.builtin(
+        "in",
+        [
+            signature(["needle: str", "haystack: str"], "any", |runtime, scope| {
+                let needle = runtime.get_unchecked(scope, "needle");
+                let haystack = runtime.get_unchecked(scope, "haystack");
 
-    //             let Value::Str(needle) = needle.clone() else {
-    //                 return RuntimeError(format!(
-    //                     "in() needle must be a str, is a: {}",
-    //                     needle.ty()
-    //                 ))
-    //                 .into();
-    //             };
+                let Value::Str(needle) = needle.clone() else {
+                    return RuntimeError(format!(
+                        "in() needle must be a str, is a: {}",
+                        needle.ty()
+                    ))
+                    .into();
+                };
 
-    //             let Value::Str(haystack) = haystack.clone() else {
-    //                 return RuntimeError(format!(
-    //                     "in() haystack must be a str, is a: {}",
-    //                     haystack.ty()
-    //                 ))
-    //                 .into();
-    //             };
+                let Value::Str(haystack) = haystack.clone() else {
+                    return RuntimeError(format!(
+                        "in() haystack must be a str, is a: {}",
+                        haystack.ty()
+                    ))
+                    .into();
+                };
 
-    //             Ok(runtime.new_value(Value::Bool(haystack.contains(&needle.as_str()))))
-    //         }),
-    //         signature(["needle", "haystack: [any]"], "any", |runtime, scope| {
-    //             let needle = runtime.get_unchecked(scope, "needle");
-    //             let haystack = runtime.get_unchecked(scope, "haystack");
+                Ok(Value::Bool(haystack.contains(&needle.as_str())))
+            }),
+            signature(["needle", "haystack: [any]"], "any", |runtime, scope| {
+                let needle = runtime.get_unchecked(scope, "needle");
+                let haystack = runtime.get_unchecked(scope, "haystack");
 
-    //             let Value::List(_, haystack) = haystack.clone() else {
-    //                 return RuntimeError(format!(
-    //                     "cannot get in() of: {}",
-    //                     haystack.ty()
-    //                 ))
-    //                 .into();
-    //             };
+                let Value::List(haystack) = haystack.clone() else {
+                    return RuntimeError(format!("cannot get in() of: {}", haystack.ty())).into();
+                };
 
-    //             for el in haystack {
-    //                 if runtime.eq(el, needle) {
-    //                     return Ok(runtime.new_value(Value::Bool(true)));
-    //                 }
-    //             }
+                for el in &runtime.heap[haystack].elements {
+                    if runtime.eq(el, needle) {
+                        return Ok(Value::Bool(true));
+                    }
+                }
 
-    //             Ok(runtime.new_value(Value::Bool(false)))
-    //         }),
-    //     ],
-    // );
+                Ok(Value::Bool(false))
+            }),
+        ],
+    );
 
-    // runtime.builtin(
-    //     "filter",
-    //     [signature(["items", "cb"], "any", |runtime, scope| {
-    //         let items = runtime.get_unchecked(scope, "items");
+    runtime.builtin(
+        "filter",
+        [signature(["items", "cb"], "any", |runtime, scope| {
+            let items = runtime.get_unchecked(scope, "items");
 
-    //         let Value::List(_, list) = items else {
-    //             return RuntimeError(format!("cannot get max of: {}", items.ty()))
-    //                 .into();
-    //         };
+            let Value::List(list) = items else {
+                return RuntimeError(format!("cannot get max of: {}", items.ty())).into();
+            };
 
-    //         let list = list.clone();
+            let elements = runtime.heap[*list].elements.clone();
 
-    //         let cb = runtime.get_unchecked(scope, "cb");
+            let cb = runtime.get_unchecked(scope, "cb").clone();
 
-    //         let mut result = vec![];
-    //         for item in list.iter() {
-    //             let r = runtime.invoke(cb, vec![(None, item.clone())])?;
-    //             if r0).truthy() {
-    //                 result.push(*item);
-    //             }
-    //         }
+            let mut result = vec![];
+            for item in elements {
+                let r = runtime.invoke(&cb, vec![(None, item.clone())])?;
+                if r.truthy() {
+                    result.push(item);
+                }
+            }
 
-    //         // TODO
-    //         Ok(runtime.new_value(Value::List(Type::Any, result)))
-    //     })],
-    // );
+            // TODO
+            Ok(Value::List(
+                runtime
+                    .heap
+                    .alloc(List {
+                        ty: Type::Any,
+                        elements: result,
+                    })
+                    .unrooted(),
+            ))
+        })],
+    );
 
-    // runtime.builtin(
-    //     "filter_map",
-    //     [signature(["items", "cb"], "any", |runtime, scope| {
-    //         let items = runtime.get_unchecked(scope, "items");
+    runtime.builtin(
+        "filter_map",
+        [signature(["items", "cb"], "any", |runtime, scope| {
+            let items = runtime.get_unchecked(scope, "items");
 
-    //         let Value::List(_, list) = items else {
-    //             return RuntimeError(format!("cannot get max of: {}", items.ty()))
-    //                 .into();
-    //         };
+            let Value::List(list) = items else {
+                return RuntimeError(format!("cannot get max of: {}", items.ty())).into();
+            };
 
-    //         let list = list.clone();
+            let cb = runtime.get_unchecked(scope, "cb").clone();
 
-    //         let cb = runtime.get_unchecked(scope, "cb");
+            let mut result = vec![];
+            for item in runtime.heap[*list].elements.clone() {
+                let item = runtime.invoke(&cb, vec![(None, item.clone())])?;
 
-    //         let mut result = vec![];
-    //         for item in list.iter() {
-    //             let item = runtime.invoke(cb, vec![(None, item.clone())])?;
+                match item {
+                    // TODO fix the "nil as well as unit" problem
+                    Value::Nil => {}
+                    _ => {
+                        result.push(item);
+                    }
+                }
+            }
 
-    //             match item0) {
-    //                 // TODO fix the "nil as well as unit" problem
-    //                 Value::Nil => {}
-    //                 _ => {
-    //                     result.push(item.0);
-    //                 }
-    //             }
-    //         }
-
-    //         // TODO
-    //         Ok(runtime.new_value(Value::List(Type::Any, result)))
-    //     })],
-    // );
+            // TODO
+            Ok(Value::List(
+                runtime
+                    .heap
+                    .alloc(List {
+                        ty: Type::Any,
+                        elements: result,
+                    })
+                    .unrooted(),
+            ))
+        })],
+    );
 
     runtime.builtin(
         "any",
@@ -868,30 +883,29 @@ pub fn implement_stdlib<R: RuntimeLike>(runtime: &mut R) {
     //     ],
     // );
 
-    // runtime.builtin(
-    //     "find_map",
-    //     [signature(["items", "cb"], "any", |runtime, scope| {
-    //         let items = runtime.get_unchecked(scope, "items");
+    runtime.builtin(
+        "find_map",
+        [signature(["items", "cb"], "any", |runtime, scope| {
+            let items = runtime.get_unchecked(scope, "items");
 
-    //         let Value::List(_, list) = items else {
-    //             return RuntimeError(format!("cannot get max of: {}", items.ty()))
-    //                 .into();
-    //         };
+            let Value::List(list) = items else {
+                return RuntimeError(format!("cannot get max of: {}", items.ty())).into();
+            };
 
-    //         let list = list.clone();
+            let elements = runtime.heap[*list].elements.clone();
 
-    //         let cb = runtime.get_unchecked(scope, "cb");
+            let cb = runtime.get_unchecked(scope, "cb").clone();
 
-    //         for item in list {
-    //             let item = runtime.invoke(cb, vec![(None, item)])?;
-    //             if item0).truthy() {
-    //                 return Ok(item);
-    //             }
-    //         }
+            for item in elements {
+                let item = runtime.invoke(&cb, vec![(None, item)])?;
+                if item.truthy() {
+                    return Ok(item);
+                }
+            }
 
-    //         Ok(runtime.new_value(Value::Nil))
-    //     })],
-    // );
+            Ok(Value::Nil)
+        })],
+    );
 
     // runtime.builtin(
     //     "first",
@@ -927,30 +941,29 @@ pub fn implement_stdlib<R: RuntimeLike>(runtime: &mut R) {
     //     })],
     // );
 
-    // runtime.builtin(
-    //     "find",
-    //     [signature(["items", "cb"], "any", |runtime, scope| {
-    //         let items = runtime.get_unchecked(scope, "items");
+    runtime.builtin(
+        "find",
+        [signature(["items", "cb"], "any", |runtime, scope| {
+            let items = runtime.get_unchecked(scope, "items");
 
-    //         let Value::List(_, list) = items else {
-    //             return RuntimeError(format!("cannot get max of: {}", items.ty()))
-    //                 .into();
-    //         };
+            let Value::List(list) = items else {
+                return RuntimeError(format!("cannot get max of: {}", items.ty())).into();
+            };
 
-    //         let list = list.clone();
+            let list = runtime.heap[*list].elements.clone();
 
-    //         let cb = runtime.get_unchecked(scope, "cb");
+            let cb = runtime.get_unchecked(scope, "cb").clone();
 
-    //         for item in list {
-    //             let check = runtime.invoke(cb, vec![(None, item.clone())])?;
-    //             if check0).truthy() {
-    //                 return Ok((item, false));
-    //             }
-    //         }
+            for item in list {
+                let check = runtime.invoke(&cb, vec![(None, item.clone())])?;
+                if check.truthy() {
+                    return Ok(item);
+                }
+            }
 
-    //         Ok(runtime.new_value(Value::Nil))
-    //     })],
-    // );
+            Ok(Value::Nil)
+        })],
+    );
 
     // runtime.builtin(
     //     "find_index",
@@ -1608,202 +1621,207 @@ pub fn implement_stdlib<R: RuntimeLike>(runtime: &mut R) {
         )],
     );
 
-    // runtime.builtin(
-    //     "slice",
-    //     [
-    //         signature(["list: [any]", "i: int"], "any", |runtime, scope| {
-    //             let list = runtime.get_unchecked(scope, "list");
+    runtime.builtin(
+        "slice",
+        [
+            signature(["list: [any]", "i: int"], "any", |runtime, scope| {
+                let list = runtime.get_unchecked(scope, "list");
 
-    //             let Value::List(t, list) = list.clone() else {
-    //                 return RuntimeError(format!(
-    //                     "slice() list must be a list, is a: {}",
-    //                     list.ty()
-    //                 ))
-    //                 .into();
-    //             };
+                let Value::List(list) = list.clone() else {
+                    return RuntimeError(format!(
+                        "slice() list must be a list, is a: {}",
+                        list.ty()
+                    ))
+                    .into();
+                };
 
-    //             let i = runtime.get_unchecked(scope, "i");
+                let i = runtime.get_unchecked(scope, "i").clone();
 
-    //             let Value::Numeric(i) = i else {
-    //                 return RuntimeError(format!(
-    //                     "slice() i must be an int, is a: {}",
-    //                     i.ty()
-    //                 ))
-    //                 .into();
-    //             };
+                let Value::Numeric(i) = i else {
+                    return RuntimeError(format!("slice() i must be an int, is a: {}", i.ty()))
+                        .into();
+                };
 
-    //             let i = i.get_int()?;
+                let i = i.get_int()?;
 
-    //             if i < 0 {
-    //                 return RuntimeError(format!("slice() i must be a positive int")).into();
-    //             }
+                if i < 0 {
+                    return RuntimeError(format!("slice() i must be a positive int")).into();
+                }
 
-    //             Ok(runtime.new_value(Value::List(
-    //                 t.clone(),
-    //                 list.clone().split_off((i as usize).min(list.len())),
-    //             )))
-    //         }),
-    //         signature(["text: str", "i: int"], "any", |runtime, scope| {
-    //             let text = runtime.get_unchecked(scope, "text");
+                Ok(Value::List(
+                    runtime
+                        .heap
+                        .alloc(List {
+                            ty: runtime.heap[list].ty.clone(),
+                            elements: runtime.heap[list]
+                                .elements
+                                .clone()
+                                .split_off((i as usize).min(runtime.heap[list].elements.len())),
+                        })
+                        .unrooted(),
+                ))
+            }),
+            //         signature(["text: str", "i: int"], "any", |runtime, scope| {
+            //             let text = runtime.get_unchecked(scope, "text");
 
-    //             let Value::Str(text) = text else {
-    //                 return RuntimeError(format!(
-    //                     "slice() text must be a string, is a: {}",
-    //                     text.ty()
-    //                 ))
-    //                 .into();
-    //             };
+            //             let Value::Str(text) = text else {
+            //                 return RuntimeError(format!(
+            //                     "slice() text must be a string, is a: {}",
+            //                     text.ty()
+            //                 ))
+            //                 .into();
+            //             };
 
-    //             let i = runtime.get_unchecked(scope, "i");
+            //             let i = runtime.get_unchecked(scope, "i");
 
-    //             let Value::Numeric(i) = i else {
-    //                 return RuntimeError(format!(
-    //                     "slice() i must be an int, is a: {}",
-    //                     i.ty()
-    //                 ))
-    //                 .into();
-    //             };
+            //             let Value::Numeric(i) = i else {
+            //                 return RuntimeError(format!(
+            //                     "slice() i must be an int, is a: {}",
+            //                     i.ty()
+            //                 ))
+            //                 .into();
+            //             };
 
-    //             let mut i = i.get_int()?;
+            //             let mut i = i.get_int()?;
 
-    //             if i < 0 && text.len() as i64 + i >= 0 {
-    //                 i = text.len() as i64 + i;
-    //             }
+            //             if i < 0 && text.len() as i64 + i >= 0 {
+            //                 i = text.len() as i64 + i;
+            //             }
 
-    //             if i < 0 {
-    //                 return RuntimeError(format!("slice() i must be a positive int")).into();
-    //             }
+            //             if i < 0 {
+            //                 return RuntimeError(format!("slice() i must be a positive int")).into();
+            //             }
 
-    //             // println!("text :slice i -- {}, {} -- {}", text.len(), i, text.len());
+            //             // println!("text :slice i -- {}, {} -- {}", text.len(), i, text.len());
 
-    //             Ok(runtime.new_value(Value::Str(text.substr((i as usize)..text.len()))))
-    //         }),
-    //         signature(["text: str", ("range: tuple")], "any", |runtime, scope| {
-    //             let text = runtime.get_unchecked(scope, "text");
+            //             Ok(runtime.new_value(Value::Str(text.substr((i as usize)..text.len()))))
+            //         }),
+            //         signature(["text: str", ("range: tuple")], "any", |runtime, scope| {
+            //             let text = runtime.get_unchecked(scope, "text");
 
-    //             let Value::Str(text) = text.clone() else {
-    //                 return RuntimeError(format!(
-    //                     "slice() text must be a string, is a: {}",
-    //                     text.ty()
-    //                 ))
-    //                 .into();
-    //             };
+            //             let Value::Str(text) = text.clone() else {
+            //                 return RuntimeError(format!(
+            //                     "slice() text must be a string, is a: {}",
+            //                     text.ty()
+            //                 ))
+            //                 .into();
+            //             };
 
-    //             let range = runtime.get_unchecked(scope, "range");
+            //             let range = runtime.get_unchecked(scope, "range");
 
-    //             let Value::Tuple(_, range) = range.clone() else {
-    //                 return RuntimeError(format!(
-    //                     "slice() range must be an (int, int) range, is a: {}",
-    //                     range.ty()
-    //                 ))
-    //                 .into();
-    //             };
+            //             let Value::Tuple(_, range) = range.clone() else {
+            //                 return RuntimeError(format!(
+            //                     "slice() range must be an (int, int) range, is a: {}",
+            //                     range.ty()
+            //                 ))
+            //                 .into();
+            //             };
 
-    //             let Some(start) = range.get(0) else {
-    //                 return RuntimeError(format!("slice() range must be an (int, int) range"))
-    //                     .into();
-    //             };
+            //             let Some(start) = range.get(0) else {
+            //                 return RuntimeError(format!("slice() range must be an (int, int) range"))
+            //                     .into();
+            //             };
 
-    //             let Value::Numeric(start) = *start else {
-    //                 return RuntimeError(format!("slice() range must be an (int, int) range"))
-    //                     .into();
-    //             };
+            //             let Value::Numeric(start) = *start else {
+            //                 return RuntimeError(format!("slice() range must be an (int, int) range"))
+            //                     .into();
+            //             };
 
-    //             let start = start.get_int()?;
+            //             let start = start.get_int()?;
 
-    //             if start < 0 {
-    //                 return RuntimeError(format!("slice() range must be an (int, int) range"))
-    //                     .into();
-    //             }
+            //             if start < 0 {
+            //                 return RuntimeError(format!("slice() range must be an (int, int) range"))
+            //                     .into();
+            //             }
 
-    //             let Some(end) = range.get(1) else {
-    //                 return RuntimeError(format!("slice() range must be an (int, int) range"))
-    //                     .into();
-    //             };
+            //             let Some(end) = range.get(1) else {
+            //                 return RuntimeError(format!("slice() range must be an (int, int) range"))
+            //                     .into();
+            //             };
 
-    //             let Value::Numeric(end) = *end else {
-    //                 return RuntimeError(format!("slice() range must be an (int, int) range"))
-    //                     .into();
-    //             };
+            //             let Value::Numeric(end) = *end else {
+            //                 return RuntimeError(format!("slice() range must be an (int, int) range"))
+            //                     .into();
+            //             };
 
-    //             let mut end = end.get_int()?;
+            //             let mut end = end.get_int()?;
 
-    //             if end < 0 {
-    //                 end = (text.len() as i64) + end;
-    //             }
+            //             if end < 0 {
+            //                 end = (text.len() as i64) + end;
+            //             }
 
-    //             Ok(runtime.new_value(Value::Str(
-    //                 text.substr((start as usize)..(end as usize).min(text.len())),
-    //             )))
-    //         }),
-    //         signature(
-    //             ["list: [any]", ("range: tuple")],
-    //             "any",
-    //             |runtime, scope| {
-    //                 let list = runtime.get_unchecked(scope, "list");
+            //             Ok(runtime.new_value(Value::Str(
+            //                 text.substr((start as usize)..(end as usize).min(text.len())),
+            //             )))
+            //         }),
+            //         signature(
+            //             ["list: [any]", ("range: tuple")],
+            //             "any",
+            //             |runtime, scope| {
+            //                 let list = runtime.get_unchecked(scope, "list");
 
-    //                 let Value::List(el_type, list) = list.clone() else {
-    //                     return RuntimeError(format!(
-    //                         "slice() list must be a list, is a: {}",
-    //                         list.ty()
-    //                     ))
-    //                     .into();
-    //                 };
+            //                 let Value::List(el_type, list) = list.clone() else {
+            //                     return RuntimeError(format!(
+            //                         "slice() list must be a list, is a: {}",
+            //                         list.ty()
+            //                     ))
+            //                     .into();
+            //                 };
 
-    //                 let range = runtime.get_unchecked(scope, "range");
+            //                 let range = runtime.get_unchecked(scope, "range");
 
-    //                 let Value::Tuple(_, range) = range.clone() else {
-    //                     return RuntimeError(format!(
-    //                         "slice() range must be an (int, int) range, is a: {}",
-    //                         range.ty()
-    //                     ))
-    //                     .into();
-    //                 };
+            //                 let Value::Tuple(_, range) = range.clone() else {
+            //                     return RuntimeError(format!(
+            //                         "slice() range must be an (int, int) range, is a: {}",
+            //                         range.ty()
+            //                     ))
+            //                     .into();
+            //                 };
 
-    //                 let Some(start) = range.get(0) else {
-    //                     return RuntimeError(format!("slice() range must be an (int, int) range"))
-    //                         .into();
-    //                 };
+            //                 let Some(start) = range.get(0) else {
+            //                     return RuntimeError(format!("slice() range must be an (int, int) range"))
+            //                         .into();
+            //                 };
 
-    //                 let Value::Numeric(start) = *start else {
-    //                     return RuntimeError(format!("slice() range must be an (int, int) range"))
-    //                         .into();
-    //                 };
+            //                 let Value::Numeric(start) = *start else {
+            //                     return RuntimeError(format!("slice() range must be an (int, int) range"))
+            //                         .into();
+            //                 };
 
-    //                 let start = start.get_int()?;
+            //                 let start = start.get_int()?;
 
-    //                 if start < 0 {
-    //                     return RuntimeError(format!("slice() range must be an (int, int) range"))
-    //                         .into();
-    //                 }
+            //                 if start < 0 {
+            //                     return RuntimeError(format!("slice() range must be an (int, int) range"))
+            //                         .into();
+            //                 }
 
-    //                 let Some(end) = range.get(1) else {
-    //                     return RuntimeError(format!("slice() range must be an (int, int) range"))
-    //                         .into();
-    //                 };
+            //                 let Some(end) = range.get(1) else {
+            //                     return RuntimeError(format!("slice() range must be an (int, int) range"))
+            //                         .into();
+            //                 };
 
-    //                 let Value::Numeric(end) = *end else {
-    //                     return RuntimeError(format!("slice() range must be an (int, int) range"))
-    //                         .into();
-    //                 };
+            //                 let Value::Numeric(end) = *end else {
+            //                     return RuntimeError(format!("slice() range must be an (int, int) range"))
+            //                         .into();
+            //                 };
 
-    //                 let end = end.get_int()?;
+            //                 let end = end.get_int()?;
 
-    //                 if end < 0 {
-    //                     return RuntimeError(format!("slice() range must be an (int, int) range"))
-    //                         .into();
-    //                 }
+            //                 if end < 0 {
+            //                     return RuntimeError(format!("slice() range must be an (int, int) range"))
+            //                         .into();
+            //                 }
 
-    //                 let slice_els = list[(start as usize)..(end as usize).min(list.len())]
-    //                     .into_iter()
-    //                     .map(|v| runtime.clone(*v).0)
-    //                     .collect::<Vec<_>>();
+            //                 let slice_els = list[(start as usize)..(end as usize).min(list.len())]
+            //                     .into_iter()
+            //                     .map(|v| runtime.clone(*v).0)
+            //                     .collect::<Vec<_>>();
 
-    //                 Ok(runtime.new_value(Value::List(el_type, slice_els)))
-    //             },
-    //         ),
-    //     ],
-    // );
+            //                 Ok(runtime.new_value(Value::List(el_type, slice_els)))
+            //             },
+            //         ),
+        ],
+    );
 
     runtime.builtin(
         "clone",
